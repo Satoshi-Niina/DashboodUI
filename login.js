@@ -1,0 +1,75 @@
+document.addEventListener('DOMContentLoaded', () => {
+    const loginForm = document.getElementById('login-form');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const loginBtn = document.getElementById('login-btn');
+    const btnText = loginBtn.querySelector('.btn-text');
+    const btnLoader = loginBtn.querySelector('.btn-loader');
+    const errorMessage = document.getElementById('error-message');
+
+    loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        // UIの状態をリセット
+        hideError();
+        setLoading(true);
+
+        const username = usernameInput.value;
+        const password = passwordInput.value;
+
+        try {
+            // APIリクエスト送信 (UIからは平文で送信)
+            const response = await fetch('/api/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                // 認証成功
+                // 本来はトークンを保存するが、今回はデモとしてダッシュボードへ直接遷移
+                localStorage.setItem('user_token', data.token);
+                localStorage.setItem('user_info', JSON.stringify(data.user));
+
+                // 成功アニメーションを表示してから遷移
+                btnText.textContent = 'リダイレクト中...';
+                setTimeout(() => {
+                    window.location.href = '/dashboard';
+                }, 800);
+            } else {
+                // 認証失敗
+                showError(data.message || 'ログインに失敗しました');
+                setLoading(false);
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            showError('ネットワークエラーが発生しました');
+            setLoading(false);
+        }
+    });
+
+    function setLoading(isLoading) {
+        if (isLoading) {
+            btnText.classList.add('hidden');
+            btnLoader.classList.remove('hidden');
+            loginBtn.disabled = true;
+        } else {
+            btnText.classList.remove('hidden');
+            btnLoader.classList.add('hidden');
+            loginBtn.disabled = false;
+        }
+    }
+
+    function showError(message) {
+        errorMessage.textContent = message;
+        errorMessage.classList.remove('hidden');
+    }
+
+    function hideError() {
+        errorMessage.classList.add('hidden');
+    }
+});

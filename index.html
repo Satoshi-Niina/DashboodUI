@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>保守用車運用管理センター | Premium Hub</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="main-header">
+            <div class="logo">
+                <span class="logo-icon">∞</span>
+                <h1>保守用車運用管理センター</h1>
+            </div>
+            <div class="user-profile">
+                <img src="https://ui-avatars.com/api/?name=User&background=random" alt="User Avatar" class="avatar"
+                    id="header-avatar">
+                <span class="user-name" id="header-user-name">ユーザー</span>
+                <span class="settings-icon">⚙</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="content-hub">
+            <section class="welcome-section">
+                <h2>保守用車運用管理センター</h2>
+                <p>統合インターフェースからすべてのシステムにアクセスできます</p>
+            </section>
+
+            <!-- App Grid (Populated via JS) -->
+            <div id="app-grid" class="app-grid">
+                <!-- App cards will be injected here -->
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="main-footer">
+            <nav class="footer-nav">
+                <a href="#">取扱い説明</a>
+                <a href="#">お問い合わせ</a>
+            </nav>
+            <div class="copyright">
+                &copy; 2025 All Rights Reserved
+            </div>
+        </footer>
+    </div>
+
+    <!-- Tooltip / Popover for App Description -->
+    <div id="app-tooltip" class="app-tooltip hidden">
+        <div class="tooltip-content">
+            <h3 id="tooltip-title"></h3>
+            <p id="tooltip-desc"></p>
+            <div class="tooltip-actions">
+                <button id="launch-btn" class="launch-btn">アプリを起動</button>
+                <button id="close-tooltip" class="close-btn">閉じる</button>
+            </div>
+        </div>
+        <div class="tooltip-arrow"></div>
+    </div>
+
+    <!-- Overlay for modal-like focus -->
+    <div id="overlay" class="overlay hidden"></div>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
