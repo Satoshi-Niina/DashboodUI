@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>設定管理 - Dashboard Admin</title>
+    <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+    <div class="admin-container">
+        <header class="admin-header">
+            <h1>🔧 システム設定管理</h1>
+            <div class="user-info">
+                <span id="admin-user"></span>
+                <button id="logout-btn" class="btn-secondary">ログアウト</button>
+            </div>
+        </header>
+
+        <div class="admin-content">
+            <div class="info-banner">
+                <p>💡 ここで設定を変更すると、再デプロイなしで即座に反映されます</p>
+            </div>
+
+            <section class="config-section">
+                <h2>アプリケーション URL 設定</h2>
+                <p class="section-desc">各サブシステムの接続先URLを設定します</p>
+
+                <form id="config-form">
+                    <div class="form-group">
+                        <label for="app_url_emergency">
+                            🛠️ 応急復旧支援システム
+                        </label>
+                        <input type="url" 
+                               id="app_url_emergency" 
+                               name="app_url_emergency"
+                               placeholder="https://emergency-client-xxx.run.app"
+                               required>
+                        <small>完全なURL（https://...）を入力してください</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="app_url_planning">
+                            📅 計画・実績管理システム
+                        </label>
+                        <input type="url" 
+                               id="app_url_planning" 
+                               name="app_url_planning"
+                               placeholder="https://planning-xxx.run.app"
+                               required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="app_url_equipment">
+                            🚛 保守用車管理システム
+                        </label>
+                        <input type="url" 
+                               id="app_url_equipment" 
+                               name="app_url_equipment"
+                               placeholder="https://equipment-xxx.run.app"
+                               required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="app_url_failure">
+                            ⚠️ 機械故障管理システム
+                        </label>
+                        <input type="url" 
+                               id="app_url_failure" 
+                               name="app_url_failure"
+                               placeholder="https://failure-xxx.run.app"
+                               required>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" id="load-btn" class="btn-secondary">
+                            🔄 現在の設定を読み込む
+                        </button>
+                        <button type="submit" class="btn-primary">
+                            💾 設定を保存
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="config-section">
+                <h2>その他の設定</h2>
+                
+                <div class="form-group">
+                    <label for="cors_origin">
+                        🌐 CORS 許可オリジン
+                    </label>
+                    <input type="text" 
+                           id="cors_origin" 
+                           name="cors_origin"
+                           placeholder="* または https://domain1.com,https://domain2.com">
+                    <small>複数指定する場合はカンマ区切り。すべて許可する場合は * を入力</small>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" id="save-cors-btn" class="btn-primary">
+                        💾 CORS設定を保存
+                    </button>
+                </div>
+            </section>
+
+            <section class="config-section">
+                <h2>設定履歴</h2>
+                <div id="history-list" class="history-list">
+                    <p class="loading">読み込み中...</p>
+                </div>
+            </section>
+
+            <section class="config-section">
+                <h2>ユーザー管理</h2>
+                <p class="section-desc">ログインユーザーの追加・編集・削除を行います</p>
+
+                <div class="user-actions">
+                    <button type="button" id="add-user-btn" class="btn-primary">
+                        ➕ 新しいユーザーを追加
+                    </button>
+                </div>
+
+                <div id="users-list" class="users-list">
+                    <p class="loading">読み込み中...</p>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- ユーザー追加・編集モーダル -->
+    <div id="user-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">ユーザーを追加</h3>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <form id="user-form">
+                <input type="hidden" id="user-id" name="user_id">
+                
+                <div class="form-group">
+                    <label for="user-username">ユーザー名 *</label>
+                    <input type="text" 
+                           id="user-username" 
+                           name="username"
+                           placeholder="半角英数字"
+                           required>
+                </div>
+
+                <div class="form-group">
+                    <label for="user-display-name">表示名</label>
+                    <input type="text" 
+                           id="user-display-name" 
+                           name="display_name"
+                           placeholder="田中太郎">
+                </div>
+
+                <div class="form-group">
+                    <label for="user-password">パスワード <span id="password-required">*</span></label>
+                    <input type="password" 
+                           id="user-password" 
+                           name="password"
+                           placeholder="8文字以上">
+                    <small id="password-hint">新規追加時は必須です</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="user-password-confirm">パスワード確認</label>
+                    <input type="password" 
+                           id="user-password-confirm" 
+                           name="password_confirm"
+                           placeholder="パスワードを再入力">
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" id="cancel-btn">キャンセル</button>
+                    <button type="submit" class="btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="admin.js"></script>
+</body>
+</html>

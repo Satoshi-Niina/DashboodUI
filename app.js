@@ -26,6 +26,14 @@ const apps = [
         image: 'assets/img/recovery.png',
         url: '#emergency',
         icon: '🛠️'
+    },
+    {
+        id: 'failure',
+        title: '機械故障管理',
+        description: '機械故障の発生状況と対応履歴を管理します。',
+        image: 'assets/img/recovery.png',
+        url: '#failure',
+        icon: '⚠️'
     }
 ];
 
@@ -124,27 +132,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     launchBtn.addEventListener('click', () => {
+        console.log('currentAppId:', currentAppId);
+        console.log('AppConfig.endpoints:', AppConfig.endpoints);
+        
         const baseUrl = AppConfig.endpoints[currentAppId];
+        console.log('baseUrl:', baseUrl);
 
         if (!baseUrl) {
             alert('接続先URLが設定されていません。管理者にお問い合わせください。');
             return;
         }
 
-        // トークンの取得
+        // ローカルストレージからトークンを取得
         const token = localStorage.getItem('user_token');
-
-        // URLの構築 (トークンがある場合はパラメータとして付与)
-        let targetUrl = baseUrl;
+        
+        // URLにトークンをクエリパラメータとして追加
+        let finalUrl = baseUrl;
         if (token) {
-            // URLが既にクエリパラメータを持っているかチェック
-            const separator = targetUrl.includes('?') ? '&' : '?';
-            targetUrl = `${targetUrl}${separator}${AppConfig.tokenParamName}=${encodeURIComponent(token)}`;
+            const separator = baseUrl.includes('?') ? '&' : '?';
+            const tokenParam = AppConfig.tokenParamName || 'auth_token';
+            finalUrl = `${baseUrl}${separator}${tokenParam}=${encodeURIComponent(token)}`;
         }
 
-        // 遷移実行
-        // alert(`遷移先: ${targetUrl}`); // デバッグ用
-        window.location.href = targetUrl;
+        // 新しいタブで開く
+        console.log('Opening URL with token:', finalUrl);
+        window.open(finalUrl, '_blank');
 
         hideTooltip();
     });

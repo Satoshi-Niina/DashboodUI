@@ -9,12 +9,15 @@ const AppConfig = {
     // 各アプリケーションのエンドポイント設定
     endpoints: {
         // 応急復旧支援システム
-        emergency: 'http://localhost:3001',
+        emergency: 'https://emergency-client-u3tejuflja-dt.a.run.app/',
 
         // 計画・実績管理システム
         planning: 'http://localhost:3002',
 
         // 保守用車管理システム
-        equipment: 'http://localhost:3003'
+        equipment: 'http://localhost:3003',
+
+        // 機械故障管理システム
+        failure: 'http://localhost:3004'
     }
 };
