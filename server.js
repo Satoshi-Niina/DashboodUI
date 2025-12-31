@@ -104,7 +104,7 @@ app.use(express.static(path.join(__dirname)));
 const isProduction = process.env.NODE_ENV === 'production';
 const pool = isProduction && process.env.CLOUD_SQL_CONNECTION_NAME ? new Pool({
   host: `/cloudsql/${process.env.CLOUD_SQL_CONNECTION_NAME}`,
-  user: process.env.DB_USER || 'postgresql',
+  user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || 'Takabeni',
   database: process.env.DB_NAME || 'webappdb',
   max: 5,
