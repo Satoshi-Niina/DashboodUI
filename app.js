@@ -163,4 +163,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     closeBtn.addEventListener('click', hideTooltip);
     overlay.addEventListener('click', hideTooltip);
+
+    // ログアウトボタン
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            if (confirm('ログアウトしますか？')) {
+                localStorage.removeItem('user_token');
+                localStorage.removeItem('user_info');
+                window.location.href = '/login.html';
+            }
+        });
+    }
+
+    // 終了ボタン
+    const exitBtn = document.getElementById('exit-btn');
+    if (exitBtn) {
+        exitBtn.addEventListener('click', () => {
+            if (confirm('アプリケーションを終了しますか？')) {
+                localStorage.removeItem('user_token');
+                localStorage.removeItem('user_info');
+                window.close();
+                // ブラウザで閉じられない場合はログインページへ
+                setTimeout(() => {
+                    window.location.href = '/login.html';
+                }, 100);
+            }
+        });
+    }
 });
