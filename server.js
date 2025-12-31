@@ -100,7 +100,15 @@ app.get('/', (req, res) => {
 app.use(express.static(path.join(__dirname)));
 
 // Database Pool
-const pool = new Pool({
+// Cloud Run環境では環境変数から個別に取得するか、接続文字列を使用
+const isProduction = process.env.NODE_ENV === 'production';
+const pool = isProduction && process.env.CLOUD_SQL_CONNECTION_NAME ? new Pool({
+  host: `/cloudsql/${process.env.CLOUD_SQL_CONNECTION_NAME}`,
+  user: process.env.DB_USER || 'postgresql',
+  password: process.env.DB_PASSWORD || 'Takabeni',
+  database: process.env.DB_NAME || 'webappdb',
+  max: 5,
+}) : new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
