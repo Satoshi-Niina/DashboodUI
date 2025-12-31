@@ -186,6 +186,13 @@ body {
     text-align: center;
 }
 
+.app-card-info {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+    align-items: center;
+}
+
 .app-sub-desc {
     font-size: 1.3rem;
     color: var(--text-muted);
@@ -195,6 +202,7 @@ body {
     align-items: center;
     justify-content: center;
     flex-grow: 1;
+    text-align: center;
 }
 
 .launch-btn-small {
@@ -208,7 +216,8 @@ body {
     cursor: pointer;
     transition: var(--transition-smooth);
     width: 80%;
-    margin: 0 auto 0.5rem auto;
+    margin-top: auto;
+    margin-bottom: 0.5rem;
 }
 
 .app-card:hover .launch-btn-small {
