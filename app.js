@@ -7,7 +7,7 @@ const apps = [
         id: 'planning',
         title: '計画・実績管理',
         description: '保守用車の運用計画作成から運用の実績を管理できます。',
-        image: 'assets/img/plan_management.png',
+        image: 'assets/img/Operation Planning to Performance Management.png',
         url: '#planning',
         icon: '📅'
     },
@@ -31,7 +31,7 @@ const apps = [
         id: 'failure',
         title: '機械故障管理',
         description: '機械故障の発生状況と対応履歴を管理します。',
-        image: 'assets/img/recovery.png',
+        image: 'assets/img/Machinery Failure Management.png',
         url: '#failure',
         icon: '⚠️'
     }

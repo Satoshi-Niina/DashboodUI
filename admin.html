@@ -16,12 +16,230 @@
             </div>
         </header>
 
+        <!-- タブメニュー -->
+        <div class="tab-menu">
+            <button class="tab-button" data-tab="user-management">
+                <span class="tab-icon">👥</span>
+                <span class="tab-label">ユーザー管理</span>
+            </button>
+            <button class="tab-button" data-tab="office-master">
+                <span class="tab-icon">🏢</span>
+                <span class="tab-label">事業所マスタ</span>
+            </button>
+            <button class="tab-button" data-tab="base-master">
+                <span class="tab-icon">🏗️</span>
+                <span class="tab-label">保守基地マスタ</span>
+            </button>
+            <button class="tab-button" data-tab="vehicle-master">
+                <span class="tab-icon">🚛</span>
+                <span class="tab-label">保守用車マスタ</span>
+            </button>
+            <button class="tab-button" data-tab="database-management">
+                <span class="tab-icon">💾</span>
+                <span class="tab-label">データベース管理</span>
+            </button>
+            <button class="tab-button" data-tab="cors-settings">
+                <span class="tab-icon">🌐</span>
+                <span class="tab-label">CORS設定</span>
+            </button>
+        </div>
+
         <div class="admin-content">
+            <!-- ユーザー管理タブ -->
+            <div id="user-management-tab" class="tab-content">
+                <div class="info-banner">
+                    <p>💡 ログインユーザーの追加・編集・削除を行います</p>
+                </div>
+
+                <section class="config-section">
+                    <div class="user-actions">
+                        <button type="button" id="add-new-user-btn" class="btn-primary">
+                            ➕ 新規ユーザー追加
+                        </button>
+                    </div>
+
+                    <div id="users-list" class="users-list">
+                        <p class="loading">読み込み中...</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 保守用車マスタタブ -->
+            <div id="vehicle-master-tab" class="tab-content" style="display: none;">
+                <div class="info-banner">
+                    <p>💡 保守用車の機種と機械番号を管理します</p>
+                </div>
+
+                <section class="config-section">
+                    <div class="user-actions">
+                        <button type="button" id="add-new-vehicle-btn" class="btn-primary">
+                            ➕ 新規車両追加
+                        </button>
+                    </div>
+
+                    <div id="vehicles-list" class="vehicles-list">
+                        <p class="loading">読み込み中...</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 事業所マスタタブ -->
+            <div id="office-master-tab" class="tab-content" style="display: none;">
+                <div class="info-banner">
+                    <p>💡 事業所の情報を管理します</p>
+                </div>
+
+                <section class="config-section">
+                    <div class="user-actions">
+                        <button type="button" id="add-new-office-btn" class="btn-primary">
+                            ➕ 新規事業所追加
+                        </button>
+                    </div>
+
+                    <div id="offices-list" class="vehicles-list">
+                        <p class="loading">読み込み中...</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 保守基地マスタタブ -->
+            <div id="base-master-tab" class="tab-content" style="display: none;">
+                <div class="info-banner">
+                    <p>💡 保守基地の情報を管理します</p>
+                </div>
+
+                <section class="config-section">
+                    <div class="user-actions">
+                        <button type="button" id="add-new-base-btn" class="btn-primary">
+                            ➕ 新規保守基地追加
+                        </button>
+                    </div>
+
+                    <div id="bases-list" class="vehicles-list">
+                        <p class="loading">読み込み中...</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- データベース管理タブ -->
+            <div id="database-management-tab" class="tab-content" style="display: none;">
+                <div class="info-banner">
+                    <p>💡 データベースの接続状態、バックアップ、復元を管理します</p>
+                </div>
+
+                <!-- 接続状態 -->
+                <section class="config-section">
+                    <h2>📊 データベース接続状態</h2>
+                    <div class="db-status-card">
+                        <div class="status-item">
+                            <div class="status-label">接続状態</div>
+                            <div class="status-value" id="db-connection-status">
+                                <span class="status-badge status-checking">確認中...</span>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-label">バージョン</div>
+                            <div class="status-value" id="db-version">--</div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-label">接続数</div>
+                            <div class="status-value" id="db-connections">--</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- パフォーマンス -->
+                <section class="config-section">
+                    <h2>⚡ パフォーマンス</h2>
+                    <div class="performance-grid">
+                        <div class="perf-card">
+                            <div class="perf-label">ディスク使用率（実測値）</div>
+                            <div class="perf-value" id="disk-usage">--</div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="disk-progress" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <div class="perf-card">
+                            <div class="perf-label">データベースサイズ（実測値）</div>
+                            <div class="perf-value" id="db-size">--</div>
+                        </div>
+                        <div class="perf-card">
+                            <div class="perf-label">接続数</div>
+                            <div class="perf-value" id="connection-count">--</div>
+                        </div>
+                        <div class="perf-card">
+                            <div class="perf-label">稼働時間</div>
+                            <div class="perf-value" id="uptime">--</div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- テーブルサイズ -->
+                <section class="config-section">
+                    <h2>📦 テーブルサイズ（実測値・上位10件）</h2>
+                    <div id="table-sizes" class="table-sizes">
+                        <p class="loading">読み込み中...</p>
+                    </div>
+                </section>
+
+                <!-- テーブル管理 -->
+                <section class="config-section">
+                    <h2>🗂️ テーブルデータ管理</h2>
+                    <div class="table-selector">
+                        <label for="table-select">テーブル選択:</label>
+                        <select id="table-select">
+                            <option value="">-- テーブルを選択 --</option>
+                            <option value="master_data.users">ユーザー (master_data.users)</option>
+                            <option value="master_data.managements_offices">事業所 (master_data.managements_offices)</option>
+                            <option value="master_data.bases">保守基地 (master_data.bases)</option>
+                            <option value="master_data.vehicles">保守用車 (master_data.vehicles)</option>
+                            <option value="operations.schedules">運転計画 (operations.schedules)</option>
+                            <option value="maintenance.fault_records">故障記録 (maintenance.fault_records)</option>
+                        </select>
+                        <button id="load-table-btn" class="btn-primary">📋 読み込み</button>
+                        <button id="add-record-btn" class="btn-success">➕ 新規追加</button>
+                    </div>
+
+                    <div id="table-data-container" class="table-data-container">
+                        <p class="info-text">テーブルを選択して「読み込み」ボタンをクリックしてください</p>
+                    </div>
+                </section>
+
+                <!-- バックアップ・復元 -->
+                <section class="config-section">
+                    <h2>💾 バックアップ・復元</h2>
+                    <div class="backup-controls">
+                        <button id="backup-db-btn" class="btn-warning">
+                            📦 データベースバックアップ
+                        </button>
+                        <button id="restore-db-btn" class="btn-danger">
+                            ⚠️ バックアップから復元
+                        </button>
+                        <input type="file" id="restore-file-input" accept=".sql,.backup" style="display:none;">
+                    </div>
+                </section>
+
+                <!-- データ入出力 -->
+                <section class="config-section">
+                    <h2>📤 データ入出力</h2>
+                    <div class="import-export-controls">
+                        <button id="export-csv-btn" class="btn-info" disabled>
+                            📤 CSVエクスポート
+                        </button>
+                        <button id="import-csv-btn" class="btn-info" disabled>
+                            📥 CSVインポート
+                        </button>
+                        <input type="file" id="import-csv-file" accept=".csv" style="display:none;">
+                    </div>
+                    <p class="info-text">※ テーブルを選択すると使用できます</p>
+                </section>
+            </div>
+
             <div class="info-banner">
                 <p>💡 ここで設定を変更すると、再デプロイなしで即座に反映されます</p>
             </div>
 
-            <section class="config-section">
+            <section class="config-section" style="display: none;">
                 <h2>アプリケーション URL 設定</h2>
                 <p class="section-desc">各サブシステムの接続先URLを設定します</p>
 
@@ -79,38 +297,45 @@
                 </form>
             </section>
 
-            <section class="config-section">
-                <h2>その他の設定</h2>
-                
-                <div class="form-group">
-                    <label for="cors_origin">
-                        🌐 CORS 許可オリジン
-                    </label>
-                    <input type="text" 
-                           id="cors_origin" 
-                           name="cors_origin"
-                           placeholder="* または https://domain1.com,https://domain2.com">
-                    <small>複数指定する場合はカンマ区切り。すべて許可する場合は * を入力</small>
-                    <div style="margin-top: 10px; padding: 10px; background: #f0f8ff; border-left: 4px solid #2196F3; border-radius: 4px;">
-                        <strong>📌 CORS（Cross-Origin Resource Sharing）とは？</strong><br>
-                        異なるドメインからこのサーバーのAPIにアクセスすることを許可するセキュリティ設定です。<br>
-                        <br>
-                        <strong>設定例：</strong><br>
-                        • <code>*</code> - すべてのドメインからのアクセスを許可（開発環境推奨）<br>
-                        • <code>https://example.com</code> - 特定のドメインのみ許可（本番環境推奨）<br>
-                        • <code>https://app1.com,https://app2.com</code> - 複数ドメインを許可<br>
-                        <br>
-                        <strong>⚠️ セキュリティ上の注意：</strong><br>
-                        本番環境では必要なドメインのみを指定することを強く推奨します。
-                    </div>
+            <!-- CORS設定タブ -->
+            <div id="cors-settings-tab" class="tab-content" style="display: none;">
+                <div class="info-banner">
+                    <p>💡 異なるドメインからのAPIアクセスを制御します</p>
                 </div>
 
-                <div class="form-actions">
-                    <button type="button" id="save-cors-btn" class="btn-primary">
-                        💾 CORS設定を保存
-                    </button>
-                </div>
-            </section>
+                <section class="config-section">
+                    <h2>🌐 CORS 許可オリジン設定</h2>
+                    
+                    <div class="form-group">
+                        <label for="cors_origin">
+                            CORS 許可オリジン
+                        </label>
+                        <input type="text" 
+                               id="cors_origin" 
+                               name="cors_origin"
+                               placeholder="* または https://domain1.com,https://domain2.com">
+                        <small class="small-text">複数指定する場合はカンマ区切り。すべて許可する場合は * を入力</small>
+                        <div class="info-box">
+                            <strong class="small-text">📌 CORS（Cross-Origin Resource Sharing）とは？</strong><br>
+                            <span class="small-text">異なるドメインからこのサーバーのAPIにアクセスすることを許可するセキュリティ設定です。</span><br>
+                            <br>
+                            <strong class="small-text">設定例：</strong><br>
+                            <span class="small-text">• <code>*</code> - すべてのドメインからのアクセスを許可（開発環境推奨）</span><br>
+                            <span class="small-text">• <code>https://example.com</code> - 特定のドメインのみ許可（本番環境推奨）</span><br>
+                            <span class="small-text">• <code>https://app1.com,https://app2.com</code> - 複数ドメインを許可</span><br>
+                            <br>
+                            <strong class="small-text">⚠️ セキュリティ上の注意：</strong><br>
+                            <span class="small-text">本番環境では必要なドメインのみを指定することを強く推奨します。</span>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" id="save-cors-btn" class="btn-primary">
+                            💾 CORS設定を保存
+                        </button>
+                    </div>
+                </section>
+            </div>
 
             <section class="config-section">
                 <h2>設定履歴</h2>
@@ -119,7 +344,7 @@
                 </div>
             </section>
 
-            <section class="config-section">
+            <section class="config-section" style="display: none;">
                 <h2>ユーザー管理</h2>
                 <p class="section-desc">ログインユーザーの追加・編集・削除を行います</p>
 
@@ -129,6 +354,105 @@
                     </a>
                 </div>
             </section>
+        </div>
+    </div>
+
+    <!-- ユーザー追加・編集モーダル -->
+    <div id="user-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">ユーザーを追加</h3>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <form id="user-form">
+                <input type="hidden" id="user-id" name="user_id">
+                
+                <div class="form-group">
+                    <label for="user-username">ユーザー名 *</label>
+                    <input type="text" id="user-username" name="username" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="user-full-name">表示名 *</label>
+                    <input type="text" id="user-full-name" name="full_name" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="user-email">メールアドレス</label>
+                    <input type="email" id="user-email" name="email">
+                </div>
+
+                <div class="form-group">
+                    <label for="user-password">パスワード <span id="password-required-label">*</span></label>
+                    <input type="password" id="user-password" name="password">
+                    <small id="password-help">新規登録時は必須です。編集時は変更する場合のみ入力してください。</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="user-role">役割 *</label>
+                    <select id="user-role" name="role" required>
+                        <option value="user">一般ユーザー</option>
+                        <option value="admin">管理者</option>
+                    </select>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary" id="submit-user-btn">保存</button>
+                    <button type="button" class="btn-secondary" id="cancel-user-btn">キャンセル</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 保守用車追加・編集モーダル -->
+    <div id="vehicle-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="vehicle-modal-title">保守用車を追加</h3>
+                <button class="modal-close" id="vehicle-modal-close">&times;</button>
+            </div>
+            <form id="vehicle-form">
+                <input type="hidden" id="vehicle-id" name="vehicle_id">
+                
+                <div class="form-group">
+                    <label for="vehicle-type">機種 *</label>
+                    <input type="text" id="vehicle-type" name="vehicle_type" required placeholder="例: ダンプトラック、クレーン車">
+                </div>
+
+                <div class="form-group">
+                    <label for="vehicle-number">機械番号 *</label>
+                    <input type="text" id="vehicle-number" name="vehicle_number" required placeholder="例: MT-001">
+                </div>
+
+                <div class="form-group">
+                    <label for="vehicle-model">型式</label>
+                    <input type="text" id="vehicle-model" name="model" placeholder="例: DT-2024">
+                </div>
+
+                <div class="form-group">
+                    <label for="vehicle-registration">車両登録番号</label>
+                    <input type="text" id="vehicle-registration" name="registration_number" placeholder="例: 品川 100 あ 1234">
+                </div>
+
+                <div class="form-group">
+                    <label for="vehicle-status">状態 *</label>
+                    <select id="vehicle-status" name="status" required>
+                        <option value="active">稼働中</option>
+                        <option value="maintenance">整備中</option>
+                        <option value="inactive">停止中</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="vehicle-notes">備考</label>
+                    <textarea id="vehicle-notes" name="notes" rows="3" placeholder="その他メモ"></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary" id="submit-vehicle-btn">保存</button>
+                    <button type="button" class="btn-secondary" id="cancel-vehicle-btn">キャンセル</button>
+                </div>
+            </form>
         </div>
     </div>
 
