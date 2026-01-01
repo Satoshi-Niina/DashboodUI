@@ -17,11 +17,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    // ログアウト
-    document.getElementById('logout-btn').addEventListener('click', () => {
-        localStorage.removeItem('user_token');
-        localStorage.removeItem('user_info');
-        window.location.href = '/';
+    // メイン画面に戻る
+    document.getElementById('back-to-main-btn').addEventListener('click', () => {
+        window.location.href = '/dashboard';
     });
 
     // 現在の設定を読み込む（初回自動読み込み）
@@ -149,24 +147,46 @@ async function loadHistory() {
 // ユーザー管理機能
 async function loadUsers() {
     try {
-        const response = await fetch('/api/users');
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/users', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
         const data = await response.json();
 
         const usersList = document.getElementById('users-list');
 
         if (data.success && data.users.length > 0) {
-            usersList.innerHTML = data.users.map(user => `
-                <div class="user-item">
-                    <div class="user-info">
-                        <div class="username">${escapeHtml(user.username)}</div>
-                        <div class="display-name">${escapeHtml(user.display_name || '-')}</div>
-                    </div>
-                    <div class="user-actions-buttons">
-                        <button class="btn-edit" onclick="editUser(${user.id})">編集</button>
-                        <button class="btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')">削除</button>
-                    </div>
-                </div>
-            `).join('');
+            usersList.innerHTML = `
+                <table class="users-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>ユーザー名</th>
+                            <th>表示名</th>
+                            <th>権限</th>
+                            <th>登録日</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.users.map(user => `
+                            <tr>
+                                <td>${user.id}</td>
+                                <td><strong>${escapeHtml(user.username)}</strong></td>
+                                <td>${escapeHtml(user.display_name || '-')}</td>
+                                <td><span class="role-badge ${user.role === 'admin' ? 'role-admin' : 'role-user'}">${user.role === 'admin' ? '管理者' : '一般'}</span></td>
+                                <td>${new Date(user.created_at).toLocaleDateString('ja-JP')}</td>
+                                <td class="action-buttons">
+                                    <button class="btn-edit" onclick="editUser(${user.id})">✏️ 編集</button>
+                                    <button class="btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')">🗑️ 削除</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
         } else {
             usersList.innerHTML = '<p class="loading">ユーザーが登録されていません</p>';
         }

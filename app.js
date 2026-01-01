@@ -185,18 +185,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 終了ボタン
+    // 終了ボタン（ログアウトと同じ動作）
     const exitBtn = document.getElementById('exit-btn');
     if (exitBtn) {
         exitBtn.addEventListener('click', () => {
-            if (confirm('アプリケーションを終了しますか？')) {
+            if (confirm('ログアウトしますか？')) {
                 localStorage.removeItem('user_token');
                 localStorage.removeItem('user_info');
-                window.close();
-                // ブラウザで閉じられない場合はログインページへ
-                setTimeout(() => {
-                    window.location.href = '/login.html';
-                }, 100);
+                window.location.href = '/login.html';
             }
         });
     }

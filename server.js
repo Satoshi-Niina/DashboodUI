@@ -325,7 +325,7 @@ app.get('/api/config/history', requireAdmin, async (req, res) => {
 // ユーザー一覧取得エンドポイント
 app.get('/api/users', requireAdmin, async (req, res) => {
   try {
-    const query = 'SELECT id, username, display_name, created_at FROM master_data.users ORDER BY id ASC';
+    const query = 'SELECT id, username, display_name, role, created_at FROM master_data.users ORDER BY id ASC';
     const result = await pool.query(query);
     res.json({ success: true, users: result.rows });
   } catch (err) {

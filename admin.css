@@ -374,6 +374,103 @@ body {
     color: #f44336;
 }
 
+/* ユーザー管理テーブル */
+.users-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+    background: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.users-table thead {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.users-table thead th {
+    padding: 15px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.users-table tbody tr {
+    border-bottom: 1px solid #e0e0e0;
+    transition: background-color 0.2s;
+}
+
+.users-table tbody tr:hover {
+    background-color: #f8f9fa;
+}
+
+.users-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.users-table td {
+    padding: 15px;
+    font-size: 14px;
+    color: #333;
+}
+
+.users-table .action-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.role-admin {
+    background: #fff3e0;
+    color: #e65100;
+}
+
+.role-user {
+    background: #e3f2fd;
+    color: #1565c0;
+}
+
+.btn-edit {
+    background: #4caf50;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+}
+
+.btn-edit:hover {
+    background: #45a049;
+    transform: translateY(-1px);
+}
+
+.btn-delete {
+    background: #f44336;
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+}
+
+.btn-delete:hover {
+    background: #da190b;
+    transform: translateY(-1px);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     body {
