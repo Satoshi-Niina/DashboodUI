@@ -7,7 +7,7 @@ on:
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  REGION: asia-northeast2
+  REGION: asia-northeast1
   SERVICE_NAME: dashboard-ui
   CLOUD_SQL_INSTANCE: ${{ secrets.CLOUD_SQL_INSTANCE }}  # 例: project:region:instance
 
@@ -36,7 +36,7 @@ jobs:
             --allow-unauthenticated \
             --add-cloudsql-instances ${{ env.CLOUD_SQL_INSTANCE }} \
             --set-env-vars "NODE_ENV=production" \
-            --set-env-vars "CLOUD_SQL_CONNECTION_NAME=${{ secrets.CLOUD_SQL_INSTANCE }}" \
+            --set-env-vars "CLOUD_SQL_INSTANCE=${{ secrets.CLOUD_SQL_INSTANCE }}" \
             --set-env-vars "DB_USER=postgres" \
             --set-env-vars "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" \
             --set-env-vars "DB_NAME=webappdb" \
