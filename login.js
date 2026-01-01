@@ -7,6 +7,22 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnLoader = loginBtn.querySelector('.btn-loader');
     const errorMessage = document.getElementById('error-message');
 
+    // ページ読み込み時にフォームを強制クリア
+    usernameInput.value = '';
+    passwordInput.value = '';
+    loginForm.reset();
+    
+    // sessionStorageのフラグをチェック
+    if (sessionStorage.getItem('clearLoginForm') === 'true') {
+        sessionStorage.removeItem('clearLoginForm');
+    }
+    
+    // ブラウザの自動入力を防ぐために少し遅延して再度クリア
+    setTimeout(() => {
+        usernameInput.value = '';
+        passwordInput.value = '';
+    }, 100);
+
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 
@@ -72,4 +88,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function hideError() {
         errorMessage.classList.add('hidden');
     }
+
+    // ログアウト時に呼ばれる関数（グローバルに公開）
+    window.clearLoginForm = function() {
+        usernameInput.value = '';
+        passwordInput.value = '';
+        loginForm.reset();
+    };
 });

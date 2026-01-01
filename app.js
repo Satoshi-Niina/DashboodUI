@@ -178,8 +178,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (logoutBtn) {
         logoutBtn.addEventListener('click', () => {
             if (confirm('ログアウトしますか？')) {
+                // ローカルストレージをクリア
                 localStorage.removeItem('user_token');
                 localStorage.removeItem('user_info');
+                // ログインフォームをクリアするフラグを設定
+                sessionStorage.setItem('clearLoginForm', 'true');
                 window.location.href = '/login.html';
             }
         });
@@ -190,8 +193,11 @@ document.addEventListener('DOMContentLoaded', () => {
     if (exitBtn) {
         exitBtn.addEventListener('click', () => {
             if (confirm('ログアウトしますか？')) {
+                // ローカルストレージをクリア
                 localStorage.removeItem('user_token');
                 localStorage.removeItem('user_info');
+                // ログインフォームをクリアするフラグを設定
+                sessionStorage.setItem('clearLoginForm', 'true');
                 window.location.href = '/login.html';
             }
         });
