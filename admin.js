@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 現在の設定を読み込む（初回自動読み込み）
     loadCurrentConfig();
     loadHistory();
-    loadUsers();
+    // loadUsers(); // ユーザー管理ボタンクリック時に読み込む
 
     // ページ読み込み時にもconfig.jsをリロードして最新の設定を反映
     const scriptTag = document.createElement('script');
@@ -38,9 +38,6 @@ document.addEventListener('DOMContentLoaded', () => {
         await saveConfig();
     });
 
-    // 読み込みボタン
-    document.getElementById('load-btn').addEventListener('click', loadCurrentConfig);
-
     // CORS設定保存
     document.getElementById('save-cors-btn').addEventListener('click', async () => {
         const corsOrigin = document.getElementById('cors_origin').value.trim();
@@ -48,20 +45,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // ユーザー管理ボタンのイベントハンドラ
-    document.getElementById('add-user-btn').addEventListener('click', () => {
-        // ユーザー一覧が表示されているか確認
-        const usersList = document.getElementById('users-list');
-        const hasTable = usersList.querySelector('.users-table');
-        
-        if (!hasTable) {
-            // ユーザー一覧が表示されていない場合は再読み込み
-            loadUsers();
-        }
+    document.getElementById('add-user-btn').addEventListener('click', async () => {
+        // ユーザー一覧を読み込む
+        await loadUsers();
         
         // ユーザー管理セクションにスクロール
+        const usersList = document.getElementById('users-list');
         const userSection = usersList.closest('.config-section');
         if (userSection) {
-            userSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            setTimeout(() => {
+                userSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
         }
     });
 
