@@ -10,6 +10,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // ページ読み込み時にフォームを強制クリア
     usernameInput.value = '';
     passwordInput.value = '';
+    usernameInput.setAttribute('value', '');
+    passwordInput.setAttribute('value', '');
     loginForm.reset();
     
     // sessionStorageのフラグをチェック
@@ -17,11 +19,18 @@ document.addEventListener('DOMContentLoaded', () => {
         sessionStorage.removeItem('clearLoginForm');
     }
     
-    // ブラウザの自動入力を防ぐために少し遅延して再度クリア
+    // ブラウザの自動入力を防ぐために遅延して再度クリア
     setTimeout(() => {
         usernameInput.value = '';
         passwordInput.value = '';
+        usernameInput.setAttribute('value', '');
+        passwordInput.setAttribute('value', '');
     }, 100);
+    
+    setTimeout(() => {
+        usernameInput.value = '';
+        passwordInput.value = '';
+    }, 300);
 
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();

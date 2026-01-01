@@ -47,9 +47,30 @@ document.addEventListener('DOMContentLoaded', () => {
         await saveConfig({ cors_origin: corsOrigin });
     });
 
-    // ユーザー管理
+    // ユーザー管理ボタンのイベントハンドラ
     document.getElementById('add-user-btn').addEventListener('click', () => {
-        openUserModal();
+        // ユーザー一覧が表示されているか確認
+        const usersList = document.getElementById('users-list');
+        const hasTable = usersList.querySelector('.users-table');
+        
+        if (!hasTable) {
+            // ユーザー一覧が表示されていない場合は再読み込み
+            loadUsers();
+        }
+        
+        // ユーザー管理セクションにスクロール
+        const userSection = usersList.closest('.config-section');
+        if (userSection) {
+            userSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    });
+
+    // 新規追加ボタンを追加（テーブルの上に表示するため）
+    // これは動的に追加されるので、イベント委謗を使用
+    document.addEventListener('click', (e) => {
+        if (e.target && e.target.id === 'add-new-user-btn') {
+            openUserModal();
+        }
     });
 
     document.getElementById('modal-close').addEventListener('click', closeUserModal);
@@ -159,6 +180,11 @@ async function loadUsers() {
 
         if (data.success && data.users.length > 0) {
             usersList.innerHTML = `
+                <div style="margin-bottom: 15px;">
+                    <button type="button" id="add-new-user-btn" class="btn-primary" style="padding: 8px 16px; font-size: 14px;">
+                        ➕ 新規ユーザー追加
+                    </button>
+                </div>
                 <table class="users-table">
                     <thead>
                         <tr>
