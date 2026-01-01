@@ -1386,6 +1386,84 @@ app.get('/debug/env', (req, res) => {
   res.json(safeEnv);
 });
 
+// デバッグ用: usersテーブルの確認（本番環境では削除必須）
+app.get('/debug/users', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        id, 
+        username, 
+        display_name,
+        role,
+        CASE 
+          WHEN password LIKE '$2%' THEN 'ハッシュ化済み'
+          ELSE '平文'
+        END as password_type,
+        LEFT(password, 10) as password_preview
+      FROM master_data.users 
+      ORDER BY id
+    `);
+    
+    res.json({
+      success: true,
+      count: result.rows.length,
+      users: result.rows
+    });
+  } catch (err) {
+    console.error('Debug users error:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: err.message,
+      hint: 'master_data.usersテーブルが存在しない可能性があります'
+    });
+  }
+});
+
+// デバッグ用: ログインテスト
+app.post('/debug/test-login', async (req, res) => {
+  const { username, password } = req.body;
+  
+  try {
+    const query = 'SELECT id, username, password FROM master_data.users WHERE username = $1';
+    const result = await pool.query(query, [username]);
+    
+    if (result.rows.length === 0) {
+      return res.json({
+        success: false,
+        message: 'ユーザーが見つかりません',
+        username: username
+      });
+    }
+    
+    const user = result.rows[0];
+    const dbPassword = user.password;
+    const isHashed = dbPassword && dbPassword.startsWith('$2');
+    
+    let match = false;
+    if (isHashed) {
+      match = await bcrypt.compare(password, dbPassword);
+    } else {
+      match = (password === dbPassword);
+    }
+    
+    res.json({
+      success: true,
+      userFound: true,
+      passwordType: isHashed ? 'ハッシュ化' : '平文',
+      passwordMatch: match,
+      dbPasswordPreview: dbPassword ? dbPassword.substring(0, 15) + '...' : null,
+      inputPassword: password,
+      bcryptTest: isHashed ? await bcrypt.compare(password, dbPassword) : 'N/A'
+    });
+  } catch (err) {
+    console.error('Test login error:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: err.message 
+    });
+  }
+});
+
 // サーバー起動
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
