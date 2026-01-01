@@ -102,20 +102,53 @@ app.use(express.static(path.join(__dirname)));
 // Database Pool
 // Cloud Run環境では環境変数から個別に取得するか、接続文字列を使用
 const isProduction = process.env.NODE_ENV === 'production';
-const pool = isProduction && process.env.CLOUD_SQL_INSTANCE ? new Pool({
-  host: `/cloudsql/${process.env.CLOUD_SQL_INSTANCE}`,
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'Takabeni',
-  database: process.env.DB_NAME || 'webappdb',
-  max: 5,
-}) : new Pool({
-  connectionString: process.env.DATABASE_URL,
+
+let poolConfig;
+if (isProduction && process.env.CLOUD_SQL_INSTANCE) {
+  // 本番環境: Cloud SQL Unix socket接続
+  console.log('Using Cloud SQL connection:', process.env.CLOUD_SQL_INSTANCE);
+  poolConfig = {
+    host: `/cloudsql/${process.env.CLOUD_SQL_INSTANCE}`,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME || 'webappdb',
+    max: 5,
+  };
+} else if (process.env.DATABASE_URL) {
+  // ローカル環境または接続文字列を使用
+  console.log('Using DATABASE_URL connection');
+  poolConfig = {
+    connectionString: process.env.DATABASE_URL,
+  };
+} else {
+  // 環境変数から個別に設定
+  console.log('Using individual DB environment variables');
+  poolConfig = {
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME || 'webappdb',
+    max: 5,
+  };
+}
+
+console.log('Database config (password hidden):', { 
+  ...poolConfig, 
+  password: poolConfig.password ? '****' : undefined 
 });
+
+const pool = new Pool(poolConfig);
 
 // Test DB Connection
 pool.query('SELECT NOW()', (err, res) => {
   if (err) {
     console.error('Database connection error:', err);
+    console.error('Connection config:', { 
+      host: poolConfig.host, 
+      user: poolConfig.user, 
+      database: poolConfig.database 
+    });
   } else {
     console.log('Database connected successfully at:', res.rows[0].now);
   }
@@ -256,8 +289,9 @@ async function requireAdmin(req, res, next) {
 
     const user = result.rows[0];
     
-    if (user.role !== 'admin') {
-      return res.status(403).json({ success: false, message: 'アクセス権限がありません。システム管理者のみアクセス可能です。' });
+    // system_admin または operation_admin のみアクセス可能
+    if (user.role !== 'system_admin' && user.role !== 'operation_admin') {
+      return res.status(403).json({ success: false, message: 'アクセス権限がありません。管理者権限が必要です。' });
     }
 
     req.user = user;
@@ -1294,7 +1328,47 @@ app.get('/user-management', (req, res) => {
   res.sendFile(path.join(__dirname, 'user-management.html'));
 });
 
+// ヘルスチェックエンドポイント
+app.get('/health', async (req, res) => {
+  try {
+    // データベース接続確認
+    await pool.query('SELECT 1');
+    res.json({ 
+      status: 'healthy', 
+      database: 'connected',
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Health check failed:', err);
+    res.status(503).json({ 
+      status: 'unhealthy', 
+      database: 'disconnected',
+      error: err.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// デバッグ用エンドポイント（本番環境では削除推奨）
+app.get('/debug/env', (req, res) => {
+  // パスワードなどの機密情報は隠す
+  const safeEnv = {
+    NODE_ENV: process.env.NODE_ENV,
+    PORT: process.env.PORT,
+    CLOUD_SQL_INSTANCE: process.env.CLOUD_SQL_INSTANCE,
+    DB_NAME: process.env.DB_NAME,
+    DB_USER: process.env.DB_USER,
+    DB_PASSWORD: process.env.DB_PASSWORD ? '***設定済み***' : '未設定',
+    DATABASE_URL: process.env.DATABASE_URL ? '***設定済み***' : '未設定',
+    JWT_SECRET: process.env.JWT_SECRET ? '***設定済み***' : '未設定',
+    CORS_ORIGIN: process.env.CORS_ORIGIN,
+  };
+  res.json(safeEnv);
+});
+
 // サーバー起動
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Database connection configured for: ${isProduction && process.env.CLOUD_SQL_INSTANCE ? 'Cloud SQL' : 'Local PostgreSQL'}`);
 });
