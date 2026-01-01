@@ -78,7 +78,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function loadCurrentConfig() {
     try {
-        const response = await fetch('/api/config');
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/config', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
         const data = await response.json();
 
         if (data.success) {
@@ -140,7 +145,12 @@ async function saveConfig(customData = null) {
 
 async function loadHistory() {
     try {
-        const response = await fetch('/api/config/history');
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/config/history', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
         const data = await response.json();
 
         const historyList = document.getElementById('history-list');
@@ -158,6 +168,10 @@ async function loadHistory() {
             historyList.innerHTML = '<p class="loading">変更履歴はありません</p>';
         }
     } catch (error) {
+        console.error('Failed to load history:', error);
+        showToast('履歴の読み込みに失敗しました', 'error');
+    }
+}
 
 // ユーザー管理機能
 async function loadUsers() {
@@ -245,7 +259,12 @@ function closeUserModal() {
 
 async function loadUserForEdit(userId) {
     try {
-        const response = await fetch(`/api/users/${userId}`);
+        const token = localStorage.getItem('user_token');
+        const response = await fetch(`/api/users/${userId}`, {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
         const data = await response.json();
 
         if (data.success) {
@@ -361,9 +380,6 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
-}
-        console.error('Failed to load history:', error);
-    }
 }
 
 function showToast(message, type = 'success') {
