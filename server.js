@@ -339,7 +339,7 @@ app.get('/api/users/:id', requireAdmin, async (req, res) => {
   const userId = req.params.id;
 
   try {
-    const query = 'SELECT id, username, display_name FROM master_data.users WHERE id = $1';
+    const query = 'SELECT id, username, display_name, role FROM master_data.users WHERE id = $1';
     const result = await pool.query(query, [userId]);
 
     if (result.rows.length === 0) {
@@ -356,7 +356,7 @@ app.get('/api/users/:id', requireAdmin, async (req, res) => {
 // ユーザー追加エンドポイント
 app.post('/api/users', requireAdmin, async (req, res) => {
   try {
-    const { username, password, display_name } = req.body;
+    const { username, password, display_name, role } = req.body;
 
     // バリデーション
     if (!username || !password) {
@@ -380,11 +380,11 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 
     // ユーザーを追加
     const insertQuery = `
-      INSERT INTO master_data.users (username, password, display_name)
-      VALUES ($1, $2, $3)
-      RETURNING id, username, display_name
+      INSERT INTO master_data.users (username, password, display_name, role)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, username, display_name, role
     `;
-    const result = await pool.query(insertQuery, [username, hashedPassword, display_name || null]);
+    const result = await pool.query(insertQuery, [username, hashedPassword, display_name || null, role || 'user']);
 
     res.json({ success: true, user: result.rows[0], message: 'ユーザーを追加しました' });
   } catch (err) {
@@ -406,7 +406,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
     // トークンを検証
     jwt.verify(token, process.env.JWT_SECRET);
     
-    const { username, display_name, password } = req.body;
+    const { username, display_name, password, role } = req.body;
 
     // バリデーション
     if (!username) {
@@ -430,11 +430,11 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       const hashedPassword = await bcrypt.hash(password, 10);
       const updateQuery = `
         UPDATE master_data.users 
-        SET username = $1, display_name = $2, password = $3, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $4
-        RETURNING id, username, display_name
+        SET username = $1, display_name = $2, password = $3, role = $4, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $5
+        RETURNING id, username, display_name, role
       `;
-      const result = await pool.query(updateQuery, [username, display_name || null, hashedPassword, userId]);
+      const result = await pool.query(updateQuery, [username, display_name || null, hashedPassword, role || 'user', userId]);
 
       if (result.rows.length === 0) {
         return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
@@ -445,11 +445,11 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       // パスワードを変更しない場合
       const updateQuery = `
         UPDATE master_data.users 
-        SET username = $1, display_name = $2, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $3
-        RETURNING id, username, display_name
+        SET username = $1, display_name = $2, role = $3, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $4
+        RETURNING id, username, display_name, role
       `;
-      const result = await pool.query(updateQuery, [username, display_name || null, userId]);
+      const result = await pool.query(updateQuery, [username, display_name || null, role || 'user', userId]);
 
       if (result.rows.length === 0) {
         return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
@@ -504,6 +504,10 @@ app.get('/dashboard', (req, res) => {
 
 app.get('/admin', (req, res) => {
   res.sendFile(path.join(__dirname, 'admin.html'));
+});
+
+app.get('/user-management', (req, res) => {
+  res.sendFile(path.join(__dirname, 'user-management.html'));
 });
 
 // サーバー起動

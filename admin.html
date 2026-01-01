@@ -124,67 +124,11 @@
                 <p class="section-desc">ログインユーザーの追加・編集・削除を行います</p>
 
                 <div class="user-actions">
-                    <button type="button" id="add-user-btn" class="btn-primary">
-                        👥 ユーザー管理
-                    </button>
-                </div>
-
-                <div id="users-list" class="users-list">
-                    <p class="loading">読み込み中...</p>
+                    <a href="/user-management" class="btn-primary" style="display: inline-block; text-decoration: none; text-align: center;">
+                        👥 ユーザー管理を開く
+                    </a>
                 </div>
             </section>
-        </div>
-    </div>
-
-    <!-- ユーザー追加・編集モーダル -->
-    <div id="user-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="modal-title">ユーザーを追加</h3>
-                <button class="modal-close" id="modal-close">&times;</button>
-            </div>
-            <form id="user-form">
-                <input type="hidden" id="user-id" name="user_id">
-                
-                <div class="form-group">
-                    <label for="user-username">ユーザー名 *</label>
-                    <input type="text" 
-                           id="user-username" 
-                           name="username"
-                           placeholder="半角英数字"
-                           required>
-                </div>
-
-                <div class="form-group">
-                    <label for="user-display-name">表示名</label>
-                    <input type="text" 
-                           id="user-display-name" 
-                           name="display_name"
-                           placeholder="田中太郎">
-                </div>
-
-                <div class="form-group">
-                    <label for="user-password">パスワード <span id="password-required">*</span></label>
-                    <input type="password" 
-                           id="user-password" 
-                           name="password"
-                           placeholder="8文字以上">
-                    <small id="password-hint">新規追加時は必須です</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="user-password-confirm">パスワード確認</label>
-                    <input type="password" 
-                           id="user-password-confirm" 
-                           name="password_confirm"
-                           placeholder="パスワードを再入力">
-                </div>
-
-                <div class="modal-actions">
-                    <button type="button" class="btn-secondary" id="cancel-btn">キャンセル</button>
-                    <button type="submit" class="btn-primary">保存</button>
-                </div>
-            </form>
         </div>
     </div>
 
