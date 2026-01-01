@@ -94,6 +94,18 @@
                            name="cors_origin"
                            placeholder="* または https://domain1.com,https://domain2.com">
                     <small>複数指定する場合はカンマ区切り。すべて許可する場合は * を入力</small>
+                    <div style="margin-top: 10px; padding: 10px; background: #f0f8ff; border-left: 4px solid #2196F3; border-radius: 4px;">
+                        <strong>📌 CORS（Cross-Origin Resource Sharing）とは？</strong><br>
+                        異なるドメインからこのサーバーのAPIにアクセスすることを許可するセキュリティ設定です。<br>
+                        <br>
+                        <strong>設定例：</strong><br>
+                        • <code>*</code> - すべてのドメインからのアクセスを許可（開発環境推奨）<br>
+                        • <code>https://example.com</code> - 特定のドメインのみ許可（本番環境推奨）<br>
+                        • <code>https://app1.com,https://app2.com</code> - 複数ドメインを許可<br>
+                        <br>
+                        <strong>⚠️ セキュリティ上の注意：</strong><br>
+                        本番環境では必要なドメインのみを指定することを強く推奨します。
+                    </div>
                 </div>
 
                 <div class="form-actions">

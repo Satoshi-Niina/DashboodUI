@@ -145,8 +145,8 @@ app.post('/api/login', async (req, res) => {
 
     if (match) {
       // 認証成功
-      const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '1h' });
-      res.json({ success: true, token, user: { username: user.username, displayName: user.display_name } });
+      const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
+      res.json({ success: true, token, user: { username: user.username, displayName: user.display_name, role: user.role } });
     } else {
       // パスワード不一致
       res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
@@ -171,7 +171,7 @@ app.post('/api/verify-token', async (req, res) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
     // ユーザー情報を取得
-    const query = 'SELECT id, username, display_name FROM master_data.users WHERE id = $1';
+    const query = 'SELECT id, username, display_name, role FROM master_data.users WHERE id = $1';
     const result = await pool.query(query, [decoded.id]);
 
     if (result.rows.length === 0) {
@@ -184,7 +184,8 @@ app.post('/api/verify-token', async (req, res) => {
       user: { 
         id: user.id, 
         username: user.username, 
-        displayName: user.display_name 
+        displayName: user.display_name,
+        role: user.role 
       } 
     });
   } catch (err) {
@@ -218,10 +219,39 @@ app.post('/api/refresh-token', async (req, res) => {
   }
 });
 
+// 管理者認証ミドルウェア
+async function requireAdmin(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  
+  if (!token) {
+    return res.status(401).json({ success: false, message: '認証が必要です' });
+  }
 
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const query = 'SELECT id, username, role FROM master_data.users WHERE id = $1';
+    const result = await pool.query(query, [decoded.id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
+    }
+
+    const user = result.rows[0];
+    
+    if (user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'アクセス権限がありません。システム管理者のみアクセス可能です。' });
+    }
+
+    req.user = user;
+    next();
+  } catch (err) {
+    console.error('Auth middleware error:', err);
+    return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
+  }
+}
 
 // 設定取得エンドポイント（管理画面用）
-app.get('/api/config', async (req, res) => {
+app.get('/api/config', requireAdmin, async (req, res) => {
   try {
     const config = await getAllConfig();
     res.json({ success: true, config });
@@ -232,26 +262,9 @@ app.get('/api/config', async (req, res) => {
 });
 
 // 設定更新エンドポイント（管理画面用）
-app.post('/api/config', async (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  
-  if (!token) {
-    return res.status(401).json({ success: false, message: '認証が必要です' });
-  }
-
+app.post('/api/config', requireAdmin, async (req, res) => {
   try {
-    // トークンを検証
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // ユーザー情報を取得
-    const userQuery = 'SELECT username FROM master_data.users WHERE id = $1';
-    const userResult = await pool.query(userQuery, [decoded.id]);
-    
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
-    }
-
-    const username = userResult.rows[0].username;
+    const username = req.user.username;
     const configData = req.body;
 
     // 設定を更新
@@ -291,7 +304,7 @@ app.post('/api/config', async (req, res) => {
 });
 
 // 設定変更履歴取得エンドポイント
-app.get('/api/config/history', async (req, res) => {
+app.get('/api/config/history', requireAdmin, async (req, res) => {
   try {
     const query = `
       SELECT config_key, old_value, new_value, updated_by, updated_at
@@ -310,7 +323,7 @@ app.get('/api/config/history', async (req, res) => {
 
 
 // ユーザー一覧取得エンドポイント
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', requireAdmin, async (req, res) => {
   try {
     const query = 'SELECT id, username, display_name, created_at FROM master_data.users ORDER BY id ASC';
     const result = await pool.query(query);
@@ -322,7 +335,7 @@ app.get('/api/users', async (req, res) => {
 });
 
 // ユーザー詳細取得エンドポイント
-app.get('/api/users/:id', async (req, res) => {
+app.get('/api/users/:id', requireAdmin, async (req, res) => {
   const userId = req.params.id;
 
   try {
@@ -341,18 +354,9 @@ app.get('/api/users/:id', async (req, res) => {
 });
 
 // ユーザー追加エンドポイント
-app.post('/api/users', async (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  
-  if (!token) {
-    return res.status(401).json({ success: false, message: '認証が必要です' });
-  }
-
+app.post('/api/users', requireAdmin, async (req, res) => {
   try {
-    // トークンを検証
-    jwt.verify(token, process.env.JWT_SECRET);
-    
-    const { username, display_name, password } = req.body;
+    const { username, password, display_name } = req.body;
 
     // バリデーション
     if (!username || !password) {
@@ -390,7 +394,7 @@ app.post('/api/users', async (req, res) => {
 });
 
 // ユーザー更新エンドポイント
-app.put('/api/users/:id', async (req, res) => {
+app.put('/api/users/:id', requireAdmin, async (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   const userId = req.params.id;
   
@@ -460,7 +464,7 @@ app.put('/api/users/:id', async (req, res) => {
 });
 
 // ユーザー削除エンドポイント
-app.delete('/api/users/:id', async (req, res) => {
+app.delete('/api/users/:id', requireAdmin, async (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   const userId = req.params.id;
   

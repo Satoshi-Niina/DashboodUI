@@ -53,6 +53,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const headerUserName = document.getElementById('header-user-name');
         const headerAvatar = document.getElementById('header-avatar');
 
+        // システム管理者以外はシステム設定リンクを非表示
+        const footerNav = document.querySelector('.footer-nav');
+        if (footerNav && userInfo.role !== 'admin') {
+            const adminLink = footerNav.querySelector('a[href="/admin"]');
+            if (adminLink) {
+                adminLink.style.display = 'none';
+            }
+        }
+
         if (headerUserName) {
             // 時間に応じた挨拶の決定
             // 6:00-10:00: おはようございます

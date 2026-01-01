@@ -6,9 +6,16 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
-    // ユーザー情報の表示
+    // ユーザー情報の表示とロールチェック
     const userInfo = JSON.parse(localStorage.getItem('user_info') || '{}');
     document.getElementById('admin-user').textContent = userInfo.displayName || userInfo.username;
+
+    // システム管理者以外はアクセス拒否
+    if (userInfo.role !== 'admin') {
+        alert('アクセス権限がありません。システム管理者のみアクセス可能です。');
+        window.location.href = '/dashboard';
+        return;
+    }
 
     // ログアウト
     document.getElementById('logout-btn').addEventListener('click', () => {
@@ -17,10 +24,15 @@ document.addEventListener('DOMContentLoaded', () => {
         window.location.href = '/';
     });
 
-    // 現在の設定を読み込む
+    // 現在の設定を読み込む（初回自動読み込み）
     loadCurrentConfig();
     loadHistory();
     loadUsers();
+
+    // ページ読み込み時にもconfig.jsをリロードして最新の設定を反映
+    const scriptTag = document.createElement('script');
+    scriptTag.src = '/config.js?t=' + Date.now();
+    document.head.appendChild(scriptTag);
 
     // フォーム送信
     document.getElementById('config-form').addEventListener('submit', async (e) => {
@@ -96,8 +108,14 @@ async function saveConfig(customData = null) {
         const data = await response.json();
 
         if (data.success) {
-            showToast('設定を保存しました！', 'success');
+            showToast('設定を保存しました！システムに反映されました', 'success');
             loadHistory();
+            // config.jsを再読み込みして設定を反映
+            const scriptTag = document.createElement('script');
+            scriptTag.src = '/config.js?t=' + Date.now();
+            document.head.appendChild(scriptTag);
+            // 保存後に現在の設定を再読み込み
+            setTimeout(() => loadCurrentConfig(), 500);
         } else {
             showToast(data.message || '保存に失敗しました', 'error');
         }
