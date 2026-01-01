@@ -188,11 +188,31 @@ app.post('/api/login', async (req, res) => {
 
     const user = result.rows[0];
 
-    // パスワード比較 (Server側でハッシュ化して比較)
-    // DB内が平文の場合でも bcrypt.compare は失敗するため、
-    // 実運用では初回登録時にハッシュ化して保存しておく必要があります。
-    // ここでは安全のため bcrypt.compare を使用します。
-    const match = await bcrypt.compare(password, user.password);
+    // パスワード比較
+    // DBのパスワードがbcryptハッシュ($2で始まる)かどうかを判定
+    let match = false;
+    
+    if (user.password && user.password.startsWith('$2')) {
+      // ハッシュ化されたパスワード
+      match = await bcrypt.compare(password, user.password);
+    } else {
+      // 平文パスワード（後方互換性のため）
+      match = (password === user.password);
+      
+      // セキュリティ向上のため、平文パスワードをハッシュ化して更新
+      if (match) {
+        try {
+          const hashedPassword = await bcrypt.hash(password, 10);
+          await pool.query(
+            'UPDATE master_data.users SET password = $1 WHERE id = $2',
+            [hashedPassword, user.id]
+          );
+          console.log(`Password hashed for user: ${user.username}`);
+        } catch (hashErr) {
+          console.error('Failed to hash password:', hashErr);
+        }
+      }
+    }
 
     if (match) {
       // 認証成功
