@@ -200,9 +200,8 @@ CREATE TABLE IF NOT EXISTS emergency.emergency_records (
 -- ========================================
 
 -- デフォルト管理者ユーザー（パスワード: admin123）
--- bcryptハッシュを生成して使用してください
 INSERT INTO master_data.users (username, password, display_name, email, role)
-VALUES ('admin', '$2b$10$YourActualBcryptHashHere', '管理者', 'admin@example.com', 'admin')
+VALUES ('admin', '$2b$10$Wvq4AxAkP52kudPSW2.A0.J7j2VPbdCigM0EyoiePhn1Wvvg9Mtpe', '管理者', 'admin@example.com', 'admin')
 ON CONFLICT (username) DO NOTHING;
 
 -- デフォルトCORS設定
