@@ -173,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
     closeBtn.addEventListener('click', hideTooltip);
     overlay.addEventListener('click', hideTooltip);
 
-    // ログアウトボタン
+    // ログアウトボタン（ログイン画面に戻る）
     const logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) {
         logoutBtn.addEventListener('click', () => {
@@ -188,17 +188,19 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 終了ボタン（ログアウトと同じ動作）
+    // 終了ボタン（ダッシュボード画面を閉じる）
     const exitBtn = document.getElementById('exit-btn');
     if (exitBtn) {
         exitBtn.addEventListener('click', () => {
-            if (confirm('ログアウトしますか？')) {
-                // ローカルストレージをクリア
-                localStorage.removeItem('user_token');
-                localStorage.removeItem('user_info');
-                // ログインフォームをクリアするフラグを設定
-                sessionStorage.setItem('clearLoginForm', 'true');
-                window.location.href = '/login.html';
+            if (confirm('ダッシュボード画面を閉じますか？')) {
+                // ウィンドウを閉じる（ブラウザによっては機能しない場合がある）
+                window.close();
+                
+                // window.close()が機能しない場合の代替処理
+                // 500ms後に確認してまだ開いている場合はメッセージを表示
+                setTimeout(() => {
+                    alert('ブラウザのタブを手動で閉じてください。\nまたはログアウトボタンでログイン画面に戻ることができます。');
+                }, 500);
             }
         });
     }
