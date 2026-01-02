@@ -69,7 +69,7 @@ jobs:
             --memory=512Mi \
             --cpu=1 \
             --timeout=600 \
-            --startup-cpu-boost \
+            --cpu-boost \
             --port=3000
       
       - name: Test Health Endpoint
