@@ -34,11 +34,13 @@ app.use(express.json());
 
 console.log('Middleware configured');
 
-// JWT_SECRETの設定確認と警告
+// JWT_SECRETの確認
 if (!process.env.JWT_SECRET) {
-  console.warn('⚠️ JWT_SECRET not set, using default (NOT SECURE FOR PRODUCTION)');
-  process.env.JWT_SECRET = 'default-jwt-secret-change-me-in-production';
+  console.error('❌ CRITICAL: JWT_SECRET environment variable is not set!');
+  console.error('Server cannot start without JWT_SECRET');
+  process.exit(1);
 }
+console.log('✅ JWT_SECRET is configured');
 
 // データベースから設定を取得するヘルパー関数
 async function getConfigFromDB(key, defaultValue) {

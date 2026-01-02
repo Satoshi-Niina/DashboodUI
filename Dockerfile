@@ -22,7 +22,6 @@ EXPOSE 3000
 
 # 環境変数を設定
 ENV NODE_ENV=production
-ENV PORT=3000
 
 # ヘルスチェック（/healthエンドポイントを使用）
 # Cloud Runではstart-periodを長めに設定してDB接続を待つ
