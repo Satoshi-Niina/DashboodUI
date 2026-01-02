@@ -818,7 +818,7 @@ app.get('/api/offices', authenticateToken, async (req, res) => {
 
 // 事業所追加
 app.post('/api/offices', requireAdmin, async (req, res) => {
-  const { office_code, office_name, office_type, address, postal_code, phone_number, manager_name, email } = req.body;
+  const { office_code, office_name, office_type, address } = req.body;
 
   if (!office_code || !office_name) {
     return res.status(400).json({ success: false, message: '事業所コードと事業所名は必須です' });
@@ -826,19 +826,15 @@ app.post('/api/offices', requireAdmin, async (req, res) => {
 
   try {
     const insertQuery = `
-      INSERT INTO master_data.managements_offices (office_code, office_name, office_type, address, postal_code, phone_number, manager_name, email)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO master_data.managements_offices (office_code, office_name, office_type, address)
+      VALUES ($1, $2, $3, $4)
       RETURNING *
     `;
     const result = await pool.query(insertQuery, [
       office_code,
       office_name,
       office_type || null,
-      address || null,
-      postal_code || null,
-      phone_number || null,
-      manager_name || null,
-      email || null
+      address || null
     ]);
 
     res.json({ success: true, office: result.rows[0], message: '事業所を追加しました' });
@@ -931,7 +927,7 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
 
 // 保守基地追加
 app.post('/api/bases', requireAdmin, async (req, res) => {
-  const { base_code, base_name, office_id, location, latitude, longitude, capacity, manager_name, phone_number } = req.body;
+  const { base_code, base_name, office_id, location, address, postal_code, phone_number, latitude, longitude } = req.body;
 
   if (!base_code || !base_name) {
     return res.status(400).json({ success: false, message: '基地コードと基地名は必須です' });
@@ -940,7 +936,7 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
   try {
     const insertQuery = `
       INSERT INTO master_data.bases 
-      (base_code, base_name, office_id, location, latitude, longitude, capacity, manager_name, phone_number)
+      (base_code, base_name, office_id, location, address, postal_code, phone_number, latitude, longitude)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `;
@@ -949,11 +945,11 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
       base_name,
       office_id || null,
       location || null,
+      address || null,
+      postal_code || null,
+      phone_number || null,
       latitude || null,
-      longitude || null,
-      capacity || null,
-      manager_name || null,
-      phone_number || null
+      longitude || null
     ]);
 
     res.json({ success: true, base: result.rows[0], message: '保守基地を追加しました' });
@@ -970,13 +966,13 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
 // 保守基地更新
 app.put('/api/bases/:id', requireAdmin, async (req, res) => {
   const baseId = req.params.id;
-  const { base_code, base_name, office_id, location, latitude, longitude, capacity, manager_name, phone_number } = req.body;
+  const { base_code, base_name, office_id, location, address, postal_code, phone_number, latitude, longitude } = req.body;
 
   try {
     const updateQuery = `
       UPDATE master_data.bases 
-      SET base_code = $1, base_name = $2, office_id = $3, location = $4, 
-          latitude = $5, longitude = $6, capacity = $7, manager_name = $8, phone_number = $9,
+      SET base_code = $1, base_name = $2, office_id = $3, location = $4, address = $5,
+          postal_code = $6, phone_number = $7, latitude = $8, longitude = $9,
           updated_at = CURRENT_TIMESTAMP
       WHERE base_id = $10
       RETURNING *
@@ -984,13 +980,13 @@ app.put('/api/bases/:id', requireAdmin, async (req, res) => {
     const result = await pool.query(updateQuery, [
       base_code,
       base_name,
-      office_id,
-      location,
-      latitude,
-      longitude,
-      capacity,
-      manager_name,
-      phone_number,
+      office_id || null,
+      location || null,
+      address || null,
+      postal_code || null,
+      phone_number || null,
+      latitude || null,
+      longitude || null,
       baseId
     ]);
 

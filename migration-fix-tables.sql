@@ -3,14 +3,8 @@
 -- 既存データを保持しながらカラムを追加・修正
 -- ========================================
 
--- 1. managements_offices テーブルの修正
-ALTER TABLE master_data.managements_offices 
-  ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20),
-  ADD COLUMN IF NOT EXISTS phone_number VARCHAR(20),
-  ADD COLUMN IF NOT EXISTS manager_name VARCHAR(100),
-  ADD COLUMN IF NOT EXISTS email VARCHAR(100);
-
--- 既存の phone カラムから phone_number にデータをコピー（存在する場合）
+-- 1. managements_offices テーブルの修正（不要なカラムは追加しない）
+-- 既存の phone カラムがあれば削除
 DO $$ 
 BEGIN
   IF EXISTS (
@@ -18,14 +12,8 @@ BEGIN
     WHERE table_schema = 'master_data' 
       AND table_name = 'managements_offices' 
       AND column_name = 'phone'
-  ) AND NOT EXISTS (
-    SELECT 1 FROM information_schema.columns 
-    WHERE table_schema = 'master_data' 
-      AND table_name = 'managements_offices' 
-      AND column_name = 'phone_number'
   ) THEN
-    ALTER TABLE master_data.managements_offices 
-      RENAME COLUMN phone TO phone_number;
+    ALTER TABLE master_data.managements_offices DROP COLUMN phone;
   END IF;
 END $$;
 
@@ -35,18 +23,25 @@ ALTER TABLE master_data.bases
   ADD COLUMN IF NOT EXISTS address VARCHAR(200),
   ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20),
   ADD COLUMN IF NOT EXISTS phone_number VARCHAR(20),
-  ADD COLUMN IF NOT EXISTS manager_name VARCHAR(100),
-  ADD COLUMN IF NOT EXISTS email VARCHAR(100),
   ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 8),
-  ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8),
-  ADD COLUMN IF NOT EXISTS capacity INTEGER;
+  ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8);
 
 -- 既存の contact_info から phone_number にデータをコピー（可能な場合）
-UPDATE master_data.bases 
-SET phone_number = contact_info 
-WHERE phone_number IS NULL 
-  AND contact_info IS NOT NULL
-  AND contact_info ~ '^[0-9\-]+$';
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'master_data' 
+      AND table_name = 'bases' 
+      AND column_name = 'contact_info'
+  ) THEN
+    UPDATE master_data.bases 
+    SET phone_number = contact_info 
+    WHERE phone_number IS NULL 
+      AND contact_info IS NOT NULL
+      AND contact_info ~ '^[0-9\-]+$';
+  END IF;
+END $$;
 
 -- 3. vehicles テーブルの修正
 ALTER TABLE master_data.vehicles 
