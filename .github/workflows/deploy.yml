@@ -48,14 +48,22 @@ jobs:
             exit 1
           fi
       
-      - name: Remove old PORT environment variable
+      - name: Delete existing Cloud Run service (clean deploy)
         run: |
-          # 既存のサービスからPORT環境変数を削除（存在する場合）
-          gcloud run services update ${{ env.SERVICE_NAME }} \
-            --region=${{ env.REGION }} \
-            --project=${{ env.PROJECT_ID }} \
-            --remove-env-vars=PORT \
-            2>/dev/null || echo "Service doesn't exist yet or PORT not set, continuing..."
+          echo "Checking if service exists..."
+          if gcloud run services describe ${{ env.SERVICE_NAME }} \
+              --region=${{ env.REGION }} \
+              --project=${{ env.PROJECT_ID }} \
+              --format='value(metadata.name)' 2>/dev/null; then
+            echo "Deleting existing service for clean deployment..."
+            gcloud run services delete ${{ env.SERVICE_NAME }} \
+              --region=${{ env.REGION }} \
+              --project=${{ env.PROJECT_ID }} \
+              --quiet
+            echo "✅ Service deleted successfully"
+          else
+            echo "Service doesn't exist yet, proceeding with new deployment"
+          fi
       
       - name: Build and Deploy to Cloud Run
         run: |
