@@ -37,16 +37,5 @@ ENV NODE_ENV=production
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
   CMD node -e "const port = process.env.PORT || 8080; require('http').get('http://localhost:' + port + '/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# 起動前の確認
-RUN echo "🔍 Pre-flight checks:" && \
-    echo "Node version: $(node --version)" && \
-    echo "NPM version: $(npm --version)" && \
-    echo "Current user: $(whoami)" && \
-    echo "Working directory: $(pwd)" && \
-    echo "Files:" && ls -la
-
 # 本番モードで起動
-CMD echo "🚀 Starting application..." && \
-    echo "PORT: ${PORT:-8080}" && \
-    echo "NODE_ENV: $NODE_ENV" && \
-    node server.js
+CMD ["sh", "-c", "echo '🚀 Starting application...' && echo 'PORT:' ${PORT:-8080} && echo 'NODE_ENV:' $NODE_ENV && node server.js"]
