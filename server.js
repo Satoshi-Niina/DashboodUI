@@ -9,10 +9,16 @@ require('dotenv').config();
 console.log('🚀 Starting server...');
 console.log('Node version:', process.version);
 console.log('Environment:', process.env.NODE_ENV);
-console.log('PORT:', process.env.PORT);
+console.log('PORT from env:', process.env.PORT);
+console.log('Cloud SQL Instance:', process.env.CLOUD_SQL_INSTANCE);
+console.log('DB Name:', process.env.DB_NAME);
+console.log('DB User:', process.env.DB_USER);
+console.log('JWT_SECRET set:', !!process.env.JWT_SECRET);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+console.log(`✅ Will listen on port: ${PORT}`);
 
 console.log('Express app created');
 
@@ -210,9 +216,9 @@ async function testDatabaseConnection() {
   }
 }
 
-// サーバー起動後に接続テスト（複数回リトライ）
+// サーバー起動後に接続テスト（1回のみ高速チェック）
 let dbConnectionAttempts = 0;
-const maxDbAttempts = 3;
+const maxDbAttempts = 1;
 setImmediate(async () => {
   while (dbConnectionAttempts < maxDbAttempts) {
     dbConnectionAttempts++;
@@ -222,8 +228,8 @@ setImmediate(async () => {
       break;
     }
     if (dbConnectionAttempts < maxDbAttempts) {
-      console.log('Retrying in 5 seconds...');
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      console.log('Retrying in 2 seconds...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
 });

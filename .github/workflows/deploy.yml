@@ -66,6 +66,7 @@ jobs:
           fi
       
       - name: Build and Deploy to Cloud Run
+        id: deploy
         run: |
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --source . \
@@ -88,6 +89,17 @@ jobs:
             --timeout=900 \
             --cpu-boost \
             --no-cpu-throttling
+      
+      - name: Show logs on deployment failure
+        if: failure() && steps.deploy.outcome == 'failure'
+        run: |
+          echo "Deployment failed, fetching logs..."
+          echo "==================== CLOUD RUN LOGS ===================="
+          gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=${{ env.SERVICE_NAME }}" \
+            --limit=100 \
+            --format="table(timestamp,severity,textPayload)" \
+            --project=${{ env.PROJECT_ID }} \
+            --freshness=5m || echo "Failed to fetch logs"
       
       - name: Test Health Endpoint
         run: |
