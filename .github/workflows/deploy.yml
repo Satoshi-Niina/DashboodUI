@@ -66,9 +66,9 @@ jobs:
             --set-env-vars="CORS_ORIGIN=*" \
             --min-instances=0 \
             --max-instances=10 \
-            --memory=512Mi \
-            --cpu=1 \
-            --timeout=600 \
+            --memory=1Gi \
+            --cpu=2 \
+            --timeout=900 \
             --cpu-boost \
             --port=3000
       

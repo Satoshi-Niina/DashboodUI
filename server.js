@@ -110,6 +110,15 @@ app.get('/', (req, res) => {
 
 app.use(express.static(path.join(__dirname)));
 
+// ヘルスチェックエンドポイント（最優先）
+app.get('/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
+app.get('/_ah/health', (req, res) => {
+  res.status(200).send('OK');
+});
+
 // Database Pool
 // Cloud Run環境では環境変数から個別に取得するか、接続文字列を使用
 const isProduction = process.env.NODE_ENV === 'production';
@@ -150,8 +159,19 @@ console.log('Database config (password hidden):', {
 });
 
 console.log('Creating database pool...');
-const pool = new Pool(poolConfig);
-console.log('Pool created successfully');
+let pool;
+try {
+  pool = new Pool(poolConfig);
+  console.log('Pool created successfully');
+} catch (err) {
+  console.error('Failed to create pool:', err);
+  // Create dummy pool that throws errors
+  pool = {
+    query: () => Promise.reject(new Error('Database not initialized')),
+    end: () => {},
+    on: () => {}
+  };
+}
 
 // Error handling for pool
 pool.on('error', (err) => {
@@ -1686,15 +1706,22 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 });
 
 // サーバー起動
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Server is running on port ${PORT}`);
+console.log(`Starting server on port ${PORT}...`);
+const server = app.listen(PORT, '0.0.0.0', (err) => {
+  if (err) {
+    console.error('❌ Failed to start server:', err);
+    process.exit(1);
+  }
+  console.log(`✅ Server listening on 0.0.0.0:${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`Database connection configured for: ${isProduction && process.env.CLOUD_SQL_INSTANCE ? 'Cloud SQL' : 'Local PostgreSQL'}`);
-  console.log(`Ready to accept connections`);
+  console.log(`Health check available at /health`);
 });
 
 server.on('error', (err) => {
-  console.error('❌ Server failed to start:', err);
+  console.error('❌ Server error:', err);
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is already in use`);
+  }
   process.exit(1);
 });
 
