@@ -572,10 +572,31 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 
 // ========== 保守用車マスタ API ==========
 
-// 保守用車一覧取得エンドポイント
+// 保守用車一覧取得エンドポイント（機種・機械番号・管理事業所を結合）
 app.get('/api/vehicles', requireAdmin, async (req, res) => {
   try {
-    const query = 'SELECT vehicle_id, vehicle_type, vehicle_number, model, manufacturer, registration_number, purchase_date, base_id, status, notes, created_at, updated_at FROM master_data.vehicles ORDER BY vehicle_id ASC';
+    const query = `
+      SELECT 
+        v.vehicle_id,
+        v.vehicle_number,
+        v.vehicle_type,
+        v.model,
+        v.registration_number,
+        v.machine_id,
+        m.machine_number,
+        mt.type_code as machine_type_code,
+        mt.type_name as machine_type_name,
+        v.office_id,
+        o.office_name,
+        v.notes,
+        v.created_at,
+        v.updated_at
+      FROM master_data.vehicles v
+      LEFT JOIN public.machines m ON v.machine_id = m.id
+      LEFT JOIN public.machine_types mt ON m.machine_type_id = mt.id
+      LEFT JOIN master_data.managements_offices o ON v.office_id = o.office_id
+      ORDER BY v.vehicle_id DESC
+    `;
     const result = await pool.query(query);
     res.json({ success: true, vehicles: result.rows });
   } catch (err) {
@@ -589,29 +610,28 @@ app.get('/api/vehicles/:id', requireAdmin, async (req, res) => {
   const vehicleId = req.params.id;
 
   try {
-    const query = 'SELECT vehicle_id, vehicle_type, vehicle_number, model, manufacturer, registration_number, purchase_date, base_id, status, notes FROM master_data.vehicles WHERE vehicle_id = $1';
+    const query = `
+      SELECT 
+        v.vehicle_id,
+        v.vehicle_number,
+        v.vehicle_type,
+        v.model,
+        v.registration_number,
+        v.machine_id,
+        v.office_id,
+        v.notes
+      FROM master_data.vehicles v
+      WHERE v.vehicle_id = $1
+    `;
     const result = await pool.query(query, [vehicleId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: '車両が見つかりません' });
-    }
-
-    res.json({ success: true, vehicle: result.rows[0] });
-  } catch (err) {
-    console.error('Vehicle get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
-  }
-});
-
-// 保守用車追加エンドポイント
-app.post('/api/vehicles', requireAdmin, async (req, res) => {
-  try {
-    const { vehicle_type, vehicle_number, model, registration_number, status, notes } = req.body;
-    const username = req.user.username;
+    }achine_id, office_id, model, registration_number, notes } = req.body;
 
     // バリデーション
-    if (!vehicle_type || !vehicle_number) {
-      return res.status(400).json({ success: false, message: '機種と機械番号は必須です' });
+    if (!vehicle_number) {
+      return res.status(400).json({ success: false, message: '機械番号は必須です' });
     }
 
     // 機械番号の重複チェック
@@ -619,15 +639,26 @@ app.post('/api/vehicles', requireAdmin, async (req, res) => {
     const checkResult = await pool.query(checkQuery, [vehicle_number]);
 
     if (checkResult.rows.length > 0) {
-      return res.status(400).json({ success: false, message: 'この機械番号は既に使用されています' });
+      return res.status(400).json({ success: false, message: 'この車両番号は既に使用されています' });
     }
 
     // 車両を追加
     const insertQuery = `
-      INSERT INTO master_data.vehicles (vehicle_type, vehicle_number, model, manufacturer, registration_number, purchase_date, base_id, status, notes, created_by, updated_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING vehicle_id, vehicle_type, vehicle_number, model, registration_number, status, notes
+      INSERT INTO master_data.vehicles (vehicle_type, vehicle_number, machine_id, office_id, model, registration_number, notes)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING vehicle_id, vehicle_type, vehicle_number, machine_id, office_id, model, registration_number, notes
     `;
+    const result = await pool.query(insertQuery, [
+      vehicle_type || null,
+      vehicle_number,
+      machine_id || null,
+      office_id || null,
+      model || null,
+      registration_number || null,
+      notes || null
+    ]);
+
+    res.json({ success: true, vehicle: result.rows[0], message: '保守用車
     const result = await pool.query(insertQuery, [
       vehicle_type,
       vehicle_number,
@@ -651,37 +682,39 @@ app.put('/api/vehicles/:id', requireAdmin, async (req, res) => {
   const vehicleId = req.params.id;
   const username = req.user.username;
   
+  
   try {
-    const { vehicle_type, vehicle_number, model, registration_number, status, notes } = req.body;
+    const { vehicle_type, vehicle_number, machine_id, office_id, model, registration_number, notes } = req.body;
 
     // バリデーション
-    if (!vehicle_type || !vehicle_number) {
-      return res.status(400).json({ success: false, message: '機種と機械番号は必須です' });
+    if (!vehicle_number) {
+      return res.status(400).json({ success: false, message: '車両番号は必須です' });
     }
 
-    // 機械番号の重複チェック（自分以外）
+    // 車両番号の重複チェック（自分以外）
     const checkQuery = 'SELECT vehicle_id FROM master_data.vehicles WHERE vehicle_number = $1 AND vehicle_id != $2';
     const checkResult = await pool.query(checkQuery, [vehicle_number, vehicleId]);
 
     if (checkResult.rows.length > 0) {
-      return res.status(400).json({ success: false, message: 'この機械番号は既に使用されています' });
+      return res.status(400).json({ success: false, message: 'この車両番号は既に使用されています' });
     }
 
     // 車両を更新
     const updateQuery = `
       UPDATE master_data.vehicles 
-      SET vehicle_type = $1, vehicle_number = $2, model = $3, registration_number = $4, status = $5, notes = $6, updated_by = $7, updated_at = CURRENT_TIMESTAMP
+      SET vehicle_type = $1, vehicle_number = $2, machine_id = $3, office_id = $4, 
+          model = $5, registration_number = $6, notes = $7, updated_at = CURRENT_TIMESTAMP
       WHERE vehicle_id = $8
-      RETURNING vehicle_id, vehicle_type, vehicle_number, model, registration_number, status, notes
+      RETURNING vehicle_id, vehicle_type, vehicle_number, machine_id, office_id, model, registration_number, notes
     `;
     const result = await pool.query(updateQuery, [
-      vehicle_type,
+      vehicle_type || null,
       vehicle_number,
+      machine_id || null,
+      office_id || null,
       model || null,
       registration_number || null,
-      status || 'active',
       notes || null,
-      username,
       vehicleId
     ]);
 
@@ -689,9 +722,7 @@ app.put('/api/vehicles/:id', requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: '車両が見つかりません' });
     }
 
-    res.json({ success: true, vehicle: result.rows[0], message: '車両を更新しました' });
-  } catch (err) {
-    console.error('Vehicle update error:', err);
+    res.json({ success: true, vehicle: result.rows[0], message: '保守用車
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
   }
 });
@@ -1461,6 +1492,172 @@ app.post('/debug/test-login', async (req, res) => {
       success: false, 
       error: err.message 
     });
+  }
+});
+
+// ========================================
+// 機種マスタ・機械番号マスタ API (統合表示用)
+// ========================================
+
+// 機種マスタ一覧取得
+app.get('/api/machine-types', requireAdmin, async (req, res) => {
+  try {
+    const query = 'SELECT * FROM public.machine_types ORDER BY type_code';
+    const result = await pool.query(query);
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    console.error('Machine types get error:', err);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+  }
+});
+
+// 機種マスタ追加
+app.post('/api/machine-types', requireAdmin, async (req, res) => {
+  try {
+    const { type_code, type_name, manufacturer, category, description } = req.body;
+    
+    if (!type_code || !type_name) {
+      return res.status(400).json({ success: false, message: '機種コードと機種名は必須です' });
+    }
+    
+    const query = `
+      INSERT INTO public.machine_types (type_code, type_name, manufacturer, category, description)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *
+    `;
+    const result = await pool.query(query, [type_code, type_name, manufacturer, category, description]);
+    res.json({ success: true, data: result.rows[0], message: '機種を追加しました' });
+  } catch (err) {
+    console.error('Machine type create error:', err);
+    if (err.code === '23505') {
+      res.status(409).json({ success: false, message: 'この機種コードは既に登録されています' });
+    } else {
+      res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    }
+  }
+});
+
+// 機械番号マスタ一覧取得（機種情報も含む統合ビュー）
+app.get('/api/machines', requireAdmin, async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        m.id as machine_id,
+        m.machine_number,
+        m.serial_number,
+        m.manufacture_date,
+        m.purchase_date,
+        m.status,
+        m.assigned_base_id,
+        m.notes,
+        m.machine_type_id,
+        mt.type_code,
+        mt.type_name,
+        mt.manufacturer,
+        mt.category,
+        b.base_name,
+        m.created_at,
+        m.updated_at
+      FROM public.machines m
+      LEFT JOIN public.machine_types mt ON m.machine_type_id = mt.id
+      LEFT JOIN master_data.bases b ON m.assigned_base_id = b.base_id
+      ORDER BY m.machine_number
+    `;
+    const result = await pool.query(query);
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    console.error('Machines get error:', err);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+  }
+});
+
+// 機械番号マスタ追加
+app.post('/api/machines', requireAdmin, async (req, res) => {
+  try {
+    const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, status, assigned_base_id, notes } = req.body;
+    
+    if (!machine_number || !machine_type_id) {
+      return res.status(400).json({ success: false, message: '機械番号と機種は必須です' });
+    }
+    
+    const query = `
+      INSERT INTO public.machines (machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, status, assigned_base_id, notes)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *
+    `;
+    const result = await pool.query(query, [
+      machine_number,
+      machine_type_id,
+      serial_number,
+      manufacture_date,
+      purchase_date,
+      status || 'active',
+      assigned_base_id,
+      notes
+    ]);
+    res.json({ success: true, data: result.rows[0], message: '機械を追加しました' });
+  } catch (err) {
+    console.error('Machine create error:', err);
+    if (err.code === '23505') {
+      res.status(409).json({ success: false, message: 'この機械番号は既に登録されています' });
+    } else {
+      res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    }
+  }
+});
+
+// 機械番号マスタ更新
+app.put('/api/machines/:id', requireAdmin, async (req, res) => {
+  try {
+    const machineId = req.params.id;
+    const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, status, assigned_base_id, notes } = req.body;
+    
+    const query = `
+      UPDATE public.machines 
+      SET machine_number = $1, machine_type_id = $2, serial_number = $3, 
+          manufacture_date = $4, purchase_date = $5, status = $6, 
+          assigned_base_id = $7, notes = $8, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $9
+      RETURNING *
+    `;
+    const result = await pool.query(query, [
+      machine_number,
+      machine_type_id,
+      serial_number,
+      manufacture_date,
+      purchase_date,
+      status,
+      assigned_base_id,
+      notes,
+      machineId
+    ]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: '機械が見つかりません' });
+    }
+    
+    res.json({ success: true, data: result.rows[0], message: '機械を更新しました' });
+  } catch (err) {
+    console.error('Machine update error:', err);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+  }
+});
+
+// 機械番号マスタ削除
+app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
+  try {
+    const machineId = req.params.id;
+    const query = 'DELETE FROM public.machines WHERE id = $1 RETURNING machine_number';
+    const result = await pool.query(query, [machineId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: '機械が見つかりません' });
+    }
+    
+    res.json({ success: true, message: '機械を削除しました' });
+  } catch (err) {
+    console.error('Machine delete error:', err);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
   }
 });
 

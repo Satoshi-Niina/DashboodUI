@@ -34,6 +34,10 @@
                 <span class="tab-icon">🚛</span>
                 <span class="tab-label">保守用車マスタ</span>
             </button>
+            <button class="tab-button" data-tab="machine-master">
+                <span class="tab-icon">⚙️</span>
+                <span class="tab-label">機種・機械番号マスタ</span>
+            </button>
             <button class="tab-button" data-tab="database-management">
                 <span class="tab-icon">💾</span>
                 <span class="tab-label">データベース管理</span>
@@ -116,6 +120,39 @@
                     </div>
 
                     <div id="bases-list" class="vehicles-list">
+                        <p class="loading">読み込み中...</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 機種・機械番号マスタタブ -->
+            <div id="machine-master-tab" class="tab-content" style="display: none;">
+                <div class="info-banner">
+                    <p>💡 機種マスタと機械番号を統合管理します。機種を選択して機械番号を登録できます。</p>
+                </div>
+
+                <!-- 機種マスタセクション -->
+                <section class="config-section">
+                    <h2>📋 機種マスタ</h2>
+                    <div class="user-actions">
+                        <button type="button" id="add-new-machine-type-btn" class="btn-primary">
+                            ➕ 新規機種追加
+                        </button>
+                    </div>
+                    <div id="machine-types-list" class="data-table-wrapper">
+                        <p class="loading">読み込み中...</p>
+                    </div>
+                </section>
+
+                <!-- 機械番号マスタセクション -->
+                <section class="config-section">
+                    <h2>🔧 機械番号マスタ（機種情報付き）</h2>
+                    <div class="user-actions">
+                        <button type="button" id="add-new-machine-btn" class="btn-primary">
+                            ➕ 新規機械追加
+                        </button>
+                    </div>
+                    <div id="machines-list" class="data-table-wrapper">
                         <p class="loading">読み込み中...</p>
                     </div>
                 </section>
@@ -416,18 +453,27 @@
                 <input type="hidden" id="vehicle-id" name="vehicle_id">
                 
                 <div class="form-group">
-                    <label for="vehicle-type">機種 *</label>
-                    <input type="text" id="vehicle-type" name="vehicle_type" required placeholder="例: ダンプトラック、クレーン車">
+                    <label for="vehicle-machine-type">機種</label>
+                    <select id="vehicle-machine-type" name="machine_type_id">
+                        <option value="">-- 機種を選択 --</option>
+                    </select>
                 </div>
 
                 <div class="form-group">
-                    <label for="vehicle-number">機械番号 *</label>
-                    <input type="text" id="vehicle-number" name="vehicle_number" required placeholder="例: MT-001">
+                    <label for="vehicle-machine">機械番号 *</label>
+                    <select id="vehicle-machine" name="machine_id" required>
+                        <option value="">-- 機械番号を選択 --</option>
+                    </select>
                 </div>
 
                 <div class="form-group">
-                    <label for="vehicle-model">型式</label>
-                    <input type="text" id="vehicle-model" name="model" placeholder="例: DT-2024">
+                    <label for="vehicle-number">車両番号</label>
+                    <input type="text" id="vehicle-number" name="vehicle_number" placeholder="例: V-001">
+                </div>
+
+                <div class="form-group">
+                    <label for="vehicle-type-text">型式</label>
+                    <input type="text" id="vehicle-type-text" name="vehicle_type" placeholder="例: DT-2024">
                 </div>
 
                 <div class="form-group">
@@ -436,11 +482,9 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="vehicle-status">状態 *</label>
-                    <select id="vehicle-status" name="status" required>
-                        <option value="active">稼働中</option>
-                        <option value="maintenance">整備中</option>
-                        <option value="inactive">停止中</option>
+                    <label for="vehicle-office">管理事業所</label>
+                    <select id="vehicle-office" name="office_id">
+                        <option value="">-- 事業所を選択 --</option>
                     </select>
                 </div>
 
@@ -452,6 +496,115 @@
                 <div class="form-actions">
                     <button type="submit" class="btn-primary" id="submit-vehicle-btn">保存</button>
                     <button type="button" class="btn-secondary" id="cancel-vehicle-btn">キャンセル</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 機種マスタ追加・編集モーダル -->
+    <div id="machine-type-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="machine-type-modal-title">機種を追加</h3>
+                <button class="modal-close" id="machine-type-modal-close">&times;</button>
+            </div>
+            <form id="machine-type-form">
+                <input type="hidden" id="machine-type-id" name="type_id">
+                
+                <div class="form-group">
+                    <label for="type-code">機種コード *</label>
+                    <input type="text" id="type-code" name="type_code" required placeholder="例: DT-01">
+                </div>
+
+                <div class="form-group">
+                    <label for="type-name">機種名 *</label>
+                    <input type="text" id="type-name" name="type_name" required placeholder="例: ダンプトラック10t">
+                </div>
+
+                <div class="form-group">
+                    <label for="manufacturer">メーカー</label>
+                    <input type="text" id="manufacturer" name="manufacturer" placeholder="例: コマツ">
+                </div>
+
+                <div class="form-group">
+                    <label for="category">カテゴリ</label>
+                    <input type="text" id="category" name="category" placeholder="例: 運搬車両">
+                </div>
+
+                <div class="form-group">
+                    <label for="type-description">説明</label>
+                    <textarea id="type-description" name="description" rows="3"></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">保存</button>
+                    <button type="button" class="btn-secondary" id="cancel-machine-type-btn">キャンセル</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 機械番号マスタ追加・編集モーダル -->
+    <div id="machine-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="machine-modal-title">機械を追加</h3>
+                <button class="modal-close" id="machine-modal-close">&times;</button>
+            </div>
+            <form id="machine-form">
+                <input type="hidden" id="machine-id" name="machine_id">
+                
+                <div class="form-group">
+                    <label for="machine-type-select">機種 *</label>
+                    <select id="machine-type-select" name="machine_type_id" required>
+                        <option value="">-- 機種を選択 --</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="machine-number">機械番号 *</label>
+                    <input type="text" id="machine-number" name="machine_number" required placeholder="例: M-12345">
+                </div>
+
+                <div class="form-group">
+                    <label for="serial-number">シリアル番号</label>
+                    <input type="text" id="serial-number" name="serial_number" placeholder="例: SN123456789">
+                </div>
+
+                <div class="form-group">
+                    <label for="manufacture-date">製造年月日</label>
+                    <input type="date" id="manufacture-date" name="manufacture_date">
+                </div>
+
+                <div class="form-group">
+                    <label for="purchase-date">購入年月日</label>
+                    <input type="date" id="purchase-date" name="purchase_date">
+                </div>
+
+                <div class="form-group">
+                    <label for="machine-status">ステータス *</label>
+                    <select id="machine-status" name="status" required>
+                        <option value="active">稼働中</option>
+                        <option value="maintenance">保守中</option>
+                        <option value="retired">廃棄</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="assigned-base">配属基地</label>
+                    <select id="assigned-base" name="assigned_base_id">
+                        <option value="">-- 配属基地を選択 --</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="machine-notes">備考</label>
+                    <textarea id="machine-notes" name="notes" rows="3"></textarea>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">保存</button>
+                    <button type="button" class="btn-secondary" id="cancel-machine-btn">キャンセル</button>
                 </div>
             </form>
         </div>
