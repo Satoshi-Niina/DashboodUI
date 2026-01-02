@@ -64,13 +64,16 @@ jobs:
             --set-env-vars="DB_NAME=${{ secrets.DB_NAME }}" \
             --set-env-vars="JWT_SECRET=${{ secrets.JWT_SECRET }}" \
             --set-env-vars="CORS_ORIGIN=*" \
+            --set-env-vars="PORT=3000" \
             --min-instances=0 \
             --max-instances=10 \
             --memory=1Gi \
             --cpu=2 \
             --timeout=900 \
             --cpu-boost \
-            --port=3000
+            --port=3000 \
+            --max-retries=3 \
+            --no-cpu-throttling
       
       - name: Test Health Endpoint
         run: |
@@ -79,8 +82,28 @@ jobs:
             --format='value(status.url)')
           echo "Service URL: $SERVICE_URL"
           echo "Testing health endpoint..."
-          sleep 10  # サービス起動を待つ
-          curl -f "$SERVICE_URL/health" || echo "Health check failed, but continuing..."
+          
+          # サービス起動を待つ（最大60秒）
+          MAX_WAIT=60
+          WAIT_TIME=0
+          while [ $WAIT_TIME -lt $MAX_WAIT ]; do
+            if curl -f -s "$SERVICE_URL/health" > /dev/null 2>&1; then
+              echo "✅ Health check passed!"
+              curl "$SERVICE_URL/health"
+              break
+            fi
+            echo "Waiting for service to be ready... ($WAIT_TIME/$MAX_WAIT)"
+            sleep 5
+            WAIT_TIME=$((WAIT_TIME + 5))
+          done
+          
+          if [ $WAIT_TIME -ge $MAX_WAIT ]; then
+            echo "⚠️ Health check timeout, checking logs..."
+            gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=${{ env.SERVICE_NAME }}" \
+              --limit=50 \
+              --format=json \
+              --project=${{ env.PROJECT_ID }} || true
+          fi
       
       - name: Show Deployment Info
         run: |

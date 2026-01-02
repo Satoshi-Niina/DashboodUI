@@ -25,7 +25,8 @@ ENV NODE_ENV=production
 ENV PORT=3000
 
 # ヘルスチェック（/healthエンドポイントを使用）
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+# Cloud Runではstart-periodを長めに設定してDB接続を待つ
+HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # 本番モードで起動

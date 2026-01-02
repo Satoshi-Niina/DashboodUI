@@ -34,6 +34,12 @@ app.use(express.json());
 
 console.log('Middleware configured');
 
+// JWT_SECRETの設定確認と警告
+if (!process.env.JWT_SECRET) {
+  console.warn('⚠️ JWT_SECRET not set, using default (NOT SECURE FOR PRODUCTION)');
+  process.env.JWT_SECRET = 'default-jwt-secret-change-me-in-production';
+}
+
 // データベースから設定を取得するヘルパー関数
 async function getConfigFromDB(key, defaultValue) {
   try {
@@ -162,12 +168,13 @@ console.log('Creating database pool...');
 let pool;
 try {
   pool = new Pool(poolConfig);
-  console.log('Pool created successfully');
+  console.log('✅ Pool created successfully');
 } catch (err) {
-  console.error('Failed to create pool:', err);
+  console.error('❌ Failed to create pool:', err);
+  console.error('Stack:', err.stack);
   // Create dummy pool that throws errors
   pool = {
-    query: () => Promise.reject(new Error('Database not initialized')),
+    query: () => Promise.reject(new Error('Database not initialized: ' + err.message)),
     end: () => {},
     on: () => {}
   };
@@ -181,22 +188,43 @@ pool.on('error', (err) => {
 
 // Test DB Connection (非同期で実行、サーバー起動をブロックしない)
 async function testDatabaseConnection() {
+  console.log('🔍 Testing database connection...');
   try {
     const res = await pool.query('SELECT NOW()');
     console.log('✅ Database connected successfully at:', res.rows[0].now);
+    return true;
   } catch (err) {
     console.error('⚠️ Database connection error:', err.message);
+    console.error('Error code:', err.code);
     console.error('Connection config:', { 
       host: poolConfig.host, 
       user: poolConfig.user, 
-      database: poolConfig.database 
+      database: poolConfig.database,
+      cloudSqlInstance: process.env.CLOUD_SQL_INSTANCE
     });
-    console.error('Server will continue running but database operations will fail');
+    console.error('Full error:', err);
+    console.error('⚠️ Server will continue running but database operations will fail');
+    return false;
   }
 }
 
-// サーバー起動後に接続テスト
-setImmediate(testDatabaseConnection);
+// サーバー起動後に接続テスト（複数回リトライ）
+let dbConnectionAttempts = 0;
+const maxDbAttempts = 3;
+setImmediate(async () => {
+  while (dbConnectionAttempts < maxDbAttempts) {
+    dbConnectionAttempts++;
+    console.log(`Database connection attempt ${dbConnectionAttempts}/${maxDbAttempts}`);
+    const connected = await testDatabaseConnection();
+    if (connected) {
+      break;
+    }
+    if (dbConnectionAttempts < maxDbAttempts) {
+      console.log('Retrying in 5 seconds...');
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+  }
+});
 
 // Middleware: トークン認証
 function authenticateToken(req, res, next) {
@@ -1757,9 +1785,12 @@ const server = app.listen(PORT, '0.0.0.0', (err) => {
     console.error('❌ Failed to start server:', err);
     process.exit(1);
   }
-  console.log(`✅ Server listening on 0.0.0.0:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`Health check available at /health`);
+  console.log('=' .repeat(60));
+  console.log(`✅✅✅ SERVER STARTED SUCCESSFULLY ✅✅✅`);
+  console.log(`🌐 Listening on 0.0.0.0:${PORT}`);
+  console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`❤️ Health check: http://0.0.0.0:${PORT}/health`);
+  console.log('=' .repeat(60));
 });
 
 server.on('error', (err) => {
