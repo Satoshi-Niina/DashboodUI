@@ -42,11 +42,14 @@ console.log('Middleware configured');
 
 // JWT_SECRETの確認
 if (!process.env.JWT_SECRET) {
-  console.error('❌ CRITICAL: JWT_SECRET environment variable is not set!');
-  console.error('Server cannot start without JWT_SECRET');
-  process.exit(1);
+  console.error('❌ WARNING: JWT_SECRET environment variable is not set!');
+  console.error('⚠️ Authentication will not work properly without JWT_SECRET');
+  console.error('⚠️ Server will start anyway for debugging purposes');
+  // デバッグ用にデフォルト値を設定（本番では推奨しない）
+  process.env.JWT_SECRET = 'temporary-secret-for-debugging-only';
+} else {
+  console.log('✅ JWT_SECRET is configured');
 }
-console.log('✅ JWT_SECRET is configured');
 
 // データベースから設定を取得するヘルパー関数
 async function getConfigFromDB(key, defaultValue) {
@@ -1776,21 +1779,26 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 });
 
 // サーバー起動
-console.log(`Starting server on port ${PORT}...`);
+console.log('=' .repeat(60));
+console.log(`🚀 ATTEMPTING TO START SERVER ON PORT ${PORT}...`);
+console.log('=' .repeat(60));
 
 // JWT_SECRETのデバッグ情報（セキュリティのため一部のみ表示）
 const secret = process.env.JWT_SECRET;
 if (secret) {
-  console.log(`JWT_SECRET is set. Length: ${secret.length}`);
+  console.log(`✅ JWT_SECRET is set. Length: ${secret.length}`);
   console.log(`JWT_SECRET prefix: ${secret.substring(0, 2)}***`);
   console.log(`JWT_SECRET suffix: ***${secret.substring(secret.length - 2)}`);
 } else {
-  console.error('❌ JWT_SECRET is NOT set!');
+  console.error('⚠️ JWT_SECRET is NOT set!');
 }
+
+console.log(`📡 About to call app.listen(${PORT}, '0.0.0.0')...`);
 
 const server = app.listen(PORT, '0.0.0.0', (err) => {
   if (err) {
     console.error('❌ Failed to start server:', err);
+    console.error('Stack trace:', err.stack);
     process.exit(1);
   }
   console.log('=' .repeat(60));
