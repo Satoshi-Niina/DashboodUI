@@ -140,19 +140,30 @@ console.log('Database config (password hidden):', {
 
 const pool = new Pool(poolConfig);
 
-// Test DB Connection
-pool.query('SELECT NOW()', (err, res) => {
-  if (err) {
-    console.error('Database connection error:', err);
+// Error handling for pool
+pool.on('error', (err) => {
+  console.error('Unexpected error on idle client', err);
+  // Don't exit the process
+});
+
+// Test DB Connection (非同期で実行、サーバー起動をブロックしない)
+async function testDatabaseConnection() {
+  try {
+    const res = await pool.query('SELECT NOW()');
+    console.log('✅ Database connected successfully at:', res.rows[0].now);
+  } catch (err) {
+    console.error('⚠️ Database connection error:', err.message);
     console.error('Connection config:', { 
       host: poolConfig.host, 
       user: poolConfig.user, 
       database: poolConfig.database 
     });
-  } else {
-    console.log('Database connected successfully at:', res.rows[0].now);
+    console.error('Server will continue running but database operations will fail');
   }
-});
+}
+
+// サーバー起動後に接続テスト
+setImmediate(testDatabaseConnection);
 
 // Middleware: トークン認証
 function authenticateToken(req, res, next) {
