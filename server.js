@@ -246,7 +246,10 @@ function authenticateToken(req, res, next) {
     return res.status(401).json({ success: false, message: 'トークンが提供されていません' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET, {
+    issuer: 'emergency-assistance-app',
+    audience: 'emergency-assistance-app'
+  }, (err, user) => {
     if (err) {
       return res.status(403).json({ success: false, message: 'トークンが無効です' });
     }
@@ -260,9 +263,8 @@ app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    // ユーザー名で検索
-    // image.pngに、usersテーブルにusername, passwordカラムがあることが確認できる
-    const query = 'SELECT * FROM master_data.users WHERE username = $1';
+    // ユーザー名で検索（departmentカラムも取得）
+    const query = 'SELECT id, username, password, display_name, role, department FROM master_data.users WHERE username = $1';
     const result = await pool.query(query, [username]);
 
     if (result.rows.length === 0) {
@@ -298,8 +300,44 @@ app.post('/api/login', async (req, res) => {
     }
 
     if (match) {
-      // 認証成功
-      const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
+      // 認証成功 - Emergency-Assistanceと互換性のあるトークンを生成
+      // department情報を取得（存在しない場合はロールに基づいてデフォルト値を設定）
+      let department = user.department;
+      if (!department) {
+        // roleに基づいてデフォルトのdepartmentを設定
+        if (user.role === 'system_admin') {
+          department = 'システム管理部';
+        } else if (user.role === 'operation_admin') {
+          department = '運用管理部';
+        } else {
+          department = '未設定';
+        }
+      }
+
+      const payload = {
+        id: user.id,
+        username: user.username,
+        displayName: user.display_name,  // Emergency-Assistanceで必要
+        role: user.role,
+        department: department,  // Emergency-Assistanceで必要
+        iat: Math.floor(Date.now() / 1000)  // 発行時刻を明示
+      };
+
+      const token = jwt.sign(payload, process.env.JWT_SECRET, {
+        expiresIn: '4h',  // Emergency-Assistanceと同じ
+        issuer: 'emergency-assistance-app',  // Emergency-Assistanceと同じ
+        audience: 'emergency-assistance-app'  // Emergency-Assistanceと同じ
+      });
+
+      console.log('[Login] 🎫 JWT Token generated:', {
+        userId: user.id,
+        username: user.username,
+        tokenLength: token.length,
+        issuer: 'emergency-assistance-app',
+        audience: 'emergency-assistance-app',
+        expiresIn: '4h'
+      });
+
       res.json({ success: true, token, user: { username: user.username, displayName: user.display_name, role: user.role } });
     } else {
       // パスワード不一致
@@ -326,10 +364,13 @@ app.post('/api/verify-token', async (req, res) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+      issuer: 'emergency-assistance-app',
+      audience: 'emergency-assistance-app'
+    });
     
-    // ユーザー情報を取得
-    const query = 'SELECT id, username, display_name, role FROM master_data.users WHERE id = $1';
+    // ユーザー情報を取得（departmentカラムも取得）
+    const query = 'SELECT id, username, display_name, role, department FROM master_data.users WHERE id = $1';
     const result = await pool.query(query, [decoded.id]);
 
     if (result.rows.length === 0) {
@@ -384,14 +425,41 @@ app.post('/api/refresh-token', async (req, res) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Emergency-Assistanceと同じ検証オプションを使用
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+      issuer: 'emergency-assistance-app',
+      audience: 'emergency-assistance-app'
+    });
     
-    // 新しいトークンを発行
-    const newToken = jwt.sign(
-      { id: decoded.id, username: decoded.username }, 
-      process.env.JWT_SECRET, 
-      { expiresIn: '1h' }
-    );
+    // 新しいトークンを発行（Emergency-Assistanceと互換性のある形式）
+    // departmentが存在しない場合のフォールバック処理
+    let department = decoded.department;
+    if (!department) {
+      if (decoded.role === 'system_admin') {
+        department = 'システム管理部';
+      } else if (decoded.role === 'operation_admin') {
+        department = '運用管理部';
+      } else {
+        department = '未設定';
+      }
+    }
+
+    const payload = {
+      id: decoded.id,
+      username: decoded.username,
+      displayName: decoded.displayName,
+      role: decoded.role,
+      department: department,
+      iat: Math.floor(Date.now() / 1000)
+    };
+
+    const newToken = jwt.sign(payload, process.env.JWT_SECRET, {
+      expiresIn: '4h',
+      issuer: 'emergency-assistance-app',
+      audience: 'emergency-assistance-app'
+    });
+
+    console.log('[TokenRefresh] 🔄 Token refreshed for user:', decoded.username);
 
     res.json({ success: true, token: newToken });
   } catch (err) {
@@ -409,8 +477,12 @@ async function requireAdmin(req, res, next) {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const query = 'SELECT id, username, role FROM master_data.users WHERE id = $1';
+    // Emergency-Assistanceと同じ検証オプションを使用
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+      issuer: 'emergency-assistance-app',
+      audience: 'emergency-assistance-app'
+    });
+    const query = 'SELECT id, username, role, department FROM master_data.users WHERE id = $1';
     const result = await pool.query(query, [decoded.id]);
 
     if (result.rows.length === 0) {
@@ -586,7 +658,10 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 
   try {
     // トークンを検証
-    jwt.verify(token, process.env.JWT_SECRET);
+    jwt.verify(token, process.env.JWT_SECRET, {
+      issuer: 'emergency-assistance-app',
+      audience: 'emergency-assistance-app'
+    });
     
     const { username, display_name, password, role } = req.body;
 
@@ -656,7 +731,10 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 
   try {
     // トークンを検証
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+      issuer: 'emergency-assistance-app',
+      audience: 'emergency-assistance-app'
+    });
     
     // 自分自身を削除しようとしていないかチェック
     if (decoded.id === parseInt(userId)) {
