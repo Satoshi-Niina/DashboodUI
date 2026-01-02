@@ -82,13 +82,14 @@ jobs:
             --set-env-vars="DB_NAME=${{ secrets.DB_NAME }}" \
             --set-env-vars="JWT_SECRET=${{ secrets.JWT_SECRET }}" \
             --set-env-vars="CORS_ORIGIN=*" \
-            --min-instances=0 \
+            --min-instances=1 \
             --max-instances=10 \
-            --memory=1Gi \
+            --memory=2Gi \
             --cpu=2 \
-            --timeout=900 \
+            --timeout=3600 \
             --cpu-boost \
-            --no-cpu-throttling
+            --no-cpu-throttling \
+            --startup-cpu-boost
       
       - name: Show logs on deployment failure
         if: failure() && steps.deploy.outcome == 'failure'
