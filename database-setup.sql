@@ -36,7 +36,10 @@ CREATE TABLE IF NOT EXISTS master_data.managements_offices (
     office_name VARCHAR(100) NOT NULL,
     office_type VARCHAR(50),
     address VARCHAR(200),
-    phone VARCHAR(20),
+    postal_code VARCHAR(20),
+    phone_number VARCHAR(20),
+    manager_name VARCHAR(100),
+    email VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -47,17 +50,26 @@ CREATE TABLE IF NOT EXISTS master_data.bases (
     base_code VARCHAR(20) UNIQUE NOT NULL,
     base_name VARCHAR(100) NOT NULL,
     office_id INTEGER,
+    location VARCHAR(200),
     address VARCHAR(200),
-    contact_info VARCHAR(100),
+    postal_code VARCHAR(20),
+    phone_number VARCHAR(20),
+    manager_name VARCHAR(100),
+    email VARCHAR(100),
+    latitude DECIMAL(10, 8),
+    longitude DECIMAL(11, 8),
+    capacity INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (office_id) REFERENCES master_data.managements_offices(office_id)
 );
 
 -- 保守用車マスタ（既存: vehicles）
 CREATE TABLE IF NOT EXISTS master_data.vehicles (
     vehicle_id SERIAL PRIMARY KEY,
-    vehicle_type VARCHAR(50) NOT NULL,
     vehicle_number VARCHAR(50) UNIQUE NOT NULL,
+    machine_id INTEGER,
+    office_id INTEGER,
     model VARCHAR(50),
     registration_number VARCHAR(50),
     status VARCHAR(20) DEFAULT 'active',
