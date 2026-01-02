@@ -152,6 +152,20 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // 準備中またはローカルホストの場合は警告
+        if (baseUrl.includes('準備中') || baseUrl === 'https://準備中') {
+            alert('このシステムは準備中です。\nまもなく公開予定です。');
+            hideTooltip();
+            return;
+        }
+
+        // ローカルURLへのアクセスはブロック
+        if (baseUrl.includes('localhost') && !window.location.hostname.includes('localhost')) {
+            alert('このシステムは現在利用できません。\n管理者にお問い合わせください。');
+            hideTooltip();
+            return;
+        }
+
         // ローカルストレージからトークンを取得
         const token = localStorage.getItem('user_token');
         
