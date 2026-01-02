@@ -262,10 +262,14 @@ function authenticateToken(req, res, next) {
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
 
+  console.log('[Login] Attempting login for username:', username);
+
   try {
-    // ユーザー名で検索（departmentカラムも取得）
-    const query = 'SELECT id, username, password, display_name, role, department FROM master_data.users WHERE username = $1';
+    // ユーザー名で検索（departmentカラムが存在しない可能性を考慮）
+    const query = 'SELECT id, username, password, display_name, role FROM master_data.users WHERE username = $1';
     const result = await pool.query(query, [username]);
+    
+    console.log('[Login] Query result:', result.rows.length > 0 ? 'User found' : 'User not found');
 
     if (result.rows.length === 0) {
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
@@ -300,18 +304,19 @@ app.post('/api/login', async (req, res) => {
     }
 
     if (match) {
+      console.log('[Login] Password matched for user:', username);
+      
       // 認証成功 - Emergency-Assistanceと互換性のあるトークンを生成
-      // department情報を取得（存在しない場合はロールに基づいてデフォルト値を設定）
-      let department = user.department;
-      if (!department) {
-        // roleに基づいてデフォルトのdepartmentを設定
-        if (user.role === 'system_admin') {
-          department = 'システム管理部';
-        } else if (user.role === 'operation_admin') {
-          department = '運用管理部';
-        } else {
-          department = '未設定';
-        }
+      // department情報を設定（DBカラムがなくてもエラーにならないよう対応）
+      let department = 'システム管理部';  // デフォルト値
+      
+      // roleに基づいてdepartmentを設定
+      if (user.role === 'system_admin') {
+        department = 'システム管理部';
+      } else if (user.role === 'operation_admin') {
+        department = '運用管理部';
+      } else {
+        department = '一般';
       }
 
       const payload = {
@@ -338,14 +343,17 @@ app.post('/api/login', async (req, res) => {
         expiresIn: '4h'
       });
 
+      console.log('[Login] Token generated successfully');
       res.json({ success: true, token, user: { username: user.username, displayName: user.display_name, role: user.role } });
     } else {
       // パスワード不一致
+      console.log('[Login] Password mismatch for user:', username);
       res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
     }
   } catch (err) {
-    console.error('Login error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    console.error('[Login] ERROR:', err);
+    console.error('[Login] Error stack:', err.stack);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: err.message });
   }
 });
 
