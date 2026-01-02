@@ -6,8 +6,15 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 
+console.log('🚀 Starting server...');
+console.log('Node version:', process.version);
+console.log('Environment:', process.env.NODE_ENV);
+console.log('PORT:', process.env.PORT);
+
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+console.log('Express app created');
 
 // CORS設定
 const corsOptions = {
@@ -19,9 +26,13 @@ const corsOptions = {
   credentials: true
 };
 
+console.log('CORS configured:', corsOptions.origin);
+
 // Middleware
 app.use(cors(corsOptions));
 app.use(express.json());
+
+console.log('Middleware configured');
 
 // データベースから設定を取得するヘルパー関数
 async function getConfigFromDB(key, defaultValue) {
@@ -138,7 +149,9 @@ console.log('Database config (password hidden):', {
   password: poolConfig.password ? '****' : undefined 
 });
 
+console.log('Creating database pool...');
 const pool = new Pool(poolConfig);
+console.log('Pool created successfully');
 
 // Error handling for pool
 pool.on('error', (err) => {
@@ -1673,8 +1686,24 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 });
 
 // サーバー起動
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✅ Server is running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`Database connection configured for: ${isProduction && process.env.CLOUD_SQL_INSTANCE ? 'Cloud SQL' : 'Local PostgreSQL'}`);
+  console.log(`Ready to accept connections`);
+});
+
+server.on('error', (err) => {
+  console.error('❌ Server failed to start:', err);
+  process.exit(1);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, closing server gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    pool.end();
+    process.exit(0);
+  });
 });

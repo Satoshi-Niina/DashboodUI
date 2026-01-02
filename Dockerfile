@@ -20,8 +20,12 @@ USER appuser
 # ポート3000を公開
 EXPOSE 3000
 
+# 環境変数を設定
+ENV NODE_ENV=production
+ENV PORT=3000
+
 # ヘルスチェック
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/config.js', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # 本番モードで起動
