@@ -372,8 +372,6 @@ app.post('/api/verify-token', async (req, res) => {
       message: 'トークンが無効または期限切れです',
       details: err.message
     });
-  } 
-    });
   }
 });
 
