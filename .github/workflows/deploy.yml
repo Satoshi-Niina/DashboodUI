@@ -70,7 +70,6 @@ jobs:
             --cpu=2 \
             --timeout=900 \
             --cpu-boost \
-            --port=3000 \
             --no-cpu-throttling
       
       - name: Test Health Endpoint
