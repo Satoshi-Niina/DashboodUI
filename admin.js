@@ -478,7 +478,7 @@ async function saveVehicle() {
     const vehicleData = {
         machine_id: machineId,
         vehicle_number: document.getElementById('vehicle-number').value,
-        vehicle_type: document.getElementById('vehicle-type-text').value,
+        model: document.getElementById('vehicle-type-text').value, // 型式
         registration_number: document.getElementById('vehicle-registration').value,
         office_id: document.getElementById('vehicle-office').value || null,
         notes: document.getElementById('vehicle-notes').value

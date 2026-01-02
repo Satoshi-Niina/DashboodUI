@@ -658,7 +658,6 @@ app.get('/api/vehicles/:id', requireAdmin, async (req, res) => {
       SELECT 
         v.vehicle_id,
         v.vehicle_number,
-        v.vehicle_type,
         v.model,
         v.registration_number,
         v.machine_id,
@@ -683,12 +682,16 @@ app.get('/api/vehicles/:id', requireAdmin, async (req, res) => {
 // 保守用車追加エンドポイント
 app.post('/api/vehicles', requireAdmin, async (req, res) => {
   const username = req.user.username;
-  const { vehicle_type, vehicle_number, machine_id, office_id, model, registration_number, notes } = req.body;
+  const { vehicle_number, machine_id, office_id, model, registration_number, notes } = req.body;
 
   try {
     // バリデーション
     if (!vehicle_number) {
       return res.status(400).json({ success: false, message: '車両番号は必須です' });
+    }
+
+    if (!machine_id) {
+      return res.status(400).json({ success: false, message: '機械番号は必須です' });
     }
 
     // 車両番号の重複チェック
@@ -701,14 +704,13 @@ app.post('/api/vehicles', requireAdmin, async (req, res) => {
 
     // 車両を追加
     const insertQuery = `
-      INSERT INTO master_data.vehicles (vehicle_type, vehicle_number, machine_id, office_id, model, registration_number, notes)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING vehicle_id, vehicle_type, vehicle_number, machine_id, office_id, model, registration_number, notes
+      INSERT INTO master_data.vehicles (vehicle_number, machine_id, office_id, model, registration_number, notes)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING vehicle_id, vehicle_number, machine_id, office_id, model, registration_number, notes
     `;
     const result = await pool.query(insertQuery, [
-      vehicle_type || null,
       vehicle_number,
-      machine_id || null,
+      machine_id,
       office_id || null,
       model || null,
       registration_number || null,
@@ -718,7 +720,8 @@ app.post('/api/vehicles', requireAdmin, async (req, res) => {
     res.json({ success: true, vehicle: result.rows[0], message: '車両を追加しました' });
   } catch (err) {
     console.error('Vehicle create error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    console.error('Error details:', err.message, err.stack);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
   }
 });
 
@@ -727,13 +730,16 @@ app.put('/api/vehicles/:id', requireAdmin, async (req, res) => {
   const vehicleId = req.params.id;
   const username = req.user.username;
   
-  
   try {
-    const { vehicle_type, vehicle_number, machine_id, office_id, model, registration_number, notes } = req.body;
+    const { vehicle_number, machine_id, office_id, model, registration_number, notes } = req.body;
 
     // バリデーション
     if (!vehicle_number) {
       return res.status(400).json({ success: false, message: '車両番号は必須です' });
+    }
+
+    if (!machine_id) {
+      return res.status(400).json({ success: false, message: '機械番号は必須です' });
     }
 
     // 車両番号の重複チェック（自分以外）
@@ -747,15 +753,14 @@ app.put('/api/vehicles/:id', requireAdmin, async (req, res) => {
     // 車両を更新
     const updateQuery = `
       UPDATE master_data.vehicles 
-      SET vehicle_type = $1, vehicle_number = $2, machine_id = $3, office_id = $4, 
-          model = $5, registration_number = $6, notes = $7, updated_at = CURRENT_TIMESTAMP
-      WHERE vehicle_id = $8
-      RETURNING vehicle_id, vehicle_type, vehicle_number, machine_id, office_id, model, registration_number, notes
+      SET vehicle_number = $1, machine_id = $2, office_id = $3, 
+          model = $4, registration_number = $5, notes = $6, updated_at = CURRENT_TIMESTAMP
+      WHERE vehicle_id = $7
+      RETURNING vehicle_id, vehicle_number, machine_id, office_id, model, registration_number, notes
     `;
     const result = await pool.query(updateQuery, [
-      vehicle_type || null,
       vehicle_number,
-      machine_id || null,
+      machine_id,
       office_id || null,
       model || null,
       registration_number || null,
@@ -770,7 +775,8 @@ app.put('/api/vehicles/:id', requireAdmin, async (req, res) => {
     res.json({ success: true, vehicle: result.rows[0], message: '車両を更新しました' });
   } catch (err) {
     console.error('Vehicle update error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    console.error('Error details:', err.message, err.stack);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
   }
 });
 
