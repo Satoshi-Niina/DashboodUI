@@ -57,6 +57,7 @@ jobs:
             --platform=managed \
             --allow-unauthenticated \
             --add-cloudsql-instances=${{ secrets.CLOUD_SQL_INSTANCE }} \
+            --clear-env-vars \
             --set-env-vars="NODE_ENV=production" \
             --set-env-vars="CLOUD_SQL_INSTANCE=${{ secrets.CLOUD_SQL_INSTANCE }}" \
             --set-env-vars="DB_USER=${{ secrets.DB_USER }}" \
