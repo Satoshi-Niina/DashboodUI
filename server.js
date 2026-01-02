@@ -279,7 +279,11 @@ app.post('/api/verify-token', async (req, res) => {
   const { token } = req.body;
 
   if (!token) {
-    return res.status(400).json({ success: false, message: 'トークンが提供されていません' });
+    return res.status(400).json({ 
+      valid: false, 
+      success: false, 
+      message: 'トークンが提供されていません' 
+    });
   }
 
   try {
@@ -290,11 +294,16 @@ app.post('/api/verify-token', async (req, res) => {
     const result = await pool.query(query, [decoded.id]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
+      return res.status(404).json({ 
+        valid: false, 
+        success: false, 
+        message: 'ユーザーが見つかりません' 
+      });
     }
 
     const user = result.rows[0];
     res.json({ 
+      valid: true,
       success: true, 
       user: { 
         id: user.id, 
@@ -305,7 +314,27 @@ app.post('/api/verify-token', async (req, res) => {
     });
   } catch (err) {
     console.error('Token verification error:', err);
-    res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
+    
+    // デバッグ用：検証失敗時の詳細情報
+    if (err.message === 'invalid signature') {
+        console.error('⚠️ Invalid signature detected. Check JWT_SECRET mismatch.');
+        const secret = process.env.JWT_SECRET;
+        if (secret) {
+            console.error(`Server Secret Length: ${secret.length}`);
+            console.error(`Server Secret Prefix: ${secret.substring(0, 2)}***`);
+        } else {
+            console.error('Server Secret is NOT set!');
+        }
+    }
+
+    res.status(401).json({ 
+      valid: false, 
+      success: false, 
+      message: 'トークンが無効または期限切れです',
+      details: err.message
+    });
+  } 
+    });
   }
 });
 
@@ -1712,6 +1741,17 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 
 // サーバー起動
 console.log(`Starting server on port ${PORT}...`);
+
+// JWT_SECRETのデバッグ情報（セキュリティのため一部のみ表示）
+const secret = process.env.JWT_SECRET;
+if (secret) {
+  console.log(`JWT_SECRET is set. Length: ${secret.length}`);
+  console.log(`JWT_SECRET prefix: ${secret.substring(0, 2)}***`);
+  console.log(`JWT_SECRET suffix: ***${secret.substring(secret.length - 2)}`);
+} else {
+  console.error('❌ JWT_SECRET is NOT set!');
+}
+
 const server = app.listen(PORT, '0.0.0.0', (err) => {
   if (err) {
     console.error('❌ Failed to start server:', err);

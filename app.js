@@ -15,7 +15,7 @@ const apps = [
         id: 'equipment',
         title: '保守用車管理',
         description: '仕業点検簿の表示から実績を記録します。',
-        image: 'assets/img/vehicle_management.png',
+        image: 'assets/img/Inspection Checklist.jpeg',
         url: '#equipment',
         icon: '🚛'
     },
