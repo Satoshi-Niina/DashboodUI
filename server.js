@@ -197,6 +197,215 @@ pool.on('error', (err) => {
   // Don't exit the process
 });
 
+// ========================================
+// ゲートウェイ方式: テーブルルーティング機能
+// ========================================
+
+const APP_ID = process.env.APP_ID || 'dashboard-ui';
+const routingCache = new Map(); // { key: { fullPath, schema, table, timestamp } }
+const CACHE_TTL = 5 * 60 * 1000; // 5分
+
+/**
+ * 論理テーブル名から物理パスを解決
+ * @param {string} logicalName - 論理テーブル名（例: 'users', 'offices'）
+ * @returns {Promise<{fullPath: string, schema: string, table: string}>}
+ */
+async function resolveTablePath(logicalName) {
+  const cacheKey = `${APP_ID}:${logicalName}`;
+  
+  // キャッシュチェック
+  const cached = routingCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+    console.log(`[Gateway] Cache hit: ${logicalName} → ${cached.fullPath}`);
+    return cached;
+  }
+
+  try {
+    // app_resource_routingテーブルから物理パスを取得
+    const query = `
+      SELECT physical_schema, physical_table
+      FROM public.app_resource_routing
+      WHERE app_id = $1 AND logical_resource_name = $2 AND is_active = true
+      LIMIT 1
+    `;
+    const result = await pool.query(query, [APP_ID, logicalName]);
+
+    if (result.rows.length > 0) {
+      const { physical_schema, physical_table } = result.rows[0];
+      const fullPath = `${physical_schema}."${physical_table}"`;
+      const resolved = { fullPath, schema: physical_schema, table: physical_table, timestamp: Date.now() };
+      
+      // キャッシュに保存
+      routingCache.set(cacheKey, resolved);
+      console.log(`[Gateway] Resolved: ${logicalName} → ${fullPath}`);
+      return resolved;
+    }
+
+    // ルーティングが見つからない場合はmaster_dataスキーマにフォールバック
+    console.log(`[Gateway] No route found for ${logicalName}, falling back to master_data.${logicalName}`);
+    const fallback = { 
+      fullPath: `master_data."${logicalName}"`, 
+      schema: 'master_data', 
+      table: logicalName,
+      timestamp: Date.now()
+    };
+    routingCache.set(cacheKey, fallback);
+    return fallback;
+    
+  } catch (err) {
+    console.error(`[Gateway] Error resolving ${logicalName}:`, err.message);
+    // エラー時もmaster_dataスキーマにフォールバック
+    const fallback = { 
+      fullPath: `master_data."${logicalName}"`, 
+      schema: 'master_data', 
+      table: logicalName,
+      timestamp: Date.now()
+    };
+    return fallback;
+  }
+}
+
+/**
+ * 動的SELECT
+ * @param {string} logicalTableName - 論理テーブル名
+ * @param {Object} conditions - WHERE条件 (例: { username: 'admin', role: 'admin' })
+ * @param {Array<string>} columns - 取得するカラム (省略時は全カラム)
+ * @param {number} limit - LIMIT数 (省略可)
+ * @returns {Promise<Array>}
+ */
+async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'], limit = null) {
+  const route = await resolveTablePath(logicalTableName);
+  
+  const columnList = columns.join(', ');
+  let query = `SELECT ${columnList} FROM ${route.fullPath}`;
+  const params = [];
+  
+  // WHERE句の構築
+  const whereConditions = Object.entries(conditions).map(([key, value], index) => {
+    params.push(value);
+    return `${key} = $${index + 1}`;
+  });
+  
+  if (whereConditions.length > 0) {
+    query += ` WHERE ${whereConditions.join(' AND ')}`;
+  }
+  
+  if (limit) {
+    query += ` LIMIT ${limit}`;
+  }
+  
+  console.log(`[DynamicDB] SELECT from ${route.fullPath}`);
+  const result = await pool.query(query, params);
+  return result.rows;
+}
+
+/**
+ * 動的INSERT
+ * @param {string} logicalTableName - 論理テーブル名
+ * @param {Object} data - 挿入データ
+ * @param {boolean} returning - RETURNING句を使うか (デフォルト: true)
+ * @returns {Promise<Array>}
+ */
+async function dynamicInsert(logicalTableName, data, returning = true) {
+  const route = await resolveTablePath(logicalTableName);
+  
+  const keys = Object.keys(data);
+  const values = Object.values(data);
+  const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+  
+  let query = `INSERT INTO ${route.fullPath} (${keys.join(', ')}) VALUES (${placeholders})`;
+  
+  if (returning) {
+    query += ' RETURNING *';
+  }
+  
+  console.log(`[DynamicDB] INSERT into ${route.fullPath}`);
+  const result = await pool.query(query, values);
+  return result.rows;
+}
+
+/**
+ * 動的UPDATE
+ * @param {string} logicalTableName - 論理テーブル名
+ * @param {Object} data - 更新データ
+ * @param {Object} conditions - WHERE条件
+ * @param {boolean} returning - RETURNING句を使うか (デフォルト: true)
+ * @returns {Promise<Array>}
+ */
+async function dynamicUpdate(logicalTableName, data, conditions, returning = true) {
+  const route = await resolveTablePath(logicalTableName);
+  
+  const setKeys = Object.keys(data);
+  const setValues = Object.values(data);
+  const conditionKeys = Object.keys(conditions);
+  const conditionValues = Object.values(conditions);
+  
+  const setClause = setKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+  const whereClause = conditionKeys.map((key, i) => `${key} = $${setKeys.length + i + 1}`).join(' AND ');
+  
+  let query = `UPDATE ${route.fullPath} SET ${setClause}`;
+  
+  if (conditionKeys.length > 0) {
+    query += ` WHERE ${whereClause}`;
+  }
+  
+  if (returning) {
+    query += ' RETURNING *';
+  }
+  
+  console.log(`[DynamicDB] UPDATE ${route.fullPath}`);
+  const result = await pool.query(query, [...setValues, ...conditionValues]);
+  return result.rows;
+}
+
+/**
+ * 動的DELETE
+ * @param {string} logicalTableName - 論理テーブル名
+ * @param {Object} conditions - WHERE条件
+ * @param {boolean} returning - RETURNING句を使うか (デフォルト: false)
+ * @returns {Promise<Array>}
+ */
+async function dynamicDelete(logicalTableName, conditions, returning = false) {
+  const route = await resolveTablePath(logicalTableName);
+  
+  const conditionKeys = Object.keys(conditions);
+  const conditionValues = Object.values(conditions);
+  const whereClause = conditionKeys.map((key, i) => `${key} = $${i + 1}`).join(' AND ');
+  
+  let query = `DELETE FROM ${route.fullPath}`;
+  
+  if (conditionKeys.length > 0) {
+    query += ` WHERE ${whereClause}`;
+  }
+  
+  if (returning) {
+    query += ' RETURNING *';
+  }
+  
+  console.log(`[DynamicDB] DELETE from ${route.fullPath}`);
+  const result = await pool.query(query, conditionValues);
+  return result.rows;
+}
+
+/**
+ * ルーティングキャッシュをクリア
+ * @param {string} logicalName - 論理テーブル名 (省略時は全クリア)
+ */
+function clearRoutingCache(logicalName = null) {
+  if (logicalName) {
+    const cacheKey = `${APP_ID}:${logicalName}`;
+    routingCache.delete(cacheKey);
+    console.log(`[Gateway] Cache cleared for: ${logicalName}`);
+  } else {
+    routingCache.clear();
+    console.log('[Gateway] All cache cleared');
+  }
+}
+
+// ========================================
+// ゲートウェイ機能ここまで
+// ========================================
+
 // Test DB Connection (非同期で実行、サーバー起動をブロックしない)
 async function testDatabaseConnection() {
   console.log('🔍 Testing database connection...');
@@ -265,17 +474,20 @@ app.post('/api/login', async (req, res) => {
   console.log('[Login] Attempting login for username:', username);
 
   try {
-    // ユーザー名で検索（departmentカラムが存在しない可能性を考慮）
-    const query = 'SELECT id, username, password, display_name, role FROM master_data.users WHERE username = $1';
-    const result = await pool.query(query, [username]);
+    // ゲートウェイ方式でユーザー検索
+    const users = await dynamicSelect('users', 
+      { username }, 
+      ['id', 'username', 'password', 'display_name', 'role'], 
+      1
+    );
     
-    console.log('[Login] Query result:', result.rows.length > 0 ? 'User found' : 'User not found');
+    console.log('[Login] Query result:', users.length > 0 ? 'User found' : 'User not found');
 
-    if (result.rows.length === 0) {
+    if (users.length === 0) {
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
     }
 
-    const user = result.rows[0];
+    const user = users[0];
 
     // パスワード比較
     // DBのパスワードがbcryptハッシュ($2で始まる)かどうかを判定
@@ -292,9 +504,10 @@ app.post('/api/login', async (req, res) => {
       if (match) {
         try {
           const hashedPassword = await bcrypt.hash(password, 10);
-          await pool.query(
-            'UPDATE master_data.users SET password = $1 WHERE id = $2',
-            [hashedPassword, user.id]
+          await dynamicUpdate('users', 
+            { password: hashedPassword }, 
+            { id: user.id },
+            false
           );
           console.log(`Password hashed for user: ${user.username}`);
         } catch (hashErr) {
@@ -377,11 +590,14 @@ app.post('/api/verify-token', async (req, res) => {
       audience: 'emergency-assistance-app'
     });
     
-    // ユーザー情報を取得（departmentカラムも取得）
-    const query = 'SELECT id, username, display_name, role, department FROM master_data.users WHERE id = $1';
-    const result = await pool.query(query, [decoded.id]);
+    // ゲートウェイ方式でユーザー情報を取得
+    const users = await dynamicSelect('users', 
+      { id: decoded.id }, 
+      ['id', 'username', 'display_name', 'role', 'department'], 
+      1
+    );
 
-    if (result.rows.length === 0) {
+    if (users.length === 0) {
       return res.status(404).json({ 
         valid: false, 
         success: false, 
@@ -389,7 +605,7 @@ app.post('/api/verify-token', async (req, res) => {
       });
     }
 
-    const user = result.rows[0];
+    const user = users[0];
     res.json({ 
       valid: true,
       success: true, 
@@ -587,7 +803,9 @@ app.get('/api/config/history', requireAdmin, async (req, res) => {
 // ユーザー一覧取得エンドポイント
 app.get('/api/users', requireAdmin, async (req, res) => {
   try {
-    const query = 'SELECT id, username, display_name, role, created_at FROM master_data.users ORDER BY id ASC';
+    // ゲートウェイ方式 + ORDER BY対応のため一部直接クエリ
+    const route = await resolveTablePath('users');
+    const query = `SELECT id, username, display_name, role, created_at FROM ${route.fullPath} ORDER BY id ASC`;
     const result = await pool.query(query);
     res.json({ success: true, users: result.rows });
   } catch (err) {
@@ -601,14 +819,17 @@ app.get('/api/users/:id', requireAdmin, async (req, res) => {
   const userId = req.params.id;
 
   try {
-    const query = 'SELECT id, username, display_name, role FROM master_data.users WHERE id = $1';
-    const result = await pool.query(query, [userId]);
+    const users = await dynamicSelect('users', 
+      { id: userId }, 
+      ['id', 'username', 'display_name', 'role'], 
+      1
+    );
 
-    if (result.rows.length === 0) {
+    if (users.length === 0) {
       return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
     }
 
-    res.json({ success: true, user: result.rows[0] });
+    res.json({ success: true, user: users[0] });
   } catch (err) {
     console.error('User get error:', err);
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
@@ -629,9 +850,9 @@ app.post('/api/users', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: 'パスワードは8文字以上で入力してください' });
     }
 
-    // ユーザー名の重複チェック
-    const checkQuery = 'SELECT id FROM master_data.users WHERE username = $1';
-    const checkResult = await pool.query(checkQuery, [username]);
+    // ユーザー名の重複チェック（ゲートウェイ方式）
+    const existingUsers = await dynamicSelect('users', { username }, ['id'], 1);
+    const checkResult = { rows: existingUsers };
 
     if (checkResult.rows.length > 0) {
       return res.status(400).json({ success: false, message: 'このユーザー名は既に使用されています' });
@@ -640,15 +861,15 @@ app.post('/api/users', requireAdmin, async (req, res) => {
     // パスワードをハッシュ化
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // ユーザーを追加
-    const insertQuery = `
-      INSERT INTO master_data.users (username, password, display_name, role)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id, username, display_name, role
-    `;
-    const result = await pool.query(insertQuery, [username, hashedPassword, display_name || null, role || 'user']);
+    // ユーザーを追加（ゲートウェイ方式）
+    const users = await dynamicInsert('users', {
+      username,
+      password: hashedPassword,
+      display_name: display_name || null,
+      role: role || 'user'
+    });
 
-    res.json({ success: true, user: result.rows[0], message: 'ユーザーを追加しました' });
+    res.json({ success: true, user: users[0], message: 'ユーザーを追加しました' });
   } catch (err) {
     console.error('User create error:', err);
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
@@ -679,7 +900,8 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
     }
 
     // ユーザー名の重複チェック（自分以外）
-    const checkQuery = 'SELECT id FROM master_data.users WHERE username = $1 AND id != $2';
+    const route = await resolveTablePath('users');
+    const checkQuery = `SELECT id FROM ${route.fullPath} WHERE username = $1 AND id != $2`;
     const checkResult = await pool.query(checkQuery, [username, userId]);
 
     if (checkResult.rows.length > 0) {
@@ -693,34 +915,39 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
-      const updateQuery = `
-        UPDATE master_data.users 
-        SET username = $1, display_name = $2, password = $3, role = $4, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $5
-        RETURNING id, username, display_name, role
-      `;
-      const result = await pool.query(updateQuery, [username, display_name || null, hashedPassword, role || 'user', userId]);
+      const users = await dynamicUpdate('users', 
+        {
+          username,
+          display_name: display_name || null,
+          password: hashedPassword,
+          role: role || 'user',
+          updated_at: new Date()
+        },
+        { id: userId }
+      );
 
-      if (result.rows.length === 0) {
+      if (users.length === 0) {
         return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
       }
 
-      res.json({ success: true, user: result.rows[0], message: 'ユーザーを更新しました' });
+      res.json({ success: true, user: users[0], message: 'ユーザーを更新しました' });
     } else {
       // パスワードを変更しない場合
-      const updateQuery = `
-        UPDATE master_data.users 
-        SET username = $1, display_name = $2, role = $3, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $4
-        RETURNING id, username, display_name, role
-      `;
-      const result = await pool.query(updateQuery, [username, display_name || null, role || 'user', userId]);
+      const users = await dynamicUpdate('users', 
+        {
+          username,
+          display_name: display_name || null,
+          role: role || 'user',
+          updated_at: new Date()
+        },
+        { id: userId }
+      );
 
-      if (result.rows.length === 0) {
+      if (users.length === 0) {
         return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
       }
 
-      res.json({ success: true, user: result.rows[0], message: 'ユーザーを更新しました' });
+      res.json({ success: true, user: users[0], message: 'ユーザーを更新しました' });
     }
   } catch (err) {
     console.error('User update error:', err);
@@ -749,11 +976,10 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: '自分自身は削除できません' });
     }
 
-    // ユーザーを削除
-    const deleteQuery = 'DELETE FROM master_data.users WHERE id = $1 RETURNING username';
-    const result = await pool.query(deleteQuery, [userId]);
+    // ユーザーを削除（ゲートウェイ方式）
+    const users = await dynamicDelete('users', { id: userId }, true);
 
-    if (result.rows.length === 0) {
+    if (users.length === 0) {
       return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
     }
 
@@ -771,6 +997,11 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 // 保守用車一覧取得エンドポイント（機種・機械番号・管理事業所を結合）
 app.get('/api/vehicles', requireAdmin, async (req, res) => {
   try {
+    const vehiclesRoute = await resolveTablePath('vehicles');
+    const machinesRoute = await resolveTablePath('machines');
+    const machineTypesRoute = await resolveTablePath('machine_types');
+    const officesRoute = await resolveTablePath('managements_offices');
+    
     const query = `
       SELECT 
         v.vehicle_id,
@@ -787,10 +1018,10 @@ app.get('/api/vehicles', requireAdmin, async (req, res) => {
         v.notes,
         v.created_at,
         v.updated_at
-      FROM master_data.vehicles v
-      LEFT JOIN public.machines m ON v.machine_id = m.id
-      LEFT JOIN public.machine_types mt ON m.machine_type_id = mt.id
-      LEFT JOIN master_data.managements_offices o ON v.office_id = o.office_id
+      FROM ${vehiclesRoute.fullPath} v
+      LEFT JOIN ${machinesRoute.fullPath} m ON v.machine_id = m.id
+      LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id = mt.id
+      LEFT JOIN ${officesRoute.fullPath} o ON v.office_id = o.office_id
       ORDER BY v.vehicle_id DESC
     `;
     const result = await pool.query(query);
@@ -806,6 +1037,7 @@ app.get('/api/vehicles/:id', requireAdmin, async (req, res) => {
   const vehicleId = req.params.id;
 
   try {
+    const route = await resolveTablePath('vehicles');
     const query = `
       SELECT 
         v.vehicle_id,
@@ -815,7 +1047,7 @@ app.get('/api/vehicles/:id', requireAdmin, async (req, res) => {
         v.machine_id,
         v.office_id,
         v.notes
-      FROM master_data.vehicles v
+      FROM ${route.fullPath} v
       WHERE v.vehicle_id = $1
     `;
     const result = await pool.query(query, [vehicleId]);
@@ -847,29 +1079,25 @@ app.post('/api/vehicles', requireAdmin, async (req, res) => {
     }
 
     // 車両番号の重複チェック
-    const checkQuery = 'SELECT vehicle_id FROM master_data.vehicles WHERE vehicle_number = $1';
+    const route = await resolveTablePath('vehicles');
+    const checkQuery = `SELECT vehicle_id FROM ${route.fullPath} WHERE vehicle_number = $1`;
     const checkResult = await pool.query(checkQuery, [vehicle_number]);
 
     if (checkResult.rows.length > 0) {
       return res.status(400).json({ success: false, message: 'この車両番号は既に使用されています' });
     }
 
-    // 車両を追加
-    const insertQuery = `
-      INSERT INTO master_data.vehicles (vehicle_number, machine_id, office_id, model, registration_number, notes)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING vehicle_id, vehicle_number, machine_id, office_id, model, registration_number, notes
-    `;
-    const result = await pool.query(insertQuery, [
+    // 車両を追加（ゲートウェイ方式）
+    const vehicles = await dynamicInsert('vehicles', {
       vehicle_number,
       machine_id,
-      office_id || null,
-      model || null,
-      registration_number || null,
-      notes || null
-    ]);
+      office_id: office_id || null,
+      model: model || null,
+      registration_number: registration_number || null,
+      notes: notes || null
+    });
 
-    res.json({ success: true, vehicle: result.rows[0], message: '車両を追加しました' });
+    res.json({ success: true, vehicle: vehicles[0], message: '車両を追加しました' });
   } catch (err) {
     console.error('Vehicle create error:', err);
     console.error('Error details:', err.message, err.stack);
@@ -895,36 +1123,33 @@ app.put('/api/vehicles/:id', requireAdmin, async (req, res) => {
     }
 
     // 車両番号の重複チェック（自分以外）
-    const checkQuery = 'SELECT vehicle_id FROM master_data.vehicles WHERE vehicle_number = $1 AND vehicle_id != $2';
+    const route = await resolveTablePath('vehicles');
+    const checkQuery = `SELECT vehicle_id FROM ${route.fullPath} WHERE vehicle_number = $1 AND vehicle_id != $2`;
     const checkResult = await pool.query(checkQuery, [vehicle_number, vehicleId]);
 
     if (checkResult.rows.length > 0) {
       return res.status(400).json({ success: false, message: 'この車両番号は既に使用されています' });
     }
 
-    // 車両を更新
-    const updateQuery = `
-      UPDATE master_data.vehicles 
-      SET vehicle_number = $1, machine_id = $2, office_id = $3, 
-          model = $4, registration_number = $5, notes = $6, updated_at = CURRENT_TIMESTAMP
-      WHERE vehicle_id = $7
-      RETURNING vehicle_id, vehicle_number, machine_id, office_id, model, registration_number, notes
-    `;
-    const result = await pool.query(updateQuery, [
-      vehicle_number,
-      machine_id,
-      office_id || null,
-      model || null,
-      registration_number || null,
-      notes || null,
-      vehicleId
-    ]);
+    // 車両を更新（ゲートウェイ方式）
+    const vehicles = await dynamicUpdate('vehicles', 
+      {
+        vehicle_number,
+        machine_id,
+        office_id: office_id || null,
+        model: model || null,
+        registration_number: registration_number || null,
+        notes: notes || null,
+        updated_at: new Date()
+      },
+      { vehicle_id: vehicleId }
+    );
 
-    if (result.rows.length === 0) {
+    if (vehicles.length === 0) {
       return res.status(404).json({ success: false, message: '車両が見つかりません' });
     }
 
-    res.json({ success: true, vehicle: result.rows[0], message: '車両を更新しました' });
+    res.json({ success: true, vehicle: vehicles[0], message: '車両を更新しました' });
   } catch (err) {
     console.error('Vehicle update error:', err);
     console.error('Error details:', err.message, err.stack);
@@ -937,11 +1162,10 @@ app.delete('/api/vehicles/:id', requireAdmin, async (req, res) => {
   const vehicleId = req.params.id;
   
   try {
-    // 車両を削除
-    const deleteQuery = 'DELETE FROM master_data.vehicles WHERE vehicle_id = $1 RETURNING vehicle_number';
-    const result = await pool.query(deleteQuery, [vehicleId]);
+    // 車両を削除（ゲートウェイ方式）
+    const vehicles = await dynamicDelete('vehicles', { vehicle_id: vehicleId }, true);
 
-    if (result.rows.length === 0) {
+    if (vehicles.length === 0) {
       return res.status(404).json({ success: false, message: '車両が見つかりません' });
     }
 
@@ -959,7 +1183,8 @@ app.delete('/api/vehicles/:id', requireAdmin, async (req, res) => {
 // 事業所一覧取得
 app.get('/api/offices', authenticateToken, async (req, res) => {
   try {
-    const query = 'SELECT * FROM master_data.managements_offices ORDER BY office_id DESC';
+    const route = await resolveTablePath('managements_offices');
+    const query = `SELECT * FROM ${route.fullPath} ORDER BY office_id DESC`;
     const result = await pool.query(query);
     res.json({ success: true, offices: result.rows });
   } catch (err) {
@@ -1703,7 +1928,8 @@ app.post('/debug/test-login', async (req, res) => {
 // 機種マスタ一覧取得
 app.get('/api/machine-types', requireAdmin, async (req, res) => {
   try {
-    const query = 'SELECT * FROM public.machine_types ORDER BY type_code';
+    const route = await resolveTablePath('machine_types');
+    const query = `SELECT * FROM ${route.fullPath} ORDER BY type_code`;
     const result = await pool.query(query);
     res.json({ success: true, data: result.rows });
   } catch (err) {
@@ -1721,13 +1947,14 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: '機種コードと機種名は必須です' });
     }
     
-    const query = `
-      INSERT INTO public.machine_types (type_code, type_name, manufacturer, category, description)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING *
-    `;
-    const result = await pool.query(query, [type_code, type_name, manufacturer, category, description]);
-    res.json({ success: true, data: result.rows[0], message: '機種を追加しました' });
+    const types = await dynamicInsert('machine_types', {
+      type_code,
+      type_name,
+      manufacturer,
+      category,
+      description
+    });
+    res.json({ success: true, data: types[0], message: '機種を追加しました' });
   } catch (err) {
     console.error('Machine type create error:', err);
     if (err.code === '23505') {
@@ -1741,6 +1968,10 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
 // 機械番号マスタ一覧取得（機種情報も含む統合ビュー）
 app.get('/api/machines', requireAdmin, async (req, res) => {
   try {
+    const machinesRoute = await resolveTablePath('machines');
+    const machineTypesRoute = await resolveTablePath('machine_types');
+    const basesRoute = await resolveTablePath('bases');
+    
     const query = `
       SELECT 
         m.id as machine_id,
@@ -1759,9 +1990,9 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
         b.base_name,
         m.created_at,
         m.updated_at
-      FROM public.machines m
-      LEFT JOIN public.machine_types mt ON m.machine_type_id = mt.id
-      LEFT JOIN master_data.bases b ON m.assigned_base_id = b.base_id
+      FROM ${machinesRoute.fullPath} m
+      LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id = mt.id
+      LEFT JOIN ${basesRoute.fullPath} b ON m.assigned_base_id = b.base_id
       ORDER BY m.machine_number
     `;
     const result = await pool.query(query);
@@ -1781,22 +2012,17 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: '機械番号と機種は必須です' });
     }
     
-    const query = `
-      INSERT INTO public.machines (machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, status, assigned_base_id, notes)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      RETURNING *
-    `;
-    const result = await pool.query(query, [
+    const machines = await dynamicInsert('machines', {
       machine_number,
       machine_type_id,
       serial_number,
       manufacture_date,
       purchase_date,
-      status || 'active',
+      status: status || 'active',
       assigned_base_id,
       notes
-    ]);
-    res.json({ success: true, data: result.rows[0], message: '機械を追加しました' });
+    });
+    res.json({ success: true, data: machines[0], message: '機械を追加しました' });
   } catch (err) {
     console.error('Machine create error:', err);
     if (err.code === '23505') {
@@ -1813,31 +2039,26 @@ app.put('/api/machines/:id', requireAdmin, async (req, res) => {
     const machineId = req.params.id;
     const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, status, assigned_base_id, notes } = req.body;
     
-    const query = `
-      UPDATE public.machines 
-      SET machine_number = $1, machine_type_id = $2, serial_number = $3, 
-          manufacture_date = $4, purchase_date = $5, status = $6, 
-          assigned_base_id = $7, notes = $8, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $9
-      RETURNING *
-    `;
-    const result = await pool.query(query, [
-      machine_number,
-      machine_type_id,
-      serial_number,
-      manufacture_date,
-      purchase_date,
-      status,
-      assigned_base_id,
-      notes,
-      machineId
-    ]);
+    const machines = await dynamicUpdate('machines', 
+      {
+        machine_number,
+        machine_type_id,
+        serial_number,
+        manufacture_date,
+        purchase_date,
+        status,
+        assigned_base_id,
+        notes,
+        updated_at: new Date()
+      },
+      { id: machineId }
+    );
     
-    if (result.rows.length === 0) {
+    if (machines.length === 0) {
       return res.status(404).json({ success: false, message: '機械が見つかりません' });
     }
     
-    res.json({ success: true, data: result.rows[0], message: '機械を更新しました' });
+    res.json({ success: true, data: machines[0], message: '機械を更新しました' });
   } catch (err) {
     console.error('Machine update error:', err);
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
@@ -1848,10 +2069,9 @@ app.put('/api/machines/:id', requireAdmin, async (req, res) => {
 app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
   try {
     const machineId = req.params.id;
-    const query = 'DELETE FROM public.machines WHERE id = $1 RETURNING machine_number';
-    const result = await pool.query(query, [machineId]);
+    const machines = await dynamicDelete('machines', { id: machineId }, true);
     
-    if (result.rows.length === 0) {
+    if (machines.length === 0) {
       return res.status(404).json({ success: false, message: '機械が見つかりません' });
     }
     

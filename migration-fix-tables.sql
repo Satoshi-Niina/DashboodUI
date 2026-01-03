@@ -3,8 +3,15 @@
 -- 既存データを保持しながらカラムを追加・修正
 -- ========================================
 
--- 1. managements_offices テーブルの修正（不要なカラムは追加しない）
--- 既存の phone カラムがあれば削除
+-- 1. managements_offices テーブルの修正
+-- 必要なカラムを追加
+ALTER TABLE master_data.managements_offices 
+  ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS phone_number VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS manager_name VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS email VARCHAR(100);
+
+-- 既存の phone カラムがあれば phone_number にデータを移行してから削除
 DO $$ 
 BEGIN
   IF EXISTS (
@@ -13,6 +20,10 @@ BEGIN
       AND table_name = 'managements_offices' 
       AND column_name = 'phone'
   ) THEN
+    UPDATE master_data.managements_offices 
+    SET phone_number = phone 
+    WHERE phone_number IS NULL AND phone IS NOT NULL;
+    
     ALTER TABLE master_data.managements_offices DROP COLUMN phone;
   END IF;
 END $$;
@@ -24,7 +35,9 @@ ALTER TABLE master_data.bases
   ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20),
   ADD COLUMN IF NOT EXISTS phone_number VARCHAR(20),
   ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 8),
-  ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8);
+  ADD COLUMN IF NOT EXISTS longitude DECIMAL(11, 8),
+  ADD COLUMN IF NOT EXISTS manager_name VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS capacity INTEGER;
 
 -- 既存の contact_info から phone_number にデータをコピー（可能な場合）
 DO $$
@@ -46,11 +59,25 @@ END $$;
 -- 3. vehicles テーブルの修正
 ALTER TABLE master_data.vehicles 
   ADD COLUMN IF NOT EXISTS machine_id INTEGER,
-  ADD COLUMN IF NOT EXISTS office_id INTEGER;
+  ADD COLUMN IF NOT EXISTS office_id INTEGER,
+  ADD COLUMN IF NOT EXISTS model VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS registration_number VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS notes TEXT;
 
 -- vehicle_type カラムが NOT NULL の場合は NULL を許可
-ALTER TABLE master_data.vehicles 
-  ALTER COLUMN vehicle_type DROP NOT NULL;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_schema = 'master_data' 
+      AND table_name = 'vehicles' 
+      AND column_name = 'vehicle_type'
+      AND is_nullable = 'NO'
+  ) THEN
+    ALTER TABLE master_data.vehicles 
+      ALTER COLUMN vehicle_type DROP NOT NULL;
+  END IF;
+END $$;
 
 -- 4. public.machines テーブルが存在することを確認
 CREATE TABLE IF NOT EXISTS public.machine_types (
