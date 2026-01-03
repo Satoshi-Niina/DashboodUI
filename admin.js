@@ -1,21 +1,28 @@
 document.addEventListener('DOMContentLoaded', () => {
     // 認証チェック
     const token = localStorage.getItem('user_token');
+    console.log('[Admin] Token check:', token ? 'Token exists' : 'No token found');
+    
     if (!token) {
+        console.error('[Admin] No token, redirecting to login');
         window.location.href = '/';
         return;
     }
 
     // ユーザー情報の表示とロールチェック
     const userInfo = JSON.parse(localStorage.getItem('user_info') || '{}');
+    console.log('[Admin] User info:', userInfo);
     document.getElementById('admin-user').textContent = userInfo.displayName || userInfo.username;
 
     // システム管理者以外はアクセス拒否
     if (userInfo.role !== 'admin') {
+        console.error('[Admin] Access denied - role:', userInfo.role);
         alert('アクセス権限がありません。システム管理者のみアクセス可能です。');
         window.location.href = '/dashboard';
         return;
     }
+    
+    console.log('[Admin] Access granted for admin user');
 
     // メイン画面に戻る
     document.getElementById('back-to-main-btn').addEventListener('click', () => {

@@ -228,6 +228,7 @@ async function resolveTablePath(logicalName) {
       WHERE app_id = $1 AND logical_resource_name = $2 AND is_active = true
       LIMIT 1
     `;
+    console.log(`[Gateway] Querying routing for: ${APP_ID}:${logicalName}`);
     const result = await pool.query(query, [APP_ID, logicalName]);
 
     if (result.rows.length > 0) {
@@ -237,12 +238,12 @@ async function resolveTablePath(logicalName) {
       
       // キャッシュに保存
       routingCache.set(cacheKey, resolved);
-      console.log(`[Gateway] Resolved: ${logicalName} → ${fullPath}`);
+      console.log(`[Gateway] ✅ Resolved: ${logicalName} → ${fullPath}`);
       return resolved;
     }
 
     // ルーティングが見つからない場合はmaster_dataスキーマにフォールバック
-    console.log(`[Gateway] No route found for ${logicalName}, falling back to master_data.${logicalName}`);
+    console.log(`[Gateway] ⚠️ No route found for ${logicalName}, falling back to master_data.${logicalName}`);
     const fallback = { 
       fullPath: `master_data."${logicalName}"`, 
       schema: 'master_data', 
@@ -253,7 +254,8 @@ async function resolveTablePath(logicalName) {
     return fallback;
     
   } catch (err) {
-    console.error(`[Gateway] Error resolving ${logicalName}:`, err.message);
+    console.error(`[Gateway] ❌ Error resolving ${logicalName}:`, err.message);
+    console.error(`[Gateway] Error details:`, err);
     // エラー時もmaster_dataスキーマにフォールバック
     const fallback = { 
       fullPath: `master_data."${logicalName}"`, 
@@ -261,6 +263,7 @@ async function resolveTablePath(logicalName) {
       table: logicalName,
       timestamp: Date.now()
     };
+    console.log(`[Gateway] Using fallback: master_data."${logicalName}"`);
     return fallback;
   }
 }
