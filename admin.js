@@ -12,13 +12,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // ユーザー情報の表示とロールチェック
     const userInfo = JSON.parse(localStorage.getItem('user_info') || '{}');
     console.log('[Admin] User info:', userInfo);
+    console.log('[Admin] User role:', userInfo.role);
     document.getElementById('admin-user').textContent = userInfo.displayName || userInfo.username;
 
-    // システム管理者以外はアクセス拒否
-    if (userInfo.role !== 'admin') {
+    // システム管理者または運用管理者のみアクセス可能
+    if (userInfo.role !== 'system_admin' && userInfo.role !== 'operation_admin') {
         console.error('[Admin] Access denied - role:', userInfo.role);
-        alert('アクセス権限がありません。システム管理者のみアクセス可能です。');
-        window.location.href = '/dashboard';
+        alert('アクセス権限がありません。管理者権限が必要です。');
+        window.location.href = '/index.html';
         return;
     }
     
