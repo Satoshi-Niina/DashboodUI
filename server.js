@@ -225,7 +225,7 @@ async function resolveTablePath(logicalName) {
     const query = `
       SELECT physical_schema, physical_table
       FROM public.app_resource_routing
-      WHERE app_id = $1 AND logical_resource_name = $2 AND is_active = true
+      WHERE app_id = $1 AND logical_resource_name = $2
       LIMIT 1
     `;
     console.log(`[Gateway] Querying routing for: ${APP_ID}:${logicalName}`);
