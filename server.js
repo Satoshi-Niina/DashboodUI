@@ -709,7 +709,7 @@ async function requireAdmin(req, res, next) {
       issuer: 'emergency-assistance-app',
       audience: 'emergency-assistance-app'
     });
-    const query = 'SELECT id, username, role, department FROM master_data.users WHERE id = $1';
+    const query = 'SELECT id, username, role FROM master_data.users WHERE id = $1';
     const result = await pool.query(query, [decoded.id]);
 
     if (result.rows.length === 0) {
