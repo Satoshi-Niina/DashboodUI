@@ -72,11 +72,11 @@ DO UPDATE SET
   is_active = true,
   updated_at = CURRENT_TIMESTAMP;
 
--- 機種マスタ（publicスキーマ）
+-- 機種マスタ（master_dataスキーマ）
 INSERT INTO public.app_resource_routing 
   (app_id, logical_resource_name, physical_schema, physical_table, notes)
 VALUES 
-  ('dashboard-ui', 'machine_types', 'public', 'machine_types', '機種マスタテーブル')
+  ('dashboard-ui', 'machine_types', 'master_data', 'machine_types', '機種マスタテーブル')
 ON CONFLICT (app_id, logical_resource_name) 
 DO UPDATE SET 
   physical_schema = EXCLUDED.physical_schema,
@@ -84,11 +84,11 @@ DO UPDATE SET
   is_active = true,
   updated_at = CURRENT_TIMESTAMP;
 
--- 機械番号マスタ（publicスキーマ）
+-- 機械番号マスタ（master_dataスキーマ）
 INSERT INTO public.app_resource_routing 
   (app_id, logical_resource_name, physical_schema, physical_table, notes)
 VALUES 
-  ('dashboard-ui', 'machines', 'public', 'machines', '機械番号マスタテーブル')
+  ('dashboard-ui', 'machines', 'master_data', 'machines', '機械番号マスタテーブル')
 ON CONFLICT (app_id, logical_resource_name) 
 DO UPDATE SET 
   physical_schema = EXCLUDED.physical_schema,

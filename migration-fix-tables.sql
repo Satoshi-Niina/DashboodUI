@@ -79,8 +79,8 @@ BEGIN
   END IF;
 END $$;
 
--- 4. public.machines テーブルが存在することを確認
-CREATE TABLE IF NOT EXISTS public.machine_types (
+-- 4. master_data.machines テーブルが存在することを確認
+CREATE TABLE IF NOT EXISTS master_data.machine_types (
     id SERIAL PRIMARY KEY,
     type_code VARCHAR(20) UNIQUE NOT NULL,
     type_name VARCHAR(100) NOT NULL,
@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS public.machine_types (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS public.machines (
+CREATE TABLE IF NOT EXISTS master_data.machines (
     id SERIAL PRIMARY KEY,
     machine_number VARCHAR(50) UNIQUE NOT NULL,
     machine_type_id INTEGER,
@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS public.machines (
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (machine_type_id) REFERENCES public.machine_types(id),
+    FOREIGN KEY (machine_type_id) REFERENCES master_data.machine_types(id),
     FOREIGN KEY (assigned_base_id) REFERENCES master_data.bases(base_id)
 );
 
@@ -117,7 +117,7 @@ BEGIN
   ) THEN
     ALTER TABLE master_data.vehicles 
       ADD CONSTRAINT fk_vehicles_machine_id 
-      FOREIGN KEY (machine_id) REFERENCES public.machines(id)
+      FOREIGN KEY (machine_id) REFERENCES master_data.machines(id)
       ON DELETE SET NULL;
   END IF;
 

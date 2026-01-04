@@ -71,6 +71,48 @@ CREATE TABLE IF NOT EXISTS master_data.vehicles (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 機種マスタ
+CREATE TABLE IF NOT EXISTS master_data.machine_types (
+    id SERIAL PRIMARY KEY,
+    type_code VARCHAR(20) UNIQUE NOT NULL,
+    type_name VARCHAR(100) NOT NULL,
+    manufacturer VARCHAR(100),
+    category VARCHAR(50),
+    description TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 機械番号マスタ
+CREATE TABLE IF NOT EXISTS master_data.machines (
+    id SERIAL PRIMARY KEY,
+    machine_number VARCHAR(50) UNIQUE NOT NULL,
+    machine_type_id INTEGER,
+    serial_number VARCHAR(100),
+    manufacture_date DATE,
+    purchase_date DATE,
+    status VARCHAR(20) DEFAULT 'active',
+    assigned_base_id INTEGER,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (machine_type_id) REFERENCES master_data.machine_types(id),
+    FOREIGN KEY (assigned_base_id) REFERENCES master_data.bases(base_id)
+);
+
+-- 外部キー制約を追加
+ALTER TABLE master_data.vehicles 
+    DROP CONSTRAINT IF EXISTS fk_vehicles_machine_id;
+ALTER TABLE master_data.vehicles 
+    ADD CONSTRAINT fk_vehicles_machine_id 
+    FOREIGN KEY (machine_id) REFERENCES master_data.machines(id) ON DELETE SET NULL;
+
+ALTER TABLE master_data.vehicles 
+    DROP CONSTRAINT IF EXISTS fk_vehicles_office_id;
+ALTER TABLE master_data.vehicles 
+    ADD CONSTRAINT fk_vehicles_office_id 
+    FOREIGN KEY (office_id) REFERENCES master_data.managements_offices(office_id) ON DELETE SET NULL;
+
 -- 車両タイプマスタ（既存）
 CREATE TABLE IF NOT EXISTS master_data.vehicle_types (
     type_id SERIAL PRIMARY KEY,
@@ -236,6 +278,10 @@ CREATE INDEX IF NOT EXISTS idx_bases_code ON master_data.bases(base_code);
 CREATE INDEX IF NOT EXISTS idx_bases_office ON master_data.bases(office_id);
 CREATE INDEX IF NOT EXISTS idx_vehicles_number ON master_data.vehicles(vehicle_number);
 CREATE INDEX IF NOT EXISTS idx_vehicles_status ON master_data.vehicles(status);
+CREATE INDEX IF NOT EXISTS idx_machines_number ON master_data.machines(machine_number);
+CREATE INDEX IF NOT EXISTS idx_machines_type ON master_data.machines(machine_type_id);
+CREATE INDEX IF NOT EXISTS idx_machines_base ON master_data.machines(assigned_base_id);
+CREATE INDEX IF NOT EXISTS idx_machine_types_code ON master_data.machine_types(type_code);
 
 -- operations スキーマ
 CREATE INDEX IF NOT EXISTS idx_schedules_vehicle ON operations.schedules(vehicle_id);
@@ -266,6 +312,8 @@ BEGIN
     RAISE NOTICE '  - master_data.managements_offices (事業所)';
     RAISE NOTICE '  - master_data.bases (保守基地)';
     RAISE NOTICE '  - master_data.vehicles (保守用車)';
+    RAISE NOTICE '  - master_data.machine_types (機種マスタ)';
+    RAISE NOTICE '  - master_data.machines (機械番号マスタ)';
     RAISE NOTICE '  - master_data.users (ユーザー)';
     RAISE NOTICE '========================================';
 END $$;

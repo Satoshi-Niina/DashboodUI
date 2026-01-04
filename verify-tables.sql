@@ -36,7 +36,7 @@ WHERE table_schema = 'master_data'
   AND table_name = 'vehicles'
 ORDER BY ordinal_position;
 
--- 4. 機械テーブル（public schema）
+-- 4. 機械テーブル（master_data schema）
 SELECT 
     'machines' as table_name,
     column_name, 
@@ -44,11 +44,11 @@ SELECT
     is_nullable,
     column_default
 FROM information_schema.columns 
-WHERE table_schema = 'public' 
+WHERE table_schema = 'master_data' 
   AND table_name = 'machines'
 ORDER BY ordinal_position;
 
--- 5. 機械タイプテーブル（public schema）
+-- 5. 機械タイプテーブル（master_data schema）
 SELECT 
     'machine_types' as table_name,
     column_name, 
@@ -56,6 +56,6 @@ SELECT
     is_nullable,
     column_default
 FROM information_schema.columns 
-WHERE table_schema = 'public' 
+WHERE table_schema = 'master_data' 
   AND table_name = 'machine_types'
 ORDER BY ordinal_position;

@@ -593,10 +593,10 @@ app.post('/api/verify-token', async (req, res) => {
       audience: 'emergency-assistance-app'
     });
     
-    // ゲートウェイ方式でユーザー情報を取得
+    // ゲートウェイ方式でユーザー情報を取得（departmentカラムは取得しない）
     const users = await dynamicSelect('users', 
       { id: decoded.id }, 
-      ['id', 'username', 'display_name', 'role', 'department'], 
+      ['id', 'username', 'display_name', 'role'], 
       1
     );
 
@@ -609,6 +609,15 @@ app.post('/api/verify-token', async (req, res) => {
     }
 
     const user = users[0];
+    
+    // departmentをroleから動的に生成
+    let department = '一般';
+    if (user.role === 'system_admin') {
+      department = 'システム管理部';
+    } else if (user.role === 'operation_admin') {
+      department = '運用管理部';
+    }
+    
     res.json({ 
       valid: true,
       success: true, 
@@ -616,7 +625,8 @@ app.post('/api/verify-token', async (req, res) => {
         id: user.id, 
         username: user.username, 
         displayName: user.display_name,
-        role: user.role 
+        role: user.role,
+        department: department
       } 
     });
   } catch (err) {

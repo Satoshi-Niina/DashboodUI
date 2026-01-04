@@ -41,11 +41,11 @@ ON CONFLICT (machine_number) DO NOTHING;
 -- 保守用車マスタのテストデータ
 INSERT INTO master_data.vehicles (vehicle_number, machine_id, office_id, model, registration_number, notes)
 VALUES 
-  ('V001', (SELECT id FROM public.machines WHERE machine_number = 'M001'), (SELECT office_id FROM master_data.managements_offices WHERE office_code = 'OFF001'), 'PC30MR-5', '品川 123 あ 4567', '東京基地配置'),
-  ('V002', (SELECT id FROM public.machines WHERE machine_number = 'M002'), (SELECT office_id FROM master_data.managements_offices WHERE office_code = 'OFF001'), 'PC30MR-5', '品川 123 い 8901', '東京基地配置'),
-  ('V003', (SELECT id FROM public.machines WHERE machine_number = 'M003'), (SELECT office_id FROM master_data.managements_offices WHERE office_code = 'OFF002'), 'DT-10T', '大阪 456 う 2345', '大阪基地配置'),
-  ('V004', (SELECT id FROM public.machines WHERE machine_number = 'M004'), (SELECT office_id FROM master_data.managements_offices WHERE office_code = 'OFF003'), 'GR-250N', '名古屋 789 え 6789', '名古屋基地配置'),
-  ('V005', (SELECT id FROM public.machines WHERE machine_number = 'M005'), (SELECT office_id FROM master_data.managements_offices WHERE office_code = 'OFF001'), 'AT-151', '品川 321 お 1234', '東京基地配置')
+  ('V001', (SELECT id FROM master_data.machines WHERE machine_number = 'M001'), (SELECT office_id FROM master_data.managements_offices WHERE office_code = 'OFF001'), 'PC30MR-5', '品川 123 あ 4567', '東京基地配置'),
+  ('V002', (SELECT id FROM master_data.machines WHERE machine_number = 'M002'), (SELECT office_id FROM master_data.managements_offices WHERE office_code = 'OFF001'), 'PC30MR-5', '品川 123 い 8901', '東京基地配置'),
+  ('V003', (SELECT id FROM master_data.machines WHERE machine_number = 'M003'), (SELECT office_id FROM master_data.managements_offices WHERE office_code = 'OFF002'), 'DT-10T', '大阪 456 う 2345', '大阪基地配置'),
+  ('V004', (SELECT id FROM master_data.machines WHERE machine_number = 'M004'), (SELECT office_id FROM master_data.managements_offices WHERE office_code = 'OFF003'), 'GR-250N', '名古屋 789 え 6789', '名古屋基地配置'),
+  ('V005', (SELECT id FROM master_data.machines WHERE machine_number = 'M005'), (SELECT office_id FROM master_data.managements_offices WHERE office_code = 'OFF001'), 'AT-151', '品川 321 お 1234', '東京基地配置')
 ON CONFLICT (vehicle_number) DO NOTHING;
 
 -- 挿入結果の確認
@@ -53,9 +53,9 @@ SELECT '事業所マスタ' as table_name, COUNT(*) as record_count FROM master_
 UNION ALL
 SELECT '保守基地マスタ', COUNT(*) FROM master_data.bases
 UNION ALL
-SELECT '機種マスタ', COUNT(*) FROM public.machine_types
+SELECT '機種マスタ', COUNT(*) FROM master_data.machine_types
 UNION ALL
-SELECT '機械番号マスタ', COUNT(*) FROM public.machines
+SELECT '機械番号マスタ', COUNT(*) FROM master_data.machines
 UNION ALL
 SELECT '保守用車マスタ', COUNT(*) FROM master_data.vehicles;
 
@@ -88,7 +88,7 @@ SELECT
     o.office_name,
     v.registration_number
 FROM master_data.vehicles v
-LEFT JOIN public.machines m ON v.machine_id = m.id
-LEFT JOIN public.machine_types mt ON m.machine_type_id = mt.id
+LEFT JOIN master_data.machines m ON v.machine_id = m.id
+LEFT JOIN master_data.machine_types mt ON m.machine_type_id = mt.id
 LEFT JOIN master_data.managements_offices o ON v.office_id = o.office_id
 ORDER BY v.vehicle_id;

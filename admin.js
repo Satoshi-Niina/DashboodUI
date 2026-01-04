@@ -42,7 +42,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // イベントリスナーの初期化
     initializeEventListeners();
-    initializeMachineEventListeners();
     initializeCorsSettings();
 });
 
@@ -75,9 +74,6 @@ function initializeTabs() {
                 loadBases();
             } else if (tabName === 'vehicle-master') {
                 loadVehicles();
-            } else if (tabName === 'machine-master') {
-                loadMachineTypes();
-                loadMachines();
             } else if (tabName === 'database-management') {
                 loadDatabaseStats();
             } else if (tabName === 'cors-settings') {
@@ -374,6 +370,10 @@ async function openVehicleModal(vehicleId = null) {
     form.reset();
     document.getElementById('vehicle-id').value = '';
     
+    // 新規登録フィールドを非表示にする
+    document.getElementById('new-machine-type-fields').style.display = 'none';
+    document.getElementById('new-machine-fields').style.display = 'none';
+    
     // 機種マスタを読み込む
     try {
         const machineTypesResponse = await fetch('/api/machine-types', {
@@ -384,19 +384,53 @@ async function openVehicleModal(vehicleId = null) {
         if (machineTypesData.success) {
             const machineTypeSelect = document.getElementById('vehicle-machine-type');
             machineTypeSelect.innerHTML = '<option value="">-- 機種を選択 --</option>';
+            machineTypeSelect.innerHTML += '<option value="__new__">➕ 新しい機種を登録</option>';
             machineTypesData.data.forEach(type => {
                 machineTypeSelect.innerHTML += `<option value="${type.id}">${type.type_code} - ${type.type_name}</option>`;
             });
 
-            // 機種選択時に機械番号をフィルタリング
+            // 機種選択時のイベント
             machineTypeSelect.onchange = async () => {
                 const typeId = machineTypeSelect.value;
-                await loadMachinesForType(typeId);
+                if (typeId === '__new__') {
+                    document.getElementById('new-machine-type-fields').style.display = 'block';
+                    // 新規機種の場合、機械番号も新規にする
+                    document.getElementById('vehicle-machine').value = '__new__';
+                    document.getElementById('new-machine-fields').style.display = 'block';
+                } else {
+                    document.getElementById('new-machine-type-fields').style.display = 'none';
+                    await loadMachinesForType(typeId);
+                }
             };
         }
 
         // 全機械番号を読み込む
         await loadMachinesForType(null);
+
+        // 機械番号選択時のイベント
+        const machineSelect = document.getElementById('vehicle-machine');
+        machineSelect.onchange = () => {
+            const machineId = machineSelect.value;
+            if (machineId === '__new__') {
+                document.getElementById('new-machine-fields').style.display = 'block';
+            } else {
+                document.getElementById('new-machine-fields').style.display = 'none';
+            }
+        };
+
+        // 配属基地を読み込む（新規機械用）
+        const basesResponse = await fetch('/api/bases', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const basesData = await basesResponse.json();
+
+        if (basesData.success) {
+            const newBaseSelect = document.getElementById('new-assigned-base');
+            newBaseSelect.innerHTML = '<option value="">-- 配属基地を選択 --</option>';
+            basesData.bases.forEach(base => {
+                newBaseSelect.innerHTML += `<option value="${base.base_id}">${base.base_name}</option>`;
+            });
+        }
 
         // 事業所を読み込む
         const officesResponse = await fetch('/api/offices', {
@@ -437,6 +471,7 @@ async function loadMachinesForType(typeId) {
 
         if (data.success) {
             machineSelect.innerHTML = '<option value="">-- 機械番号を選択 --</option>';
+            machineSelect.innerHTML += '<option value="__new__">➕ 新しい機械番号を登録</option>';
             const filteredMachines = typeId 
                 ? data.data.filter(m => m.machine_type_id == typeId)
                 : data.data;
@@ -476,24 +511,139 @@ async function loadVehicleData(vehicleId) {
 
 async function saveVehicle() {
     const vehicleId = document.getElementById('vehicle-id').value;
-    const machineId = document.getElementById('vehicle-machine').value;
+    const token = localStorage.getItem('user_token');
+    let machineId = document.getElementById('vehicle-machine').value;
+    const machineTypeId = document.getElementById('vehicle-machine-type').value;
     
     if (!machineId) {
         showToast('機械番号を選択してください', 'error');
         return;
     }
-    
-    const vehicleData = {
-        machine_id: machineId,
-        vehicle_number: document.getElementById('vehicle-number').value,
-        model: document.getElementById('vehicle-type-text').value, // 型式
-        registration_number: document.getElementById('vehicle-registration').value,
-        office_id: document.getElementById('vehicle-office').value || null,
-        notes: document.getElementById('vehicle-notes').value
-    };
 
     try {
-        const token = localStorage.getItem('user_token');
+        // 新規機種を登録する場合
+        if (machineTypeId === '__new__') {
+            const newTypeCode = document.getElementById('new-type-code').value;
+            const newTypeName = document.getElementById('new-type-name').value;
+            
+            if (!newTypeCode || !newTypeName) {
+                showToast('機種コードと機種名を入力してください', 'error');
+                return;
+            }
+
+            const typeData = {
+                type_code: newTypeCode,
+                type_name: newTypeName,
+                manufacturer: document.getElementById('new-manufacturer').value,
+                category: document.getElementById('new-category').value
+            };
+
+            const typeResponse = await fetch('/api/machine-types', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(typeData)
+            });
+
+            const typeResult = await typeResponse.json();
+            
+            if (!typeResult.success) {
+                showToast(typeResult.message || '機種の登録に失敗しました', 'error');
+                return;
+            }
+
+            // 登録した機種のIDを取得
+            const newMachineTypeId = typeResult.data.id;
+
+            // 新規機械番号を登録（新規機種の場合は必ず新規機械）
+            const newMachineNumber = document.getElementById('new-machine-number').value;
+            
+            if (!newMachineNumber) {
+                showToast('機械番号を入力してください', 'error');
+                return;
+            }
+
+            const machineData = {
+                machine_number: newMachineNumber,
+                machine_type_id: newMachineTypeId,
+                serial_number: document.getElementById('new-serial-number').value,
+                manufacture_date: document.getElementById('new-manufacture-date').value,
+                assigned_base_id: document.getElementById('new-assigned-base').value || null,
+                status: 'active'
+            };
+
+            const machineResponse = await fetch('/api/machines', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(machineData)
+            });
+
+            const machineResult = await machineResponse.json();
+            
+            if (!machineResult.success) {
+                showToast(machineResult.message || '機械番号の登録に失敗しました', 'error');
+                return;
+            }
+
+            machineId = machineResult.data.id;
+        }
+        // 新規機械番号のみを登録する場合
+        else if (machineId === '__new__') {
+            if (!machineTypeId) {
+                showToast('機種を選択してください', 'error');
+                return;
+            }
+
+            const newMachineNumber = document.getElementById('new-machine-number').value;
+            
+            if (!newMachineNumber) {
+                showToast('機械番号を入力してください', 'error');
+                return;
+            }
+
+            const machineData = {
+                machine_number: newMachineNumber,
+                machine_type_id: machineTypeId,
+                serial_number: document.getElementById('new-serial-number').value,
+                manufacture_date: document.getElementById('new-manufacture-date').value,
+                assigned_base_id: document.getElementById('new-assigned-base').value || null,
+                status: 'active'
+            };
+
+            const machineResponse = await fetch('/api/machines', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(machineData)
+            });
+
+            const machineResult = await machineResponse.json();
+            
+            if (!machineResult.success) {
+                showToast(machineResult.message || '機械番号の登録に失敗しました', 'error');
+                return;
+            }
+
+            machineId = machineResult.data.id;
+        }
+
+        // 保守用車データを保存
+        const vehicleData = {
+            machine_id: machineId,
+            vehicle_number: document.getElementById('vehicle-number').value,
+            model: document.getElementById('vehicle-type-text').value, // 型式
+            registration_number: document.getElementById('vehicle-registration').value,
+            office_id: document.getElementById('vehicle-office').value || null,
+            notes: document.getElementById('vehicle-notes').value
+        };
+
         const url = vehicleId ? `/api/vehicles/${vehicleId}` : '/api/vehicles';
         const method = vehicleId ? 'PUT' : 'POST';
 
