@@ -51,7 +51,14 @@ function initializeTabs() {
     const tabContents = document.querySelectorAll('.tab-content');
 
     // 最初のタブをアクティブにする
-    tabButtons[0].classList.add('active');
+    if (tabButtons.length > 0) {
+        tabButtons[0].classList.add('active');
+        const firstTabName = tabButtons[0].getAttribute('data-tab');
+        const firstTabContent = document.getElementById(`${firstTabName}-tab`);
+        if (firstTabContent) {
+            firstTabContent.style.display = 'block';
+        }
+    }
 
     tabButtons.forEach(button => {
         button.addEventListener('click', () => {
@@ -63,7 +70,10 @@ function initializeTabs() {
 
             // クリックされたタブをアクティブにする
             button.classList.add('active');
-            document.getElementById(`${tabName}-tab`).style.display = 'block';
+            const targetTab = document.getElementById(`${tabName}-tab`);
+            if (targetTab) {
+                targetTab.style.display = 'block';
+            }
 
             // タブに応じてデータを読み込み
             if (tabName === 'user-management') {
