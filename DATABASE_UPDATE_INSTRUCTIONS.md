@@ -18,7 +18,7 @@
 ### 1. データベースのバックアップ
 ```bash
 # Cloud SQLインスタンスのバックアップを作成
-gcloud sql backups create --instance=YOUR_INSTANCE_NAME
+gcloud sql backups create --instance=free-trial-first-project
 ```
 
 ### 2. 現在のデータ確認
@@ -50,7 +50,7 @@ GROUP BY status;
 
 ```bash
 # Cloud SQLに接続
-gcloud sql connect YOUR_INSTANCE_NAME --user=postgres --database=webappdb
+gcloud sql connect free-trial-first-project --user=postgres --database=webappdb
 
 # SQLファイルを実行
 \i database-complete-update.sql
@@ -60,7 +60,7 @@ gcloud sql connect YOUR_INSTANCE_NAME --user=postgres --database=webappdb
 
 ```bash
 # ローカルからCloud SQLプロキシ経由で接続
-cloud_sql_proxy -instances=PROJECT_ID:REGION:INSTANCE_NAME=tcp:5432 &
+cloud_sql_proxy -instances=PROJECT_ID:REGION:free-trial-first-project=tcp:5432 &
 
 # psqlで接続してSQLファイル実行
 psql -h 127.0.0.1 -U postgres -d webappdb -f database-complete-update.sql
