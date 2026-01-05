@@ -1387,13 +1387,21 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
 
 // 保守基地追加
 app.post('/api/bases', requireAdmin, async (req, res) => {
-  const { base_code, base_name, office_id, location, address, postal_code } = req.body;
+  let { base_code, base_name, office_id, location, address, postal_code } = req.body;
 
-  if (!base_code || !base_name) {
-    return res.status(400).json({ success: false, message: '基地コードと基地名は必須です' });
+  if (!base_name) {
+    return res.status(400).json({ success: false, message: '基地名は必須です' });
   }
 
   try {
+    // 基地コードが指定されていない場合は自動採番
+    if (!base_code) {
+      const maxCodeQuery = `SELECT MAX(CAST(base_code AS INTEGER)) as max_code FROM master_data.bases WHERE base_code ~ '^[0-9]+$'`;
+      const maxCodeResult = await pool.query(maxCodeQuery);
+      const maxCode = maxCodeResult.rows[0].max_code || 0;
+      base_code = String(maxCode + 1).padStart(4, '0');
+    }
+
     const insertQuery = `
       INSERT INTO master_data.bases 
       (base_code, base_name, office_id, location, address, postal_code)
@@ -1412,10 +1420,11 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
     res.json({ success: true, base: result.rows[0], message: '保守基地を追加しました' });
   } catch (err) {
     console.error('Base insert error:', err);
+    console.error('Base insert error stack:', err.stack);
     if (err.code === '23505') {
       res.status(409).json({ success: false, message: 'この基地コードは既に登録されています' });
     } else {
-      res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+      res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
     }
   }
 });
@@ -2057,6 +2066,28 @@ app.get('/debug/tables', async (req, res) => {
   } catch (err) {
     console.error('Debug tables error:', err);
     res.status(500).json({ success: false, message: err.message, stack: err.stack });
+  }
+});
+
+// デバッグエンドポイント: postal_codeカラム追加
+app.post('/debug/add-postal-code', async (req, res) => {
+  try {
+    console.log('managements_officesにpostal_codeカラムを追加...');
+    await pool.query(`
+      ALTER TABLE master_data.managements_offices 
+      ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20)
+    `);
+    
+    console.log('basesにpostal_codeカラムを追加...');
+    await pool.query(`
+      ALTER TABLE master_data.bases 
+      ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20)
+    `);
+    
+    res.json({ success: true, message: 'postal_codeカラムを追加しました' });
+  } catch (err) {
+    console.error('Add postal_code error:', err);
+    res.status(500).json({ success: false, message: 'エラーが発生しました: ' + err.message });
   }
 });
 

@@ -1380,8 +1380,9 @@ function createBaseModal(mode, base, offices) {
                 </div>
                 <form id="base-form" class="modal-form">
                     <div class="form-group">
-                        <label for="base_code">基地コード *</label>
-                        <input type="text" id="base_code" name="base_code" value="${base ? escapeHtml(base.base_code) : ''}" required ${mode === 'edit' ? 'readonly' : ''}>
+                        <label for="base_code">基地コード</label>
+                        <input type="text" id="base_code" name="base_code" value="${base ? escapeHtml(base.base_code) : ''}" ${mode === 'edit' ? 'readonly' : ''} placeholder="空欄の場合は自動採番されます">
+                        ${mode === 'add' ? '<small>空欄の場合は自動的に採番されます</small>' : ''}
                     </div>
                     <div class="form-group">
                         <label for="base_name">基地名 *</label>
