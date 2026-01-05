@@ -1283,15 +1283,15 @@ app.post('/api/offices', requireAdmin, async (req, res) => {
 // 事業所更新
 app.put('/api/offices/:id', requireAdmin, async (req, res) => {
   const officeId = req.params.id;
-  const { office_code, office_name, office_type, address, postal_code, phone_number, manager_name, email } = req.body;
+  const { office_code, office_name, office_type, address, postal_code, phone_number } = req.body;
 
   try {
     const updateQuery = `
       UPDATE master_data.managements_offices 
       SET office_code = $1, office_name = $2, office_type = $3, address = $4, 
-          postal_code = $5, phone_number = $6, manager_name = $7, email = $8, 
+          postal_code = $5, phone_number = $6, 
           updated_at = CURRENT_TIMESTAMP
-      WHERE office_id = $9
+      WHERE office_id = $7
       RETURNING *
     `;
     const result = await pool.query(updateQuery, [
@@ -1301,8 +1301,6 @@ app.put('/api/offices/:id', requireAdmin, async (req, res) => {
       address,
       postal_code,
       phone_number,
-      manager_name,
-      email,
       officeId
     ]);
 
@@ -1359,7 +1357,7 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
 
 // 保守基地追加
 app.post('/api/bases', requireAdmin, async (req, res) => {
-  const { base_code, base_name, office_id, location, address, postal_code, phone_number, latitude, longitude } = req.body;
+  const { base_code, base_name, office_id, location, address, postal_code } = req.body;
 
   if (!base_code || !base_name) {
     return res.status(400).json({ success: false, message: '基地コードと基地名は必須です' });
@@ -1368,8 +1366,8 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
   try {
     const insertQuery = `
       INSERT INTO master_data.bases 
-      (base_code, base_name, office_id, location, address, postal_code, phone_number, latitude, longitude)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      (base_code, base_name, office_id, location, address, postal_code)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
     `;
     const result = await pool.query(insertQuery, [
@@ -1378,10 +1376,7 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
       office_id || null,
       location || null,
       address || null,
-      postal_code || null,
-      phone_number || null,
-      latitude || null,
-      longitude || null
+      postal_code || null
     ]);
 
     res.json({ success: true, base: result.rows[0], message: '保守基地を追加しました' });
@@ -1398,15 +1393,15 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
 // 保守基地更新
 app.put('/api/bases/:id', requireAdmin, async (req, res) => {
   const baseId = req.params.id;
-  const { base_code, base_name, office_id, location, address, postal_code, phone_number, latitude, longitude } = req.body;
+  const { base_code, base_name, office_id, location, address, postal_code } = req.body;
 
   try {
     const updateQuery = `
       UPDATE master_data.bases 
       SET base_code = $1, base_name = $2, office_id = $3, location = $4, address = $5,
-          postal_code = $6, phone_number = $7, latitude = $8, longitude = $9,
+          postal_code = $6,
           updated_at = CURRENT_TIMESTAMP
-      WHERE base_id = $10
+      WHERE base_id = $7
       RETURNING *
     `;
     const result = await pool.query(updateQuery, [
@@ -1416,9 +1411,6 @@ app.put('/api/bases/:id', requireAdmin, async (req, res) => {
       location || null,
       address || null,
       postal_code || null,
-      phone_number || null,
-      latitude || null,
-      longitude || null,
       baseId
     ]);
 

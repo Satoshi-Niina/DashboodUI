@@ -861,14 +861,6 @@ function createOfficeModal(mode, office) {
                         <label for="phone_number">電話番号</label>
                         <input type="text" id="phone_number" name="phone_number" value="${office ? escapeHtml(office.phone_number || '') : ''}">
                     </div>
-                    <div class="form-group">
-                        <label for="manager_name">責任者名</label>
-                        <input type="text" id="manager_name" name="manager_name" value="${office ? escapeHtml(office.manager_name || '') : ''}">
-                    </div>
-                    <div class="form-group">
-                        <label for="email">メールアドレス</label>
-                        <input type="email" id="email" name="email" value="${office ? escapeHtml(office.email || '') : ''}">
-                    </div>
                     <div class="modal-actions">
                         <button type="button" class="btn-secondary" onclick="closeOfficeModal()">キャンセル</button>
                         <button type="submit" class="btn-primary">保存</button>
@@ -1054,26 +1046,6 @@ function createBaseModal(mode, base, offices) {
                     <div class="form-group">
                         <label for="location">所在地</label>
                         <input type="text" id="location" name="location" value="${base ? escapeHtml(base.location || '') : ''}">
-                    </div>
-                    <div class="form-group">
-                        <label for="latitude">緯度</label>
-                        <input type="number" step="0.000001" id="latitude" name="latitude" value="${base ? (base.latitude || '') : ''}">
-                    </div>
-                    <div class="form-group">
-                        <label for="longitude">経度</label>
-                        <input type="number" step="0.000001" id="longitude" name="longitude" value="${base ? (base.longitude || '') : ''}">
-                    </div>
-                    <div class="form-group">
-                        <label for="capacity">収容台数</label>
-                        <input type="number" id="capacity" name="capacity" value="${base ? (base.capacity || '') : ''}">
-                    </div>
-                    <div class="form-group">
-                        <label for="manager_name">責任者名</label>
-                        <input type="text" id="manager_name" name="manager_name" value="${base ? escapeHtml(base.manager_name || '') : ''}">
-                    </div>
-                    <div class="form-group">
-                        <label for="phone_number">電話番号</label>
-                        <input type="text" id="phone_number" name="phone_number" value="${base ? escapeHtml(base.phone_number || '') : ''}">
                     </div>
                     <div class="modal-actions">
                         <button type="button" class="btn-secondary" onclick="closeBaseModal()">キャンセル</button>
