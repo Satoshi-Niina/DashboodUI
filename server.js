@@ -1076,7 +1076,7 @@ app.get('/api/vehicles', requireAdmin, async (req, res) => {
       FROM ${vehiclesRoute.fullPath} v
       LEFT JOIN ${machinesRoute.fullPath} m ON v.machine_id = m.id
       LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id = mt.id
-      LEFT JOIN ${officesRoute.fullPath} o ON v.office_id = o.office_id
+      LEFT JOIN ${officesRoute.fullPath} o ON v.office_id = o.id
       ORDER BY v.vehicle_id DESC
     `;
     console.log('[GET /api/vehicles] Executing query...');
@@ -1228,7 +1228,7 @@ app.delete('/api/vehicles/:id', requireAdmin, async (req, res) => {
 app.get('/api/offices', authenticateToken, async (req, res) => {
   try {
     const route = await resolveTablePath('managements_offices');
-    const query = `SELECT * FROM ${route.fullPath} ORDER BY office_id DESC`;
+    const query = `SELECT * FROM ${route.fullPath} ORDER BY id DESC`;
     const result = await pool.query(query);
     res.json({ success: true, offices: result.rows });
   } catch (err) {
