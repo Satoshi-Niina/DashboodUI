@@ -1019,10 +1019,10 @@ app.get('/api/vehicles', requireAdmin, async (req, res) => {
       SELECT 
         v.vehicle_id,
         v.vehicle_number,
-        v.vehicle_type,
         v.model,
         v.registration_number,
-        v.machine_id,
+        v.status,
+        m.id as machine_id,
         m.machine_number,
         mt.type_code as machine_type_code,
         mt.type_name as machine_type_name,
