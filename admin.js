@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 認証チェック
     const token = localStorage.getItem('user_token');
     console.log('[Admin] Token check:', token ? 'Token exists' : 'No token found');
+    console.log('[Admin] Initializing admin page...');
     
     if (!token) {
         console.error('[Admin] No token, redirecting to login');
