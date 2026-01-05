@@ -1060,9 +1060,12 @@ app.get('/api/vehicles', requireAdmin, async (req, res) => {
         v.vehicle_number,
         v.model,
         v.registration_number,
+        v.type_certification,
+        v.acquisition_date,
         v.status,
         m.id as machine_id,
         m.machine_number,
+        mt.id as machine_type_id,
         mt.type_code as machine_type_code,
         mt.type_name as machine_type_name,
         v.office_id,
@@ -1121,34 +1124,27 @@ app.get('/api/vehicles/:id', requireAdmin, async (req, res) => {
 // 保守用車追加エンドポイント
 app.post('/api/vehicles', requireAdmin, async (req, res) => {
   const username = req.user.username;
-  const { vehicle_number, machine_id, office_id, model, registration_number, notes } = req.body;
+  const { vehicle_number, machine_id, office_id, model, registration_number, type_certification, acquisition_date, notes } = req.body;
 
   try {
     // バリデーション
-    if (!vehicle_number) {
-      return res.status(400).json({ success: false, message: '車両番号は必須です' });
-    }
-
     if (!machine_id) {
       return res.status(400).json({ success: false, message: '機械番号は必須です' });
     }
 
-    // 車両番号の重複チェック
-    const route = await resolveTablePath('vehicles');
-    const checkQuery = `SELECT vehicle_id FROM ${route.fullPath} WHERE vehicle_number = $1`;
-    const checkResult = await pool.query(checkQuery, [vehicle_number]);
-
-    if (checkResult.rows.length > 0) {
-      return res.status(400).json({ success: false, message: 'この車両番号は既に使用されています' });
+    if (!office_id) {
+      return res.status(400).json({ success: false, message: '管理事業所は必須です' });
     }
 
     // 車両を追加（ゲートウェイ方式）
     const vehicles = await dynamicInsert('vehicles', {
-      vehicle_number,
+      vehicle_number: vehicle_number || null,
       machine_id,
-      office_id: office_id || null,
+      office_id,
       model: model || null,
       registration_number: registration_number || null,
+      type_certification: type_certification || null,
+      acquisition_date: acquisition_date || null,
       notes: notes || null
     });
 
@@ -1166,34 +1162,27 @@ app.put('/api/vehicles/:id', requireAdmin, async (req, res) => {
   const username = req.user.username;
   
   try {
-    const { vehicle_number, machine_id, office_id, model, registration_number, notes } = req.body;
+    const { vehicle_number, machine_id, office_id, model, registration_number, type_certification, acquisition_date, notes } = req.body;
 
     // バリデーション
-    if (!vehicle_number) {
-      return res.status(400).json({ success: false, message: '車両番号は必須です' });
-    }
-
     if (!machine_id) {
       return res.status(400).json({ success: false, message: '機械番号は必須です' });
     }
 
-    // 車両番号の重複チェック（自分以外）
-    const route = await resolveTablePath('vehicles');
-    const checkQuery = `SELECT vehicle_id FROM ${route.fullPath} WHERE vehicle_number = $1 AND vehicle_id != $2`;
-    const checkResult = await pool.query(checkQuery, [vehicle_number, vehicleId]);
-
-    if (checkResult.rows.length > 0) {
-      return res.status(400).json({ success: false, message: 'この車両番号は既に使用されています' });
+    if (!office_id) {
+      return res.status(400).json({ success: false, message: '管理事業所は必須です' });
     }
 
     // 車両を更新（ゲートウェイ方式）
     const vehicles = await dynamicUpdate('vehicles', 
       {
-        vehicle_number,
+        vehicle_number: vehicle_number || null,
         machine_id,
-        office_id: office_id || null,
+        office_id,
         model: model || null,
         registration_number: registration_number || null,
+        type_certification: type_certification || null,
+        acquisition_date: acquisition_date || null,
         notes: notes || null,
         updated_at: new Date()
       },
@@ -2009,6 +1998,23 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
     } else {
       res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
     }
+  }
+});
+
+// 機種マスタ削除
+app.delete('/api/machine-types/:id', requireAdmin, async (req, res) => {
+  try {
+    const machineTypeId = req.params.id;
+    const types = await dynamicDelete('machine_types', { id: machineTypeId }, true);
+    
+    if (types.length === 0) {
+      return res.status(404).json({ success: false, message: '機種が見つかりません' });
+    }
+    
+    res.json({ success: true, message: '機種を削除しました' });
+  } catch (err) {
+    console.error('Machine type delete error:', err);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
   }
 });
 
