@@ -184,10 +184,7 @@ WHERE table_schema = 'master_data' AND table_name = 'machines'
 ORDER BY ordinal_position;
 
 -- ルーティング設定の確認
-SELECT * FROM public.app_routing_config ORDER BY app_code;
-
--- テーブルマッピングの確認
-SELECT * FROM public.table_routing_map WHERE app_code = 'dashboard-ui' ORDER BY table_name;
+SELECT * FROM public.app_resource_routing WHERE app_id = 'dashboard-ui' ORDER BY logical_resource_name;
 
 -- インデックスの確認
 SELECT 
