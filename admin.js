@@ -268,19 +268,33 @@ async function loadUsers() {
         console.log('[loadUsers] Data received:', data);
 
         if (data.success && data.users.length > 0) {
-            usersList.innerHTML = data.users.map(user => `
-                <div class="user-item">
-                    <div class="user-info">
-                        <div class="username">${escapeHtml(user.username)}</div>
-                        <div class="display-name">${escapeHtml(user.display_name || '')}</div>
-                        <span class="role-badge role-${user.role}">${user.role === 'admin' ? '管理者' : 'ユーザー'}</span>
+            usersList.innerHTML = data.users.map(user => {
+                // 役割の表示名を取得
+                let roleDisplayName = 'ユーザー';
+                if (user.role === 'system_admin') {
+                    roleDisplayName = 'システム管理者';
+                } else if (user.role === 'operation_admin') {
+                    roleDisplayName = '運用管理者';
+                } else if (user.role === 'admin') {
+                    roleDisplayName = '管理者';
+                } else if (user.role === 'user') {
+                    roleDisplayName = 'ユーザー';
+                }
+                
+                return `
+                    <div class="user-item">
+                        <div class="user-info">
+                            <div class="username">${escapeHtml(user.username)}</div>
+                            <div class="display-name">${escapeHtml(user.display_name || '')}</div>
+                            <span class="role-badge role-${user.role}">${roleDisplayName}</span>
+                        </div>
+                        <div class="user-actions-buttons">
+                            <button class="btn-edit" onclick="editUser(${user.id})">✏️ 編集</button>
+                            <button class="btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')">🗑️ 削除</button>
+                        </div>
                     </div>
-                    <div class="user-actions-buttons">
-                        <button class="btn-edit" onclick="editUser(${user.id})">✏️ 編集</button>
-                        <button class="btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')">🗑️ 削除</button>
-                    </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         } else {
             usersList.innerHTML = '<p class="loading">ユーザーが登録されていません</p>';
         }
@@ -1169,8 +1183,9 @@ function createOfficeModal(mode, office) {
                 </div>
                 <form id="office-form" class="modal-form">
                     <div class="form-group">
-                        <label for="office_code">事業所コード *</label>
-                        <input type="text" id="office_code" name="office_code" value="${office ? escapeHtml(office.office_code) : ''}" required ${mode === 'edit' ? 'readonly' : ''}>
+                        <label for="office_code">事業所コード</label>
+                        <input type="text" id="office_code" name="office_code" value="${office ? escapeHtml(office.office_code) : ''}" ${mode === 'edit' ? 'readonly' : ''} placeholder="空欄の場合は自動採番されます">
+                        ${mode === 'add' ? '<small>空欄の場合は自動的に採番されます</small>' : ''}
                     </div>
                     <div class="form-group">
                         <label for="office_name">事業所名 *</label>

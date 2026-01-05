@@ -255,7 +255,8 @@ async function resolveTablePath(logicalName) {
     
   } catch (err) {
     console.error(`[Gateway] ❌ Error resolving ${logicalName}:`, err.message);
-    console.error(`[Gateway] Error details:`, err);
+    console.error(`[Gateway] Error code:`, err.code);
+    console.error(`[Gateway] Error stack:`, err.stack);
     // エラー時もmaster_dataスキーマにフォールバック
     const fallback = { 
       fullPath: `master_data."${logicalName}"`, 
@@ -277,29 +278,37 @@ async function resolveTablePath(logicalName) {
  * @returns {Promise<Array>}
  */
 async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'], limit = null) {
-  const route = await resolveTablePath(logicalTableName);
-  
-  const columnList = columns.join(', ');
-  let query = `SELECT ${columnList} FROM ${route.fullPath}`;
-  const params = [];
-  
-  // WHERE句の構築
-  const whereConditions = Object.entries(conditions).map(([key, value], index) => {
-    params.push(value);
-    return `${key} = $${index + 1}`;
-  });
-  
-  if (whereConditions.length > 0) {
-    query += ` WHERE ${whereConditions.join(' AND ')}`;
+  try {
+    const route = await resolveTablePath(logicalTableName);
+    
+    const columnList = columns.join(', ');
+    let query = `SELECT ${columnList} FROM ${route.fullPath}`;
+    const params = [];
+    
+    // WHERE句の構築
+    const whereConditions = Object.entries(conditions).map(([key, value], index) => {
+      params.push(value);
+      return `${key} = $${index + 1}`;
+    });
+    
+    if (whereConditions.length > 0) {
+      query += ` WHERE ${whereConditions.join(' AND ')}`;
+    }
+    
+    if (limit) {
+      query += ` LIMIT ${limit}`;
+    }
+    
+    console.log(`[DynamicDB] SELECT from ${route.fullPath}`);
+    console.log(`[DynamicDB] Query: ${query}`);
+    const result = await pool.query(query, params);
+    return result.rows;
+  } catch (err) {
+    console.error(`[DynamicDB] ❌ SELECT error for table ${logicalTableName}:`, err.message);
+    console.error(`[DynamicDB] Error code:`, err.code);
+    console.error(`[DynamicDB] Error stack:`, err.stack);
+    throw err;
   }
-  
-  if (limit) {
-    query += ` LIMIT ${limit}`;
-  }
-  
-  console.log(`[DynamicDB] SELECT from ${route.fullPath}`);
-  const result = await pool.query(query, params);
-  return result.rows;
 }
 
 /**
@@ -310,21 +319,29 @@ async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'],
  * @returns {Promise<Array>}
  */
 async function dynamicInsert(logicalTableName, data, returning = true) {
-  const route = await resolveTablePath(logicalTableName);
-  
-  const keys = Object.keys(data);
-  const values = Object.values(data);
-  const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-  
-  let query = `INSERT INTO ${route.fullPath} (${keys.join(', ')}) VALUES (${placeholders})`;
-  
-  if (returning) {
-    query += ' RETURNING *';
+  try {
+    const route = await resolveTablePath(logicalTableName);
+    
+    const keys = Object.keys(data);
+    const values = Object.values(data);
+    const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
+    
+    let query = `INSERT INTO ${route.fullPath} (${keys.join(', ')}) VALUES (${placeholders})`;
+    
+    if (returning) {
+      query += ' RETURNING *';
+    }
+    
+    console.log(`[DynamicDB] INSERT into ${route.fullPath}`);
+    console.log(`[DynamicDB] Query: ${query}`);
+    const result = await pool.query(query, values);
+    return result.rows;
+  } catch (err) {
+    console.error(`[DynamicDB] ❌ INSERT error for table ${logicalTableName}:`, err.message);
+    console.error(`[DynamicDB] Error code:`, err.code);
+    console.error(`[DynamicDB] Error stack:`, err.stack);
+    throw err;
   }
-  
-  console.log(`[DynamicDB] INSERT into ${route.fullPath}`);
-  const result = await pool.query(query, values);
-  return result.rows;
 }
 
 /**
@@ -336,29 +353,37 @@ async function dynamicInsert(logicalTableName, data, returning = true) {
  * @returns {Promise<Array>}
  */
 async function dynamicUpdate(logicalTableName, data, conditions, returning = true) {
-  const route = await resolveTablePath(logicalTableName);
-  
-  const setKeys = Object.keys(data);
-  const setValues = Object.values(data);
-  const conditionKeys = Object.keys(conditions);
-  const conditionValues = Object.values(conditions);
-  
-  const setClause = setKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
-  const whereClause = conditionKeys.map((key, i) => `${key} = $${setKeys.length + i + 1}`).join(' AND ');
-  
-  let query = `UPDATE ${route.fullPath} SET ${setClause}`;
-  
-  if (conditionKeys.length > 0) {
-    query += ` WHERE ${whereClause}`;
+  try {
+    const route = await resolveTablePath(logicalTableName);
+    
+    const setKeys = Object.keys(data);
+    const setValues = Object.values(data);
+    const conditionKeys = Object.keys(conditions);
+    const conditionValues = Object.values(conditions);
+    
+    const setClause = setKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
+    const whereClause = conditionKeys.map((key, i) => `${key} = $${setKeys.length + i + 1}`).join(' AND ');
+    
+    let query = `UPDATE ${route.fullPath} SET ${setClause}`;
+    
+    if (conditionKeys.length > 0) {
+      query += ` WHERE ${whereClause}`;
+    }
+    
+    if (returning) {
+      query += ' RETURNING *';
+    }
+    
+    console.log(`[DynamicDB] UPDATE ${route.fullPath}`);
+    console.log(`[DynamicDB] Query: ${query}`);
+    const result = await pool.query(query, [...setValues, ...conditionValues]);
+    return result.rows;
+  } catch (err) {
+    console.error(`[DynamicDB] ❌ UPDATE error for table ${logicalTableName}:`, err.message);
+    console.error(`[DynamicDB] Error code:`, err.code);
+    console.error(`[DynamicDB] Error stack:`, err.stack);
+    throw err;
   }
-  
-  if (returning) {
-    query += ' RETURNING *';
-  }
-  
-  console.log(`[DynamicDB] UPDATE ${route.fullPath}`);
-  const result = await pool.query(query, [...setValues, ...conditionValues]);
-  return result.rows;
 }
 
 /**
@@ -369,25 +394,33 @@ async function dynamicUpdate(logicalTableName, data, conditions, returning = tru
  * @returns {Promise<Array>}
  */
 async function dynamicDelete(logicalTableName, conditions, returning = false) {
-  const route = await resolveTablePath(logicalTableName);
-  
-  const conditionKeys = Object.keys(conditions);
-  const conditionValues = Object.values(conditions);
-  const whereClause = conditionKeys.map((key, i) => `${key} = $${i + 1}`).join(' AND ');
-  
-  let query = `DELETE FROM ${route.fullPath}`;
-  
-  if (conditionKeys.length > 0) {
-    query += ` WHERE ${whereClause}`;
+  try {
+    const route = await resolveTablePath(logicalTableName);
+    
+    const conditionKeys = Object.keys(conditions);
+    const conditionValues = Object.values(conditions);
+    const whereClause = conditionKeys.map((key, i) => `${key} = $${i + 1}`).join(' AND ');
+    
+    let query = `DELETE FROM ${route.fullPath}`;
+    
+    if (conditionKeys.length > 0) {
+      query += ` WHERE ${whereClause}`;
+    }
+    
+    if (returning) {
+      query += ' RETURNING *';
+    }
+    
+    console.log(`[DynamicDB] DELETE from ${route.fullPath}`);
+    console.log(`[DynamicDB] Query: ${query}`);
+    const result = await pool.query(query, conditionValues);
+    return result.rows;
+  } catch (err) {
+    console.error(`[DynamicDB] ❌ DELETE error for table ${logicalTableName}:`, err.message);
+    console.error(`[DynamicDB] Error code:`, err.code);
+    console.error(`[DynamicDB] Error stack:`, err.stack);
+    throw err;
   }
-  
-  if (returning) {
-    query += ' RETURNING *';
-  }
-  
-  console.log(`[DynamicDB] DELETE from ${route.fullPath}`);
-  const result = await pool.query(query, conditionValues);
-  return result.rows;
 }
 
 /**
@@ -1076,7 +1109,7 @@ app.get('/api/vehicles', requireAdmin, async (req, res) => {
       FROM ${vehiclesRoute.fullPath} v
       LEFT JOIN ${machinesRoute.fullPath} m ON v.machine_id = m.id
       LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id = mt.id
-      LEFT JOIN ${officesRoute.fullPath} o ON v.office_id = o.id
+      LEFT JOIN ${officesRoute.fullPath} o ON v.office_id = o.office_id
       ORDER BY v.vehicle_id DESC
     `;
     console.log('[GET /api/vehicles] Executing query...');
@@ -1228,43 +1261,51 @@ app.delete('/api/vehicles/:id', requireAdmin, async (req, res) => {
 app.get('/api/offices', authenticateToken, async (req, res) => {
   try {
     const route = await resolveTablePath('managements_offices');
-    const query = `SELECT * FROM ${route.fullPath} ORDER BY id DESC`;
+    const query = `SELECT * FROM ${route.fullPath} ORDER BY office_id DESC`;
     const result = await pool.query(query);
     res.json({ success: true, offices: result.rows });
   } catch (err) {
     console.error('Offices list error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    console.error('Offices list error stack:', err.stack);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
   }
 });
 
 // 事業所追加
 app.post('/api/offices', requireAdmin, async (req, res) => {
-  const { office_code, office_name, office_type, address } = req.body;
+  let { office_code, office_name, office_type, address, postal_code, phone_number } = req.body;
 
-  if (!office_code || !office_name) {
-    return res.status(400).json({ success: false, message: '事業所コードと事業所名は必須です' });
+  if (!office_name) {
+    return res.status(400).json({ success: false, message: '事業所名は必須です' });
   }
 
   try {
-    const insertQuery = `
-      INSERT INTO master_data.managements_offices (office_code, office_name, office_type, address)
-      VALUES ($1, $2, $3, $4)
-      RETURNING *
-    `;
-    const result = await pool.query(insertQuery, [
+    // 事業所コードが指定されていない場合は自動採番
+    if (!office_code) {
+      const route = await resolveTablePath('managements_offices');
+      const maxCodeQuery = `SELECT MAX(CAST(office_code AS INTEGER)) as max_code FROM ${route.fullPath} WHERE office_code ~ '^[0-9]+$'`;
+      const maxCodeResult = await pool.query(maxCodeQuery);
+      const maxCode = maxCodeResult.rows[0].max_code || 0;
+      office_code = String(maxCode + 1).padStart(4, '0');
+    }
+
+    const offices = await dynamicInsert('managements_offices', {
       office_code,
       office_name,
-      office_type || null,
-      address || null
-    ]);
+      office_type: office_type || null,
+      address: address || null,
+      postal_code: postal_code || null,
+      phone_number: phone_number || null
+    });
 
-    res.json({ success: true, office: result.rows[0], message: '事業所を追加しました' });
+    res.json({ success: true, office: offices[0], message: '事業所を追加しました' });
   } catch (err) {
     console.error('Office insert error:', err);
+    console.error('Office insert error stack:', err.stack);
     if (err.code === '23505') {
       res.status(409).json({ success: false, message: 'この事業所コードは既に登録されています' });
     } else {
-      res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+      res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
     }
   }
 });
@@ -1274,33 +1315,33 @@ app.put('/api/offices/:id', requireAdmin, async (req, res) => {
   const officeId = req.params.id;
   const { office_code, office_name, office_type, address, postal_code, phone_number } = req.body;
 
-  try {
-    const updateQuery = `
-      UPDATE master_data.managements_offices 
-      SET office_code = $1, office_name = $2, office_type = $3, address = $4, 
-          postal_code = $5, phone_number = $6, 
-          updated_at = CURRENT_TIMESTAMP
-      WHERE office_id = $7
-      RETURNING *
-    `;
-    const result = await pool.query(updateQuery, [
-      office_code,
-      office_name,
-      office_type,
-      address,
-      postal_code,
-      phone_number,
-      officeId
-    ]);
+  if (!office_name) {
+    return res.status(400).json({ success: false, message: '事業所名は必須です' });
+  }
 
-    if (result.rows.length === 0) {
+  try {
+    const offices = await dynamicUpdate('managements_offices',
+      {
+        office_code: office_code || null,
+        office_name,
+        office_type: office_type || null,
+        address: address || null,
+        postal_code: postal_code || null,
+        phone_number: phone_number || null,
+        updated_at: new Date()
+      },
+      { office_id: officeId }
+    );
+
+    if (offices.length === 0) {
       return res.status(404).json({ success: false, message: '事業所が見つかりません' });
     }
 
-    res.json({ success: true, office: result.rows[0], message: '事業所を更新しました' });
+    res.json({ success: true, office: offices[0], message: '事業所を更新しました' });
   } catch (err) {
     console.error('Office update error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    console.error('Office update error stack:', err.stack);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
   }
 });
 
@@ -1309,17 +1350,17 @@ app.delete('/api/offices/:id', requireAdmin, async (req, res) => {
   const officeId = req.params.id;
   
   try {
-    const deleteQuery = 'DELETE FROM master_data.managements_offices WHERE office_id = $1 RETURNING office_name';
-    const result = await pool.query(deleteQuery, [officeId]);
+    const offices = await dynamicDelete('managements_offices', { office_id: officeId }, true);
 
-    if (result.rows.length === 0) {
+    if (offices.length === 0) {
       return res.status(404).json({ success: false, message: '事業所が見つかりません' });
     }
 
     res.json({ success: true, message: '事業所を削除しました' });
   } catch (err) {
     console.error('Office delete error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    console.error('Office delete error stack:', err.stack);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
   }
 });
 
@@ -1957,6 +1998,68 @@ app.post('/debug/test-login', async (req, res) => {
   }
 });
 
+// デバッグ用: テーブル存在確認
+app.get('/debug/tables', async (req, res) => {
+  try {
+    const tables = ['managements_offices', 'vehicles', 'machines', 'machine_types', 'bases', 'users'];
+    const results = {};
+    
+    for (const tableName of tables) {
+      try {
+        const checkQuery = `
+          SELECT EXISTS(
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'master_data' 
+            AND table_name = $1
+          ) as exists
+        `;
+        const checkResult = await pool.query(checkQuery, [tableName]);
+        results[tableName] = {
+          exists: checkResult.rows[0].exists,
+          error: null
+        };
+        
+        // テーブルが存在する場合、カラム情報も取得
+        if (checkResult.rows[0].exists) {
+          const columnsQuery = `
+            SELECT column_name, data_type, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'master_data' 
+            AND table_name = $1
+            ORDER BY ordinal_position
+          `;
+          const columnsResult = await pool.query(columnsQuery, [tableName]);
+          results[tableName].columns = columnsResult.rows;
+        }
+      } catch (err) {
+        results[tableName] = {
+          exists: false,
+          error: err.message
+        };
+      }
+    }
+    
+    // ルーティングテーブルの確認
+    try {
+      const routingQuery = `
+        SELECT logical_resource_name, physical_schema, physical_table, is_active
+        FROM public.app_resource_routing
+        WHERE app_id = 'dashboard-ui'
+        ORDER BY logical_resource_name
+      `;
+      const routingResult = await pool.query(routingQuery);
+      results._routing = routingResult.rows;
+    } catch (err) {
+      results._routing = { error: err.message };
+    }
+    
+    res.json({ success: true, tables: results });
+  } catch (err) {
+    console.error('Debug tables error:', err);
+    res.status(500).json({ success: false, message: err.message, stack: err.stack });
+  }
+});
+
 // ========================================
 // 機種マスタ・機械番号マスタ API (統合表示用)
 // ========================================
@@ -1970,7 +2073,8 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error('Machine types get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    console.error('Machine types get error stack:', err.stack);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
   }
 });
 
@@ -2058,7 +2162,8 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error('Machines get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    console.error('Machines get error stack:', err.stack);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
   }
 });
 
