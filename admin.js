@@ -276,10 +276,14 @@ async function saveUser() {
         role: document.getElementById('user-role').value
     };
 
+    console.log('[saveUser] Saving user:', { userId, userData: { ...userData, password: '***' } });
+
     try {
         const token = localStorage.getItem('user_token');
         const url = userId ? `/api/users/${userId}` : '/api/users';
         const method = userId ? 'PUT' : 'POST';
+
+        console.log('[saveUser] Request:', { url, method });
 
         const response = await fetch(url, {
             method: method,
@@ -290,18 +294,22 @@ async function saveUser() {
             body: JSON.stringify(userData)
         });
 
+        console.log('[saveUser] Response status:', response.status);
+
         const data = await response.json();
+        console.log('[saveUser] Response data:', data);
 
         if (data.success) {
             showToast(userId ? 'ユーザーを更新しました' : 'ユーザーを追加しました', 'success');
             document.getElementById('user-modal').style.display = 'none';
             loadUsers();
         } else {
+            console.error('[saveUser] Save failed:', data.message);
             showToast(data.message || '保存に失敗しました', 'error');
         }
     } catch (error) {
-        console.error('Failed to save user:', error);
-        showToast('保存中にエラーが発生しました', 'error');
+        console.error('[saveUser] Failed to save user:', error);
+        showToast('保存中にエラーが発生しました: ' + error.message, 'error');
     }
 }
 
@@ -2009,6 +2017,10 @@ function escapeHtml(text) {
 
 function showToast(message, type = 'success') {
     const toast = document.getElementById('toast');
+    if (!toast) {
+        console.error('Toast element not found');
+        return;
+    }
     toast.textContent = message;
     toast.className = `toast show ${type}`;
 

@@ -852,22 +852,27 @@ app.get('/api/users/:id', requireAdmin, async (req, res) => {
 // ユーザー追加エンドポイント
 app.post('/api/users', requireAdmin, async (req, res) => {
   try {
-    const { username, password, display_name, role } = req.body;
+    console.log('[POST /api/users] Request body:', req.body);
+    const { username, password, display_name, role, email } = req.body;
 
     // バリデーション
     if (!username || !password) {
+      console.log('[POST /api/users] Validation failed: missing username or password');
       return res.status(400).json({ success: false, message: 'ユーザー名とパスワードは必須です' });
     }
 
     if (password.length < 8) {
+      console.log('[POST /api/users] Validation failed: password too short');
       return res.status(400).json({ success: false, message: 'パスワードは8文字以上で入力してください' });
     }
 
     // ユーザー名の重複チェック（ゲートウェイ方式）
+    console.log('[POST /api/users] Checking for existing user:', username);
     const existingUsers = await dynamicSelect('users', { username }, ['id'], 1);
     const checkResult = { rows: existingUsers };
 
     if (checkResult.rows.length > 0) {
+      console.log('[POST /api/users] User already exists:', username);
       return res.status(400).json({ success: false, message: 'このユーザー名は既に使用されています' });
     }
 
@@ -875,17 +880,27 @@ app.post('/api/users', requireAdmin, async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // ユーザーを追加（ゲートウェイ方式）
-    const users = await dynamicInsert('users', {
+    const userData = {
       username,
       password: hashedPassword,
       display_name: display_name || null,
       role: role || 'user'
-    });
+    };
+    
+    // emailフィールドが存在する場合のみ追加
+    if (email) {
+      userData.email = email;
+    }
+    
+    console.log('[POST /api/users] Inserting user:', { username, display_name, role, email });
+    const users = await dynamicInsert('users', userData);
 
+    console.log('[POST /api/users] User created successfully:', users[0]);
     res.json({ success: true, user: users[0], message: 'ユーザーを追加しました' });
   } catch (err) {
-    console.error('User create error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    console.error('[POST /api/users] User create error:', err);
+    console.error('[POST /api/users] Error stack:', err.stack);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
   }
 });
 
@@ -905,10 +920,12 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       audience: 'emergency-assistance-app'
     });
     
-    const { username, display_name, password, role } = req.body;
+    console.log('[PUT /api/users/:id] Request body:', req.body);
+    const { username, display_name, password, role, email } = req.body;
 
     // バリデーション
     if (!username) {
+      console.log('[PUT /api/users/:id] Validation failed: missing username');
       return res.status(400).json({ success: false, message: 'ユーザー名は必須です' });
     }
 
@@ -918,26 +935,33 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
     const checkResult = await pool.query(checkQuery, [username, userId]);
 
     if (checkResult.rows.length > 0) {
+      console.log('[PUT /api/users/:id] User already exists:', username);
       return res.status(400).json({ success: false, message: 'このユーザー名は既に使用されています' });
     }
 
     // パスワードが指定されている場合
     if (password) {
       if (password.length < 8) {
+        console.log('[PUT /api/users/:id] Validation failed: password too short');
         return res.status(400).json({ success: false, message: 'パスワードは8文字以上で入力してください' });
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
-      const users = await dynamicUpdate('users', 
-        {
-          username,
-          display_name: display_name || null,
-          password: hashedPassword,
-          role: role || 'user',
-          updated_at: new Date()
-        },
-        { id: userId }
-      );
+      const updateData = {
+        username,
+        display_name: display_name || null,
+        password: hashedPassword,
+        role: role || 'user',
+        updated_at: new Date()
+      };
+      
+      // emailフィールドが存在する場合のみ追加
+      if (email !== undefined) {
+        updateData.email = email || null;
+      }
+      
+      console.log('[PUT /api/users/:id] Updating user with password');
+      const users = await dynamicUpdate('users', updateData, { id: userId });
 
       if (users.length === 0) {
         return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
@@ -946,13 +970,20 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       res.json({ success: true, user: users[0], message: 'ユーザーを更新しました' });
     } else {
       // パスワードを変更しない場合
-      const users = await dynamicUpdate('users', 
-        {
-          username,
-          display_name: display_name || null,
-          role: role || 'user',
-          updated_at: new Date()
-        },
+      const updateData = {
+        username,
+        display_name: display_name || null,
+        role: role || 'user',
+        updated_at: new Date()
+      };
+      
+      // emailフィールドが存在する場合のみ追加
+      if (email !== undefined) {
+        updateData.email = email || null;
+      }
+      
+      console.log('[PUT /api/users/:id] Updating user without password');
+      const users = await dynamicUpdate('users', updateData,
         { id: userId }
       );
 
@@ -1010,10 +1041,18 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 // 保守用車一覧取得エンドポイント（機種・機械番号・管理事業所を結合）
 app.get('/api/vehicles', requireAdmin, async (req, res) => {
   try {
+    console.log('[GET /api/vehicles] Fetching vehicles...');
     const vehiclesRoute = await resolveTablePath('vehicles');
     const machinesRoute = await resolveTablePath('machines');
     const machineTypesRoute = await resolveTablePath('machine_types');
     const officesRoute = await resolveTablePath('managements_offices');
+    
+    console.log('[GET /api/vehicles] Routes resolved:', {
+      vehicles: vehiclesRoute.fullPath,
+      machines: machinesRoute.fullPath,
+      machineTypes: machineTypesRoute.fullPath,
+      offices: officesRoute.fullPath
+    });
     
     const query = `
       SELECT 
@@ -1037,11 +1076,14 @@ app.get('/api/vehicles', requireAdmin, async (req, res) => {
       LEFT JOIN ${officesRoute.fullPath} o ON v.office_id = o.office_id
       ORDER BY v.vehicle_id DESC
     `;
+    console.log('[GET /api/vehicles] Executing query...');
     const result = await pool.query(query);
+    console.log('[GET /api/vehicles] Query successful, rows:', result.rows.length);
     res.json({ success: true, vehicles: result.rows });
   } catch (err) {
-    console.error('Vehicles get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    console.error('[GET /api/vehicles] Vehicles get error:', err);
+    console.error('[GET /api/vehicles] Error stack:', err.stack);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
   }
 });
 
