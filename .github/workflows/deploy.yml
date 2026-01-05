@@ -76,6 +76,7 @@ jobs:
             --allow-unauthenticated \
             --add-cloudsql-instances=${{ secrets.CLOUD_SQL_INSTANCE }} \
             --set-env-vars="NODE_ENV=production" \
+            --set-env-vars="PORT=8080" \
             --set-env-vars="APP_ID=dashboard-ui" \
             --set-env-vars="CLOUD_SQL_INSTANCE=${{ secrets.CLOUD_SQL_INSTANCE }}" \
             --set-env-vars="DB_USER=${{ secrets.DB_USER }}" \
@@ -89,7 +90,8 @@ jobs:
             --cpu=2 \
             --timeout=3600 \
             --cpu-boost \
-            --no-cpu-throttling
+            --no-cpu-throttling \
+            --startup-cpu-boost
       
       - name: Show logs on deployment failure
         if: failure() && steps.deploy.outcome == 'failure'
