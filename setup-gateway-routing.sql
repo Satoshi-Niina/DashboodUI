@@ -1,9 +1,9 @@
 -- ========================================
--- ゲートウェイ方式: ルーティングテーブル設定
--- DashboodUI用のapp_resource_routingデータ
+-- 繧ｲ繝ｼ繝医え繧ｧ繧､譁ｹ蠑・ 繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ繝・・繝悶Ν險ｭ螳・
+-- DashboodUI逕ｨ縺ｮapp_resource_routing繝・・繧ｿ
 -- ========================================
 
--- app_resource_routingテーブルが存在しない場合は作成
+-- app_resource_routing繝・・繝悶Ν縺悟ｭ伜惠縺励↑縺・ｴ蜷医・菴懈・
 CREATE TABLE IF NOT EXISTS public.app_resource_routing (
     routing_id SERIAL PRIMARY KEY,
     app_id VARCHAR(50) NOT NULL,
@@ -17,18 +17,18 @@ CREATE TABLE IF NOT EXISTS public.app_resource_routing (
     UNIQUE(app_id, logical_resource_name)
 );
 
--- インデックス作成
+-- 繧､繝ｳ繝・ャ繧ｯ繧ｹ菴懈・
 CREATE INDEX IF NOT EXISTS idx_app_resource_routing_lookup 
 ON public.app_resource_routing(app_id, logical_resource_name, is_active);
 
--- DashboodUI用のルーティング設定
+-- DashboodUI逕ｨ縺ｮ繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳・
 -- APP_ID = 'dashboard-ui'
 
--- ユーザー管理
+-- 繝ｦ繝ｼ繧ｶ繝ｼ邂｡逅・
 INSERT INTO public.app_resource_routing 
   (app_id, logical_resource_name, physical_schema, physical_table, notes)
 VALUES 
-  ('dashboard-ui', 'users', 'master_data', 'users', 'ユーザー管理テーブル')
+  ('dashboard-ui', 'users', 'master_data', 'users', '繝ｦ繝ｼ繧ｶ繝ｼ邂｡逅・ユ繝ｼ繝悶Ν')
 ON CONFLICT (app_id, logical_resource_name) 
 DO UPDATE SET 
   physical_schema = EXCLUDED.physical_schema,
@@ -36,11 +36,11 @@ DO UPDATE SET
   is_active = true,
   updated_at = CURRENT_TIMESTAMP;
 
--- 事業所マスタ
+-- 莠区･ｭ謇繝槭せ繧ｿ
 INSERT INTO public.app_resource_routing 
   (app_id, logical_resource_name, physical_schema, physical_table, notes)
 VALUES 
-  ('dashboard-ui', 'managements_offices', 'master_data', 'managements_offices', '事業所マスタテーブル')
+  ('dashboard-ui', 'managements_offices', 'master_data', 'managements_offices', '莠区･ｭ謇繝槭せ繧ｿ繝・・繝悶Ν')
 ON CONFLICT (app_id, logical_resource_name) 
 DO UPDATE SET 
   physical_schema = EXCLUDED.physical_schema,
@@ -48,11 +48,11 @@ DO UPDATE SET
   is_active = true,
   updated_at = CURRENT_TIMESTAMP;
 
--- 保守基地マスタ
+-- 菫晏ｮ亥渕蝨ｰ繝槭せ繧ｿ
 INSERT INTO public.app_resource_routing 
   (app_id, logical_resource_name, physical_schema, physical_table, notes)
 VALUES 
-  ('dashboard-ui', 'bases', 'master_data', 'bases', '保守基地マスタテーブル')
+  ('dashboard-ui', 'bases', 'master_data', 'bases', '菫晏ｮ亥渕蝨ｰ繝槭せ繧ｿ繝・・繝悶Ν')
 ON CONFLICT (app_id, logical_resource_name) 
 DO UPDATE SET 
   physical_schema = EXCLUDED.physical_schema,
@@ -60,11 +60,11 @@ DO UPDATE SET
   is_active = true,
   updated_at = CURRENT_TIMESTAMP;
 
--- 保守用車マスタ
+-- 菫晏ｮ育畑霆翫・繧ｹ繧ｿ
 INSERT INTO public.app_resource_routing 
   (app_id, logical_resource_name, physical_schema, physical_table, notes)
 VALUES 
-  ('dashboard-ui', 'vehicles', 'master_data', 'vehicles', '保守用車マスタテーブル')
+  ('dashboard-ui', 'vehicles', 'master_data', 'vehicles', '菫晏ｮ育畑霆翫・繧ｹ繧ｿ繝・・繝悶Ν')
 ON CONFLICT (app_id, logical_resource_name) 
 DO UPDATE SET 
   physical_schema = EXCLUDED.physical_schema,
@@ -72,11 +72,11 @@ DO UPDATE SET
   is_active = true,
   updated_at = CURRENT_TIMESTAMP;
 
--- 機種マスタ（master_dataスキーマ）
+-- 讖溽ｨｮ繝槭せ繧ｿ・・aster_data繧ｹ繧ｭ繝ｼ繝橸ｼ・
 INSERT INTO public.app_resource_routing 
   (app_id, logical_resource_name, physical_schema, physical_table, notes)
 VALUES 
-  ('dashboard-ui', 'machine_types', 'master_data', 'machine_types', '機種マスタテーブル')
+  ('dashboard-ui', 'machine_types', 'master_data', 'machine_types', '讖溽ｨｮ繝槭せ繧ｿ繝・・繝悶Ν')
 ON CONFLICT (app_id, logical_resource_name) 
 DO UPDATE SET 
   physical_schema = EXCLUDED.physical_schema,
@@ -84,11 +84,11 @@ DO UPDATE SET
   is_active = true,
   updated_at = CURRENT_TIMESTAMP;
 
--- 機械番号マスタ（master_dataスキーマ）
+-- 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ・・aster_data繧ｹ繧ｭ繝ｼ繝橸ｼ・
 INSERT INTO public.app_resource_routing 
   (app_id, logical_resource_name, physical_schema, physical_table, notes)
 VALUES 
-  ('dashboard-ui', 'machines', 'master_data', 'machines', '機械番号マスタテーブル')
+  ('dashboard-ui', 'machines', 'master_data', 'machines', '讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ繝・・繝悶Ν')
 ON CONFLICT (app_id, logical_resource_name) 
 DO UPDATE SET 
   physical_schema = EXCLUDED.physical_schema,
@@ -96,11 +96,11 @@ DO UPDATE SET
   is_active = true,
   updated_at = CURRENT_TIMESTAMP;
 
--- アプリケーション設定
+-- 繧｢繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ險ｭ螳・
 INSERT INTO public.app_resource_routing 
   (app_id, logical_resource_name, physical_schema, physical_table, notes)
 VALUES 
-  ('dashboard-ui', 'app_config', 'master_data', 'app_config', 'アプリケーション設定テーブル')
+  ('dashboard-ui', 'app_config', 'master_data', 'app_config', '繧｢繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ險ｭ螳壹ユ繝ｼ繝悶Ν')
 ON CONFLICT (app_id, logical_resource_name) 
 DO UPDATE SET 
   physical_schema = EXCLUDED.physical_schema,
@@ -108,11 +108,11 @@ DO UPDATE SET
   is_active = true,
   updated_at = CURRENT_TIMESTAMP;
 
--- アプリケーション設定履歴
+-- 繧｢繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ險ｭ螳壼ｱ･豁ｴ
 INSERT INTO public.app_resource_routing 
   (app_id, logical_resource_name, physical_schema, physical_table, notes)
 VALUES 
-  ('dashboard-ui', 'app_config_history', 'master_data', 'app_config_history', 'アプリケーション設定変更履歴テーブル')
+  ('dashboard-ui', 'app_config_history', 'master_data', 'app_config_history', '繧｢繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ險ｭ螳壼､画峩螻･豁ｴ繝・・繝悶Ν')
 ON CONFLICT (app_id, logical_resource_name) 
 DO UPDATE SET 
   physical_schema = EXCLUDED.physical_schema,
@@ -120,11 +120,11 @@ DO UPDATE SET
   is_active = true,
   updated_at = CURRENT_TIMESTAMP;
 
--- 車両タイプマスタ
+-- 霆贋ｸ｡繧ｿ繧､繝励・繧ｹ繧ｿ
 INSERT INTO public.app_resource_routing 
   (app_id, logical_resource_name, physical_schema, physical_table, notes)
 VALUES 
-  ('dashboard-ui', 'vehicle_types', 'master_data', 'vehicle_types', '車両タイプマスタテーブル')
+  ('dashboard-ui', 'vehicle_types', 'master_data', 'vehicle_types', '霆贋ｸ｡繧ｿ繧､繝励・繧ｹ繧ｿ繝・・繝悶Ν')
 ON CONFLICT (app_id, logical_resource_name) 
 DO UPDATE SET 
   physical_schema = EXCLUDED.physical_schema,
@@ -132,11 +132,11 @@ DO UPDATE SET
   is_active = true,
   updated_at = CURRENT_TIMESTAMP;
 
--- 点検タイプマスタ
+-- 轤ｹ讀懊ち繧､繝励・繧ｹ繧ｿ
 INSERT INTO public.app_resource_routing 
   (app_id, logical_resource_name, physical_schema, physical_table, notes)
 VALUES 
-  ('dashboard-ui', 'inspection_types', 'master_data', 'inspection_types', '点検タイプマスタテーブル')
+  ('dashboard-ui', 'inspection_types', 'master_data', 'inspection_types', '轤ｹ讀懊ち繧､繝励・繧ｹ繧ｿ繝・・繝悶Ν')
 ON CONFLICT (app_id, logical_resource_name) 
 DO UPDATE SET 
   physical_schema = EXCLUDED.physical_schema,
@@ -144,7 +144,7 @@ DO UPDATE SET
   is_active = true,
   updated_at = CURRENT_TIMESTAMP;
 
--- 登録結果の確認
+-- 逋ｻ骭ｲ邨先棡縺ｮ遒ｺ隱・
 SELECT 
     routing_id,
     app_id,
@@ -156,7 +156,7 @@ FROM public.app_resource_routing
 WHERE app_id = 'dashboard-ui'
 ORDER BY logical_resource_name;
 
--- ルーティング統計
+-- 繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ邨ｱ險・
 SELECT 
     app_id,
     COUNT(*) as total_routes,
@@ -166,8 +166,8 @@ FROM public.app_resource_routing
 WHERE app_id = 'dashboard-ui'
 GROUP BY app_id;
 
--- ゲートウェイ方式のテスト用クエリ例
--- 実際のserver.jsで使用されるルーティング解決をシミュレート
+-- 繧ｲ繝ｼ繝医え繧ｧ繧､譁ｹ蠑上・繝・せ繝育畑繧ｯ繧ｨ繝ｪ萓・
+-- 螳滄圀縺ｮserver.js縺ｧ菴ｿ逕ｨ縺輔ｌ繧九Ν繝ｼ繝・ぅ繝ｳ繧ｰ隗｣豎ｺ繧偵す繝溘Η繝ｬ繝ｼ繝・
 DO $$
 DECLARE
     test_route RECORD;
@@ -183,6 +183,6 @@ BEGIN
         WHERE app_id = 'dashboard-ui' AND is_active = true
         ORDER BY logical_resource_name
     LOOP
-        RAISE NOTICE '[Gateway] % → %', test_route.logical_resource_name, test_route.resolved_path;
+        RAISE NOTICE '[Gateway] % 竊・%', test_route.logical_resource_name, test_route.resolved_path;
     END LOOP;
 END $$;

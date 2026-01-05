@@ -1,52 +1,52 @@
-# データベース構造の不整合修正
+# 繝・・繧ｿ繝吶・繧ｹ讒矩縺ｮ荳肴紛蜷井ｿｮ豁｣
 
-## 発見された問題
+## 逋ｺ隕九＆繧後◆蝠城｡・
 
-server.jsとdatabase-setup.sqlの間でカラム名が一致していませんでした。
+server.js縺ｨdatabase-setup.sql縺ｮ髢薙〒繧ｫ繝ｩ繝蜷阪′荳閾ｴ縺励※縺・∪縺帙ｓ縺ｧ縺励◆縲・
 
-### 1. managements_offices テーブル
+### 1. managements_offices 繝・・繝悶Ν
 
-**修正なし** - office_code, office_name, office_type, address のみ使用
+**菫ｮ豁｣縺ｪ縺・* - office_code, office_name, office_type, address 縺ｮ縺ｿ菴ｿ逕ｨ
 
-### 2. bases テーブル
+### 2. bases 繝・・繝悶Ν
 
-**追加したカラム:**
-- `location` - 所在地（簡易版）
-- `address` - 住所（詳細版）
-- `postal_code` - 郵便番号
-- `phone_number` - 電話番号
-- `latitude` - 緯度
-- `longitude` - 経度
+**霑ｽ蜉縺励◆繧ｫ繝ｩ繝:**
+- `location` - 謇蝨ｨ蝨ｰ・育ｰ｡譏鍋沿・・
+- `address` - 菴乗園・郁ｩｳ邏ｰ迚茨ｼ・
+- `postal_code` - 驛ｵ萓ｿ逡ｪ蜿ｷ
+- `phone_number` - 髮ｻ隧ｱ逡ｪ蜿ｷ
+- `latitude` - 邱ｯ蠎ｦ
+- `longitude` - 邨悟ｺｦ
 
-### 3. vehicles テーブル
+### 3. vehicles 繝・・繝悶Ν
 
-**追加したカラム:**
-- `machine_id` - 機械番号への外部キー
-- `office_id` - 管理事業所への外部キー
+**霑ｽ蜉縺励◆繧ｫ繝ｩ繝:**
+- `machine_id` - 讖滓｢ｰ逡ｪ蜿ｷ縺ｸ縺ｮ螟夜Κ繧ｭ繝ｼ
+- `office_id` - 邂｡逅・ｺ区･ｭ謇縺ｸ縺ｮ螟夜Κ繧ｭ繝ｼ
 
-## 修正内容
+## 菫ｮ豁｣蜀・ｮｹ
 
-### ファイル修正
-1. `database-setup.sql` - テーブル定義を修正
-2. `migration-fix-tables.sql` - 既存DBを修正するマイグレーションスクリプト作成
+### 繝輔ぃ繧､繝ｫ菫ｮ豁｣
+1. `database-setup.sql` - 繝・・繝悶Ν螳夂ｾｩ繧剃ｿｮ豁｣
+2. `migration-fix-tables.sql` - 譌｢蟄魯B繧剃ｿｮ豁｣縺吶ｋ繝槭う繧ｰ繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ繧ｹ繧ｯ繝ｪ繝励ヨ菴懈・
 
-### マイグレーション実行手順
+### 繝槭う繧ｰ繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ螳溯｡梧焔鬆・
 
 ```bash
-# Cloud SQLに接続
+# Cloud SQL縺ｫ謗･邯・
 gcloud sql connect webappdb --user=postgres --quiet
 
-# マイグレーションを実行
+# 繝槭う繧ｰ繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ繧貞ｮ溯｡・
 \i migration-fix-tables.sql
 
-# または
+# 縺ｾ縺溘・
 psql -h /cloudsql/PROJECT:REGION:INSTANCE -U postgres -d webappdb -f migration-fix-tables.sql
 ```
 
-### 確認手順
+### 遒ｺ隱肴焔鬆・
 
 ```bash
-# テーブル構造を確認
+# 繝・・繝悶Ν讒矩繧堤｢ｺ隱・
 \d master_data.managements_offices
 \d master_data.bases
 \d master_data.vehicles
@@ -54,16 +54,16 @@ psql -h /cloudsql/PROJECT:REGION:INSTANCE -U postgres -d webappdb -f migration-f
 \d public.machine_types
 ```
 
-## 影響範囲
+## 蠖ｱ髻ｿ遽・峇
 
-- 事業所マスタの追加・更新
-- 保守基地マスタの追加・更新
-- 保守用車マスタの追加・更新
+- 莠区･ｭ謇繝槭せ繧ｿ縺ｮ霑ｽ蜉繝ｻ譖ｴ譁ｰ
+- 菫晏ｮ亥渕蝨ｰ繝槭せ繧ｿ縺ｮ霑ｽ蜉繝ｻ譖ｴ譁ｰ
+- 菫晏ｮ育畑霆翫・繧ｹ繧ｿ縺ｮ霑ｽ蜉繝ｻ譖ｴ譁ｰ
 
-これらの機能で500エラーが発生していた原因が、存在しないカラムへのINSERT/UPDATEでした。
+縺薙ｌ繧峨・讖溯・縺ｧ500繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｦ縺・◆蜴溷屏縺後∝ｭ伜惠縺励↑縺・き繝ｩ繝縺ｸ縺ｮINSERT/UPDATE縺ｧ縺励◆縲・
 
-## 次のステップ
+## 谺｡縺ｮ繧ｹ繝・ャ繝・
 
-1. マイグレーションスクリプトをCloud SQLで実行
-2. アプリケーションを再デプロイ（すでに正しいカラム名を使用している）
-3. 各マスタで保存テストを実施
+1. 繝槭う繧ｰ繝ｬ繝ｼ繧ｷ繝ｧ繝ｳ繧ｹ繧ｯ繝ｪ繝励ヨ繧辰loud SQL縺ｧ螳溯｡・
+2. 繧｢繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ繧貞・繝・・繝ｭ繧､・医☆縺ｧ縺ｫ豁｣縺励＞繧ｫ繝ｩ繝蜷阪ｒ菴ｿ逕ｨ縺励※縺・ｋ・・
+3. 蜷・・繧ｹ繧ｿ縺ｧ菫晏ｭ倥ユ繧ｹ繝医ｒ螳滓命

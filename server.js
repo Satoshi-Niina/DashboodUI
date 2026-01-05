@@ -6,7 +6,7 @@ const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
 
-console.log('🚀 Starting server...');
+console.log('噫 Starting server...');
 console.log('Node version:', process.version);
 console.log('Environment:', process.env.NODE_ENV);
 console.log('PORT from env:', process.env.PORT);
@@ -18,11 +18,11 @@ console.log('JWT_SECRET set:', !!process.env.JWT_SECRET);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-console.log(`✅ Will listen on port: ${PORT}`);
+console.log(`笨・Will listen on port: ${PORT}`);
 
 console.log('Express app created');
 
-// CORS設定
+// CORS險ｭ螳・
 const corsOptions = {
   origin: process.env.CORS_ORIGIN === '*' 
     ? '*' 
@@ -40,18 +40,18 @@ app.use(express.json());
 
 console.log('Middleware configured');
 
-// JWT_SECRETの確認
+// JWT_SECRET縺ｮ遒ｺ隱・
 if (!process.env.JWT_SECRET) {
-  console.error('❌ WARNING: JWT_SECRET environment variable is not set!');
-  console.error('⚠️ Authentication will not work properly without JWT_SECRET');
-  console.error('⚠️ Server will start anyway for debugging purposes');
-  // デバッグ用にデフォルト値を設定（本番では推奨しない）
+  console.error('笶・WARNING: JWT_SECRET environment variable is not set!');
+  console.error('笞・・Authentication will not work properly without JWT_SECRET');
+  console.error('笞・・Server will start anyway for debugging purposes');
+  // 繝・ヰ繝・げ逕ｨ縺ｫ繝・ヵ繧ｩ繝ｫ繝亥､繧定ｨｭ螳夲ｼ域悽逡ｪ縺ｧ縺ｯ謗ｨ螂ｨ縺励↑縺・ｼ・
   process.env.JWT_SECRET = 'temporary-secret-for-debugging-only';
 } else {
-  console.log('✅ JWT_SECRET is configured');
+  console.log('笨・JWT_SECRET is configured');
 }
 
-// データベースから設定を取得するヘルパー関数
+// 繝・・繧ｿ繝吶・繧ｹ縺九ｉ險ｭ螳壹ｒ蜿門ｾ励☆繧九・繝ｫ繝代・髢｢謨ｰ
 async function getConfigFromDB(key, defaultValue) {
   try {
     const query = 'SELECT config_value FROM master_data.app_config WHERE config_key = $1';
@@ -63,7 +63,7 @@ async function getConfigFromDB(key, defaultValue) {
   }
 }
 
-// すべての設定を取得
+// 縺吶∋縺ｦ縺ｮ險ｭ螳壹ｒ蜿門ｾ・
 async function getAllConfig() {
   try {
     const query = 'SELECT config_key, config_value FROM master_data.app_config';
@@ -79,7 +79,7 @@ async function getAllConfig() {
   }
 }
 
-// Config Endpoint (データベースまたは環境変数から動的に生成)
+// Config Endpoint (繝・・繧ｿ繝吶・繧ｹ縺ｾ縺溘・迺ｰ蠅・､画焚縺九ｉ蜍慕噪縺ｫ逕滓・)
 app.get('/config.js', async (req, res) => {
   try {
     const emergency = await getConfigFromDB('app_url_emergency', 'http://localhost:3001');
@@ -90,25 +90,25 @@ app.get('/config.js', async (req, res) => {
     res.setHeader('Content-Type', 'application/javascript');
     res.send(`
       /**
-       * アプリケーション設定ファイル (Server Generated)
-       * データベースから動的に読み込まれています。
+       * 繧｢繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ險ｭ螳壹ヵ繧｡繧､繝ｫ (Server Generated)
+       * 繝・・繧ｿ繝吶・繧ｹ縺九ｉ蜍慕噪縺ｫ隱ｭ縺ｿ霎ｼ縺ｾ繧後※縺・∪縺吶・
        */
       const AppConfig = {
-          // トークンをURLパラメータとして渡すときのキー名
+          // 繝医・繧ｯ繝ｳ繧旦RL繝代Λ繝｡繝ｼ繧ｿ縺ｨ縺励※貂｡縺吶→縺阪・繧ｭ繝ｼ蜷・
           tokenParamName: 'auth_token',
 
-          // 各アプリケーションのエンドポイント設定
+          // 蜷・い繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ縺ｮ繧ｨ繝ｳ繝峨・繧､繝ｳ繝郁ｨｭ螳・
           endpoints: {
-              // 応急復旧支援システム
+              // 蠢懈･蠕ｩ譌ｧ謾ｯ謠ｴ繧ｷ繧ｹ繝・Β
               emergency: '${emergency}',
               
-              // 計画・実績管理システム
+              // 險育判繝ｻ螳溽ｸｾ邂｡逅・す繧ｹ繝・Β
               planning: '${planning}',
               
-              // 保守用車管理システム
+              // 菫晏ｮ育畑霆顔ｮ｡逅・す繧ｹ繝・Β
               equipment: '${equipment}',
               
-              // 機械故障管理システム
+              // 讖滓｢ｰ謨・囿邂｡逅・す繧ｹ繝・Β
               failure: '${failure}'
           }
       };
@@ -119,15 +119,15 @@ app.get('/config.js', async (req, res) => {
   }
 });
 
-// ルートパスへのアクセス時はログイン画面を表示
-// express.staticより先に記述することでindex.htmlの自動配信を防ぐ
+// 繝ｫ繝ｼ繝医ヱ繧ｹ縺ｸ縺ｮ繧｢繧ｯ繧ｻ繧ｹ譎ゅ・繝ｭ繧ｰ繧､繝ｳ逕ｻ髱｢繧定｡ｨ遉ｺ
+// express.static繧医ｊ蜈医↓險倩ｿｰ縺吶ｋ縺薙→縺ｧindex.html縺ｮ閾ｪ蜍暮・菫｡繧帝亟縺・
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'login.html'));
 });
 
 app.use(express.static(path.join(__dirname)));
 
-// ヘルスチェックエンドポイント（最優先）
+// 繝倥Ν繧ｹ繝√ぉ繝・け繧ｨ繝ｳ繝峨・繧､繝ｳ繝茨ｼ域怙蜆ｪ蜈茨ｼ・
 app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
@@ -137,12 +137,12 @@ app.get('/_ah/health', (req, res) => {
 });
 
 // Database Pool
-// Cloud Run環境では環境変数から個別に取得するか、接続文字列を使用
+// Cloud Run迺ｰ蠅・〒縺ｯ迺ｰ蠅・､画焚縺九ｉ蛟句挨縺ｫ蜿門ｾ励☆繧九°縲∵磁邯壽枚蟄怜・繧剃ｽｿ逕ｨ
 const isProduction = process.env.NODE_ENV === 'production';
 
 let poolConfig;
 if (isProduction && process.env.CLOUD_SQL_INSTANCE) {
-  // 本番環境: Cloud SQL Unix socket接続
+  // 譛ｬ逡ｪ迺ｰ蠅・ Cloud SQL Unix socket謗･邯・
   console.log('Using Cloud SQL connection:', process.env.CLOUD_SQL_INSTANCE);
   poolConfig = {
     host: `/cloudsql/${process.env.CLOUD_SQL_INSTANCE}`,
@@ -152,13 +152,13 @@ if (isProduction && process.env.CLOUD_SQL_INSTANCE) {
     max: 5,
   };
 } else if (process.env.DATABASE_URL) {
-  // ローカル環境または接続文字列を使用
+  // 繝ｭ繝ｼ繧ｫ繝ｫ迺ｰ蠅・∪縺溘・謗･邯壽枚蟄怜・繧剃ｽｿ逕ｨ
   console.log('Using DATABASE_URL connection');
   poolConfig = {
     connectionString: process.env.DATABASE_URL,
   };
 } else {
-  // 環境変数から個別に設定
+  // 迺ｰ蠅・､画焚縺九ｉ蛟句挨縺ｫ險ｭ螳・
   console.log('Using individual DB environment variables');
   poolConfig = {
     host: process.env.DB_HOST || 'localhost',
@@ -179,9 +179,9 @@ console.log('Creating database pool...');
 let pool;
 try {
   pool = new Pool(poolConfig);
-  console.log('✅ Pool created successfully');
+  console.log('笨・Pool created successfully');
 } catch (err) {
-  console.error('❌ Failed to create pool:', err);
+  console.error('笶・Failed to create pool:', err);
   console.error('Stack:', err.stack);
   // Create dummy pool that throws errors
   pool = {
@@ -198,30 +198,30 @@ pool.on('error', (err) => {
 });
 
 // ========================================
-// ゲートウェイ方式: テーブルルーティング機能
+// 繧ｲ繝ｼ繝医え繧ｧ繧､譁ｹ蠑・ 繝・・繝悶Ν繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ讖溯・
 // ========================================
 
 const APP_ID = process.env.APP_ID || 'dashboard-ui';
 const routingCache = new Map(); // { key: { fullPath, schema, table, timestamp } }
-const CACHE_TTL = 5 * 60 * 1000; // 5分
+const CACHE_TTL = 5 * 60 * 1000; // 5蛻・
 
 /**
- * 論理テーブル名から物理パスを解決
- * @param {string} logicalName - 論理テーブル名（例: 'users', 'offices'）
+ * 隲也炊繝・・繝悶Ν蜷阪°繧臥黄逅・ヱ繧ｹ繧定ｧ｣豎ｺ
+ * @param {string} logicalName - 隲也炊繝・・繝悶Ν蜷搾ｼ井ｾ・ 'users', 'offices'・・
  * @returns {Promise<{fullPath: string, schema: string, table: string}>}
  */
 async function resolveTablePath(logicalName) {
   const cacheKey = `${APP_ID}:${logicalName}`;
   
-  // キャッシュチェック
+  // 繧ｭ繝｣繝・す繝･繝√ぉ繝・け
   const cached = routingCache.get(cacheKey);
   if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
-    console.log(`[Gateway] Cache hit: ${logicalName} → ${cached.fullPath}`);
+    console.log(`[Gateway] Cache hit: ${logicalName} 竊・${cached.fullPath}`);
     return cached;
   }
 
   try {
-    // app_resource_routingテーブルから物理パスを取得
+    // app_resource_routing繝・・繝悶Ν縺九ｉ迚ｩ逅・ヱ繧ｹ繧貞叙蠕・
     const query = `
       SELECT physical_schema, physical_table
       FROM public.app_resource_routing
@@ -236,14 +236,14 @@ async function resolveTablePath(logicalName) {
       const fullPath = `${physical_schema}."${physical_table}"`;
       const resolved = { fullPath, schema: physical_schema, table: physical_table, timestamp: Date.now() };
       
-      // キャッシュに保存
+      // 繧ｭ繝｣繝・す繝･縺ｫ菫晏ｭ・
       routingCache.set(cacheKey, resolved);
-      console.log(`[Gateway] ✅ Resolved: ${logicalName} → ${fullPath}`);
+      console.log(`[Gateway] 笨・Resolved: ${logicalName} 竊・${fullPath}`);
       return resolved;
     }
 
-    // ルーティングが見つからない場合はmaster_dataスキーマにフォールバック
-    console.log(`[Gateway] ⚠️ No route found for ${logicalName}, falling back to master_data.${logicalName}`);
+    // 繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ縺瑚ｦ九▽縺九ｉ縺ｪ縺・ｴ蜷医・master_data繧ｹ繧ｭ繝ｼ繝槭↓繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ
+    console.log(`[Gateway] 笞・・No route found for ${logicalName}, falling back to master_data.${logicalName}`);
     const fallback = { 
       fullPath: `master_data."${logicalName}"`, 
       schema: 'master_data', 
@@ -254,9 +254,9 @@ async function resolveTablePath(logicalName) {
     return fallback;
     
   } catch (err) {
-    console.error(`[Gateway] ❌ Error resolving ${logicalName}:`, err.message);
+    console.error(`[Gateway] 笶・Error resolving ${logicalName}:`, err.message);
     console.error(`[Gateway] Error details:`, err);
-    // エラー時もmaster_dataスキーマにフォールバック
+    // 繧ｨ繝ｩ繝ｼ譎ゅｂmaster_data繧ｹ繧ｭ繝ｼ繝槭↓繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ
     const fallback = { 
       fullPath: `master_data."${logicalName}"`, 
       schema: 'master_data', 
@@ -269,11 +269,11 @@ async function resolveTablePath(logicalName) {
 }
 
 /**
- * 動的SELECT
- * @param {string} logicalTableName - 論理テーブル名
- * @param {Object} conditions - WHERE条件 (例: { username: 'admin', role: 'admin' })
- * @param {Array<string>} columns - 取得するカラム (省略時は全カラム)
- * @param {number} limit - LIMIT数 (省略可)
+ * 蜍慕噪SELECT
+ * @param {string} logicalTableName - 隲也炊繝・・繝悶Ν蜷・
+ * @param {Object} conditions - WHERE譚｡莉ｶ (萓・ { username: 'admin', role: 'admin' })
+ * @param {Array<string>} columns - 蜿門ｾ励☆繧九き繝ｩ繝 (逵∫払譎ゅ・蜈ｨ繧ｫ繝ｩ繝)
+ * @param {number} limit - LIMIT謨ｰ (逵∫払蜿ｯ)
  * @returns {Promise<Array>}
  */
 async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'], limit = null) {
@@ -283,7 +283,7 @@ async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'],
   let query = `SELECT ${columnList} FROM ${route.fullPath}`;
   const params = [];
   
-  // WHERE句の構築
+  // WHERE蜿･縺ｮ讒狗ｯ・
   const whereConditions = Object.entries(conditions).map(([key, value], index) => {
     params.push(value);
     return `${key} = $${index + 1}`;
@@ -303,10 +303,10 @@ async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'],
 }
 
 /**
- * 動的INSERT
- * @param {string} logicalTableName - 論理テーブル名
- * @param {Object} data - 挿入データ
- * @param {boolean} returning - RETURNING句を使うか (デフォルト: true)
+ * 蜍慕噪INSERT
+ * @param {string} logicalTableName - 隲也炊繝・・繝悶Ν蜷・
+ * @param {Object} data - 謖ｿ蜈･繝・・繧ｿ
+ * @param {boolean} returning - RETURNING蜿･繧剃ｽｿ縺・° (繝・ヵ繧ｩ繝ｫ繝・ true)
  * @returns {Promise<Array>}
  */
 async function dynamicInsert(logicalTableName, data, returning = true) {
@@ -328,11 +328,11 @@ async function dynamicInsert(logicalTableName, data, returning = true) {
 }
 
 /**
- * 動的UPDATE
- * @param {string} logicalTableName - 論理テーブル名
- * @param {Object} data - 更新データ
- * @param {Object} conditions - WHERE条件
- * @param {boolean} returning - RETURNING句を使うか (デフォルト: true)
+ * 蜍慕噪UPDATE
+ * @param {string} logicalTableName - 隲也炊繝・・繝悶Ν蜷・
+ * @param {Object} data - 譖ｴ譁ｰ繝・・繧ｿ
+ * @param {Object} conditions - WHERE譚｡莉ｶ
+ * @param {boolean} returning - RETURNING蜿･繧剃ｽｿ縺・° (繝・ヵ繧ｩ繝ｫ繝・ true)
  * @returns {Promise<Array>}
  */
 async function dynamicUpdate(logicalTableName, data, conditions, returning = true) {
@@ -362,10 +362,10 @@ async function dynamicUpdate(logicalTableName, data, conditions, returning = tru
 }
 
 /**
- * 動的DELETE
- * @param {string} logicalTableName - 論理テーブル名
- * @param {Object} conditions - WHERE条件
- * @param {boolean} returning - RETURNING句を使うか (デフォルト: false)
+ * 蜍慕噪DELETE
+ * @param {string} logicalTableName - 隲也炊繝・・繝悶Ν蜷・
+ * @param {Object} conditions - WHERE譚｡莉ｶ
+ * @param {boolean} returning - RETURNING蜿･繧剃ｽｿ縺・° (繝・ヵ繧ｩ繝ｫ繝・ false)
  * @returns {Promise<Array>}
  */
 async function dynamicDelete(logicalTableName, conditions, returning = false) {
@@ -391,8 +391,8 @@ async function dynamicDelete(logicalTableName, conditions, returning = false) {
 }
 
 /**
- * ルーティングキャッシュをクリア
- * @param {string} logicalName - 論理テーブル名 (省略時は全クリア)
+ * 繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ繧ｭ繝｣繝・す繝･繧偵け繝ｪ繧｢
+ * @param {string} logicalName - 隲也炊繝・・繝悶Ν蜷・(逵∫払譎ゅ・蜈ｨ繧ｯ繝ｪ繧｢)
  */
 function clearRoutingCache(logicalName = null) {
   if (logicalName) {
@@ -406,18 +406,18 @@ function clearRoutingCache(logicalName = null) {
 }
 
 // ========================================
-// ゲートウェイ機能ここまで
+// 繧ｲ繝ｼ繝医え繧ｧ繧､讖溯・縺薙％縺ｾ縺ｧ
 // ========================================
 
-// Test DB Connection (非同期で実行、サーバー起動をブロックしない)
+// Test DB Connection (髱槫酔譛溘〒螳溯｡後√し繝ｼ繝舌・襍ｷ蜍輔ｒ繝悶Ο繝・け縺励↑縺・
 async function testDatabaseConnection() {
-  console.log('🔍 Testing database connection...');
+  console.log('剥 Testing database connection...');
   try {
     const res = await pool.query('SELECT NOW()');
-    console.log('✅ Database connected successfully at:', res.rows[0].now);
+    console.log('笨・Database connected successfully at:', res.rows[0].now);
     return true;
   } catch (err) {
-    console.error('⚠️ Database connection error:', err.message);
+    console.error('笞・・Database connection error:', err.message);
     console.error('Error code:', err.code);
     console.error('Connection config:', { 
       host: poolConfig.host, 
@@ -426,12 +426,12 @@ async function testDatabaseConnection() {
       cloudSqlInstance: process.env.CLOUD_SQL_INSTANCE
     });
     console.error('Full error:', err);
-    console.error('⚠️ Server will continue running but database operations will fail');
+    console.error('笞・・Server will continue running but database operations will fail');
     return false;
   }
 }
 
-// サーバー起動後に接続テスト（1回のみ高速チェック）
+// 繧ｵ繝ｼ繝舌・襍ｷ蜍募ｾ後↓謗･邯壹ユ繧ｹ繝茨ｼ・蝗槭・縺ｿ鬮倬溘メ繧ｧ繝・け・・
 let dbConnectionAttempts = 0;
 const maxDbAttempts = 1;
 setImmediate(async () => {
@@ -449,13 +449,13 @@ setImmediate(async () => {
   }
 });
 
-// Middleware: トークン認証
+// Middleware: 繝医・繧ｯ繝ｳ隱崎ｨｼ
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
   if (!token) {
-    return res.status(401).json({ success: false, message: 'トークンが提供されていません' });
+    return res.status(401).json({ success: false, message: '繝医・繧ｯ繝ｳ縺梧署萓帙＆繧後※縺・∪縺帙ｓ' });
   }
 
   jwt.verify(token, process.env.JWT_SECRET, {
@@ -463,7 +463,7 @@ function authenticateToken(req, res, next) {
     audience: 'emergency-assistance-app'
   }, (err, user) => {
     if (err) {
-      return res.status(403).json({ success: false, message: 'トークンが無効です' });
+      return res.status(403).json({ success: false, message: '繝医・繧ｯ繝ｳ縺檎┌蜉ｹ縺ｧ縺・ });
     }
     req.user = user;
     next();
@@ -477,7 +477,7 @@ app.post('/api/login', async (req, res) => {
   console.log('[Login] Attempting login for username:', username);
 
   try {
-    // ゲートウェイ方式でユーザー検索
+    // 繧ｲ繝ｼ繝医え繧ｧ繧､譁ｹ蠑上〒繝ｦ繝ｼ繧ｶ繝ｼ讀懃ｴ｢
     const users = await dynamicSelect('users', 
       { username }, 
       ['id', 'username', 'password', 'display_name', 'role'], 
@@ -487,23 +487,23 @@ app.post('/api/login', async (req, res) => {
     console.log('[Login] Query result:', users.length > 0 ? 'User found' : 'User not found');
 
     if (users.length === 0) {
-      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+      return res.status(401).json({ success: false, message: '繝ｦ繝ｼ繧ｶ繝ｼ蜷阪∪縺溘・繝代せ繝ｯ繝ｼ繝峨′豁｣縺励￥縺ゅｊ縺ｾ縺帙ｓ' });
     }
 
     const user = users[0];
 
-    // パスワード比較
-    // DBのパスワードがbcryptハッシュ($2で始まる)かどうかを判定
+    // 繝代せ繝ｯ繝ｼ繝画ｯ碑ｼ・
+    // DB縺ｮ繝代せ繝ｯ繝ｼ繝峨′bcrypt繝上ャ繧ｷ繝･($2縺ｧ蟋九∪繧・縺九←縺・°繧貞愛螳・
     let match = false;
     
     if (user.password && user.password.startsWith('$2')) {
-      // ハッシュ化されたパスワード
+      // 繝上ャ繧ｷ繝･蛹悶＆繧後◆繝代せ繝ｯ繝ｼ繝・
       match = await bcrypt.compare(password, user.password);
     } else {
-      // 平文パスワード（後方互換性のため）
+      // 蟷ｳ譁・ヱ繧ｹ繝ｯ繝ｼ繝会ｼ亥ｾ梧婿莠呈鋤諤ｧ縺ｮ縺溘ａ・・
       match = (password === user.password);
       
-      // セキュリティ向上のため、平文パスワードをハッシュ化して更新
+      // 繧ｻ繧ｭ繝･繝ｪ繝・ぅ蜷台ｸ翫・縺溘ａ縲∝ｹｳ譁・ヱ繧ｹ繝ｯ繝ｼ繝峨ｒ繝上ャ繧ｷ繝･蛹悶＠縺ｦ譖ｴ譁ｰ
       if (match) {
         try {
           const hashedPassword = await bcrypt.hash(password, 10);
@@ -522,35 +522,35 @@ app.post('/api/login', async (req, res) => {
     if (match) {
       console.log('[Login] Password matched for user:', username);
       
-      // 認証成功 - Emergency-Assistanceと互換性のあるトークンを生成
-      // department情報を設定（DBカラムがなくてもエラーにならないよう対応）
-      let department = 'システム管理部';  // デフォルト値
+      // 隱崎ｨｼ謌仙粥 - Emergency-Assistance縺ｨ莠呈鋤諤ｧ縺ｮ縺ゅｋ繝医・繧ｯ繝ｳ繧堤函謌・
+      // department諠・ｱ繧定ｨｭ螳夲ｼ・B繧ｫ繝ｩ繝縺後↑縺上※繧ゅお繝ｩ繝ｼ縺ｫ縺ｪ繧峨↑縺・ｈ縺・ｯｾ蠢懶ｼ・
+      let department = '繧ｷ繧ｹ繝・Β邂｡逅・Κ';  // 繝・ヵ繧ｩ繝ｫ繝亥､
       
-      // roleに基づいてdepartmentを設定
+      // role縺ｫ蝓ｺ縺･縺・※department繧定ｨｭ螳・
       if (user.role === 'system_admin') {
-        department = 'システム管理部';
+        department = '繧ｷ繧ｹ繝・Β邂｡逅・Κ';
       } else if (user.role === 'operation_admin') {
-        department = '運用管理部';
+        department = '驕狗畑邂｡逅・Κ';
       } else {
-        department = '一般';
+        department = '荳闊ｬ';
       }
 
       const payload = {
         id: user.id,
         username: user.username,
-        displayName: user.display_name,  // Emergency-Assistanceで必要
+        displayName: user.display_name,  // Emergency-Assistance縺ｧ蠢・ｦ・
         role: user.role,
-        department: department,  // Emergency-Assistanceで必要
-        iat: Math.floor(Date.now() / 1000)  // 発行時刻を明示
+        department: department,  // Emergency-Assistance縺ｧ蠢・ｦ・
+        iat: Math.floor(Date.now() / 1000)  // 逋ｺ陦梧凾蛻ｻ繧呈・遉ｺ
       };
 
       const token = jwt.sign(payload, process.env.JWT_SECRET, {
-        expiresIn: '4h',  // Emergency-Assistanceと同じ
-        issuer: 'emergency-assistance-app',  // Emergency-Assistanceと同じ
-        audience: 'emergency-assistance-app'  // Emergency-Assistanceと同じ
+        expiresIn: '4h',  // Emergency-Assistance縺ｨ蜷後§
+        issuer: 'emergency-assistance-app',  // Emergency-Assistance縺ｨ蜷後§
+        audience: 'emergency-assistance-app'  // Emergency-Assistance縺ｨ蜷後§
       });
 
-      console.log('[Login] 🎫 JWT Token generated:', {
+      console.log('[Login] 辞 JWT Token generated:', {
         userId: user.id,
         username: user.username,
         tokenLength: token.length,
@@ -562,20 +562,20 @@ app.post('/api/login', async (req, res) => {
       console.log('[Login] Token generated successfully');
       res.json({ success: true, token, user: { username: user.username, displayName: user.display_name, role: user.role } });
     } else {
-      // パスワード不一致
+      // 繝代せ繝ｯ繝ｼ繝我ｸ堺ｸ閾ｴ
       console.log('[Login] Password mismatch for user:', username);
-      res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+      res.status(401).json({ success: false, message: '繝ｦ繝ｼ繧ｶ繝ｼ蜷阪∪縺溘・繝代せ繝ｯ繝ｼ繝峨′豁｣縺励￥縺ゅｊ縺ｾ縺帙ｓ' });
     }
   } catch (err) {
     console.error('[Login] ERROR:', err);
     console.error('[Login] Error stack:', err.stack);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: err.message });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', error: err.message });
   }
 });
 
 
 
-// トークン検証エンドポイント (他のアプリがトークンを検証するために使用)
+// 繝医・繧ｯ繝ｳ讀懆ｨｼ繧ｨ繝ｳ繝峨・繧､繝ｳ繝・(莉悶・繧｢繝励Μ縺後ヨ繝ｼ繧ｯ繝ｳ繧呈､懆ｨｼ縺吶ｋ縺溘ａ縺ｫ菴ｿ逕ｨ)
 app.post('/api/verify-token', async (req, res) => {
   const { token } = req.body;
 
@@ -583,7 +583,7 @@ app.post('/api/verify-token', async (req, res) => {
     return res.status(400).json({ 
       valid: false, 
       success: false, 
-      message: 'トークンが提供されていません' 
+      message: '繝医・繧ｯ繝ｳ縺梧署萓帙＆繧後※縺・∪縺帙ｓ' 
     });
   }
 
@@ -593,7 +593,7 @@ app.post('/api/verify-token', async (req, res) => {
       audience: 'emergency-assistance-app'
     });
     
-    // ゲートウェイ方式でユーザー情報を取得（departmentカラムは取得しない）
+    // 繧ｲ繝ｼ繝医え繧ｧ繧､譁ｹ蠑上〒繝ｦ繝ｼ繧ｶ繝ｼ諠・ｱ繧貞叙蠕暦ｼ・epartment繧ｫ繝ｩ繝縺ｯ蜿門ｾ励＠縺ｪ縺・ｼ・
     const users = await dynamicSelect('users', 
       { id: decoded.id }, 
       ['id', 'username', 'display_name', 'role'], 
@@ -604,18 +604,18 @@ app.post('/api/verify-token', async (req, res) => {
       return res.status(404).json({ 
         valid: false, 
         success: false, 
-        message: 'ユーザーが見つかりません' 
+        message: '繝ｦ繝ｼ繧ｶ繝ｼ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' 
       });
     }
 
     const user = users[0];
     
-    // departmentをroleから動的に生成
-    let department = '一般';
+    // department繧池ole縺九ｉ蜍慕噪縺ｫ逕滓・
+    let department = '荳闊ｬ';
     if (user.role === 'system_admin') {
-      department = 'システム管理部';
+      department = '繧ｷ繧ｹ繝・Β邂｡逅・Κ';
     } else if (user.role === 'operation_admin') {
-      department = '運用管理部';
+      department = '驕狗畑邂｡逅・Κ';
     }
     
     res.json({ 
@@ -632,9 +632,9 @@ app.post('/api/verify-token', async (req, res) => {
   } catch (err) {
     console.error('Token verification error:', err);
     
-    // デバッグ用：検証失敗時の詳細情報
+    // 繝・ヰ繝・げ逕ｨ・壽､懆ｨｼ螟ｱ謨玲凾縺ｮ隧ｳ邏ｰ諠・ｱ
     if (err.message === 'invalid signature') {
-        console.error('⚠️ Invalid signature detected. Check JWT_SECRET mismatch.');
+        console.error('笞・・Invalid signature detected. Check JWT_SECRET mismatch.');
         const secret = process.env.JWT_SECRET;
         if (secret) {
             console.error(`Server Secret Length: ${secret.length}`);
@@ -647,37 +647,37 @@ app.post('/api/verify-token', async (req, res) => {
     res.status(401).json({ 
       valid: false, 
       success: false, 
-      message: 'トークンが無効または期限切れです',
+      message: '繝医・繧ｯ繝ｳ縺檎┌蜉ｹ縺ｾ縺溘・譛滄剞蛻・ｌ縺ｧ縺・,
       details: err.message
     });
   }
 });
 
-// トークンリフレッシュエンドポイント (有効期限を延長)
+// 繝医・繧ｯ繝ｳ繝ｪ繝輔Ξ繝・す繝･繧ｨ繝ｳ繝峨・繧､繝ｳ繝・(譛牙柑譛滄剞繧貞ｻｶ髟ｷ)
 app.post('/api/refresh-token', async (req, res) => {
   const { token } = req.body;
 
   if (!token) {
-    return res.status(400).json({ success: false, message: 'トークンが提供されていません' });
+    return res.status(400).json({ success: false, message: '繝医・繧ｯ繝ｳ縺梧署萓帙＆繧後※縺・∪縺帙ｓ' });
   }
 
   try {
-    // Emergency-Assistanceと同じ検証オプションを使用
+    // Emergency-Assistance縺ｨ蜷後§讀懆ｨｼ繧ｪ繝励す繝ｧ繝ｳ繧剃ｽｿ逕ｨ
     const decoded = jwt.verify(token, process.env.JWT_SECRET, {
       issuer: 'emergency-assistance-app',
       audience: 'emergency-assistance-app'
     });
     
-    // 新しいトークンを発行（Emergency-Assistanceと互換性のある形式）
-    // departmentが存在しない場合のフォールバック処理
+    // 譁ｰ縺励＞繝医・繧ｯ繝ｳ繧堤匱陦鯉ｼ・mergency-Assistance縺ｨ莠呈鋤諤ｧ縺ｮ縺ゅｋ蠖｢蠑擾ｼ・
+    // department縺悟ｭ伜惠縺励↑縺・ｴ蜷医・繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ蜃ｦ逅・
     let department = decoded.department;
     if (!department) {
       if (decoded.role === 'system_admin') {
-        department = 'システム管理部';
+        department = '繧ｷ繧ｹ繝・Β邂｡逅・Κ';
       } else if (decoded.role === 'operation_admin') {
-        department = '運用管理部';
+        department = '驕狗畑邂｡逅・Κ';
       } else {
-        department = '未設定';
+        department = '譛ｪ險ｭ螳・;
       }
     }
 
@@ -696,25 +696,25 @@ app.post('/api/refresh-token', async (req, res) => {
       audience: 'emergency-assistance-app'
     });
 
-    console.log('[TokenRefresh] 🔄 Token refreshed for user:', decoded.username);
+    console.log('[TokenRefresh] 売 Token refreshed for user:', decoded.username);
 
     res.json({ success: true, token: newToken });
   } catch (err) {
     console.error('Token refresh error:', err);
-    res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
+    res.status(401).json({ success: false, message: '繝医・繧ｯ繝ｳ縺檎┌蜉ｹ縺ｾ縺溘・譛滄剞蛻・ｌ縺ｧ縺・ });
   }
 });
 
-// 管理者認証ミドルウェア
+// 邂｡逅・・ｪ崎ｨｼ繝溘ラ繝ｫ繧ｦ繧ｧ繧｢
 async function requireAdmin(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   
   if (!token) {
-    return res.status(401).json({ success: false, message: '認証が必要です' });
+    return res.status(401).json({ success: false, message: '隱崎ｨｼ縺悟ｿ・ｦ√〒縺・ });
   }
 
   try {
-    // Emergency-Assistanceと同じ検証オプションを使用
+    // Emergency-Assistance縺ｨ蜷後§讀懆ｨｼ繧ｪ繝励す繝ｧ繝ｳ繧剃ｽｿ逕ｨ
     const decoded = jwt.verify(token, process.env.JWT_SECRET, {
       issuer: 'emergency-assistance-app',
       audience: 'emergency-assistance-app'
@@ -723,50 +723,50 @@ async function requireAdmin(req, res, next) {
     const result = await pool.query(query, [decoded.id]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
+      return res.status(404).json({ success: false, message: '繝ｦ繝ｼ繧ｶ繝ｼ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
     }
 
     const user = result.rows[0];
     
-    // system_admin または operation_admin のみアクセス可能
+    // system_admin 縺ｾ縺溘・ operation_admin 縺ｮ縺ｿ繧｢繧ｯ繧ｻ繧ｹ蜿ｯ閭ｽ
     if (user.role !== 'system_admin' && user.role !== 'operation_admin') {
-      return res.status(403).json({ success: false, message: 'アクセス権限がありません。管理者権限が必要です。' });
+      return res.status(403).json({ success: false, message: '繧｢繧ｯ繧ｻ繧ｹ讓ｩ髯舌′縺ゅｊ縺ｾ縺帙ｓ縲らｮ｡逅・・ｨｩ髯舌′蠢・ｦ√〒縺吶・ });
     }
 
     req.user = user;
     next();
   } catch (err) {
     console.error('Auth middleware error:', err);
-    return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
+    return res.status(401).json({ success: false, message: '繝医・繧ｯ繝ｳ縺檎┌蜉ｹ縺ｾ縺溘・譛滄剞蛻・ｌ縺ｧ縺・ });
   }
 }
 
-// 設定取得エンドポイント（管理画面用）
+// 險ｭ螳壼叙蠕励お繝ｳ繝峨・繧､繝ｳ繝茨ｼ育ｮ｡逅・判髱｢逕ｨ・・
 app.get('/api/config', requireAdmin, async (req, res) => {
   try {
     const config = await getAllConfig();
     res.json({ success: true, config });
   } catch (err) {
     console.error('Config get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// 設定更新エンドポイント（管理画面用）
+// 險ｭ螳壽峩譁ｰ繧ｨ繝ｳ繝峨・繧､繝ｳ繝茨ｼ育ｮ｡逅・判髱｢逕ｨ・・
 app.post('/api/config', requireAdmin, async (req, res) => {
   try {
     const username = req.user.username;
     const configData = req.body;
 
-    // 設定を更新
+    // 險ｭ螳壹ｒ譖ｴ譁ｰ
     for (const [key, value] of Object.entries(configData)) {
       if (value !== undefined && value !== null) {
-        // 既存の値を取得（履歴用）
+        // 譌｢蟄倥・蛟､繧貞叙蠕暦ｼ亥ｱ･豁ｴ逕ｨ・・
         const oldValueQuery = 'SELECT config_value FROM master_data.app_config WHERE config_key = $1';
         const oldValueResult = await pool.query(oldValueQuery, [key]);
         const oldValue = oldValueResult.rows.length > 0 ? oldValueResult.rows[0].config_value : null;
 
-        // 設定を更新または挿入
+        // 險ｭ螳壹ｒ譖ｴ譁ｰ縺ｾ縺溘・謖ｿ蜈･
         const upsertQuery = `
           INSERT INTO master_data.app_config (config_key, config_value, updated_by, updated_at)
           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
@@ -778,7 +778,7 @@ app.post('/api/config', requireAdmin, async (req, res) => {
         `;
         await pool.query(upsertQuery, [key, value, username]);
 
-        // 履歴を記録
+        // 螻･豁ｴ繧定ｨ倬鹸
         const historyQuery = `
           INSERT INTO master_data.app_config_history (config_key, old_value, new_value, updated_by)
           VALUES ($1, $2, $3, $4)
@@ -787,14 +787,14 @@ app.post('/api/config', requireAdmin, async (req, res) => {
       }
     }
 
-    res.json({ success: true, message: '設定を更新しました' });
+    res.json({ success: true, message: '險ｭ螳壹ｒ譖ｴ譁ｰ縺励∪縺励◆' });
   } catch (err) {
     console.error('Config update error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// 設定変更履歴取得エンドポイント
+// 險ｭ螳壼､画峩螻･豁ｴ蜿門ｾ励お繝ｳ繝峨・繧､繝ｳ繝・
 app.get('/api/config/history', requireAdmin, async (req, res) => {
   try {
     const query = `
@@ -807,27 +807,27 @@ app.get('/api/config/history', requireAdmin, async (req, res) => {
     res.json({ success: true, history: result.rows });
   } catch (err) {
     console.error('History get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
 
 
-// ユーザー一覧取得エンドポイント
+// 繝ｦ繝ｼ繧ｶ繝ｼ荳隕ｧ蜿門ｾ励お繝ｳ繝峨・繧､繝ｳ繝・
 app.get('/api/users', requireAdmin, async (req, res) => {
   try {
-    // ゲートウェイ方式 + ORDER BY対応のため一部直接クエリ
+    // 繧ｲ繝ｼ繝医え繧ｧ繧､譁ｹ蠑・+ ORDER BY蟇ｾ蠢懊・縺溘ａ荳驛ｨ逶ｴ謗･繧ｯ繧ｨ繝ｪ
     const route = await resolveTablePath('users');
     const query = `SELECT id, username, display_name, role, created_at FROM ${route.fullPath} ORDER BY id ASC`;
     const result = await pool.query(query);
     res.json({ success: true, users: result.rows });
   } catch (err) {
     console.error('Users get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// ユーザー詳細取得エンドポイント
+// 繝ｦ繝ｼ繧ｶ繝ｼ隧ｳ邏ｰ蜿門ｾ励お繝ｳ繝峨・繧､繝ｳ繝・
 app.get('/api/users/:id', requireAdmin, async (req, res) => {
   const userId = req.params.id;
 
@@ -839,42 +839,42 @@ app.get('/api/users/:id', requireAdmin, async (req, res) => {
     );
 
     if (users.length === 0) {
-      return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
+      return res.status(404).json({ success: false, message: '繝ｦ繝ｼ繧ｶ繝ｼ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
     }
 
     res.json({ success: true, user: users[0] });
   } catch (err) {
     console.error('User get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// ユーザー追加エンドポイント
+// 繝ｦ繝ｼ繧ｶ繝ｼ霑ｽ蜉繧ｨ繝ｳ繝峨・繧､繝ｳ繝・
 app.post('/api/users', requireAdmin, async (req, res) => {
   try {
     const { username, password, display_name, role } = req.body;
 
-    // バリデーション
+    // 繝舌Μ繝・・繧ｷ繝ｧ繝ｳ
     if (!username || !password) {
-      return res.status(400).json({ success: false, message: 'ユーザー名とパスワードは必須です' });
+      return res.status(400).json({ success: false, message: '繝ｦ繝ｼ繧ｶ繝ｼ蜷阪→繝代せ繝ｯ繝ｼ繝峨・蠢・医〒縺・ });
     }
 
     if (password.length < 8) {
-      return res.status(400).json({ success: false, message: 'パスワードは8文字以上で入力してください' });
+      return res.status(400).json({ success: false, message: '繝代せ繝ｯ繝ｼ繝峨・8譁・ｭ嶺ｻ･荳翫〒蜈･蜉帙＠縺ｦ縺上□縺輔＞' });
     }
 
-    // ユーザー名の重複チェック（ゲートウェイ方式）
+    // 繝ｦ繝ｼ繧ｶ繝ｼ蜷阪・驥崎､・メ繧ｧ繝・け・医ご繝ｼ繝医え繧ｧ繧､譁ｹ蠑擾ｼ・
     const existingUsers = await dynamicSelect('users', { username }, ['id'], 1);
     const checkResult = { rows: existingUsers };
 
     if (checkResult.rows.length > 0) {
-      return res.status(400).json({ success: false, message: 'このユーザー名は既に使用されています' });
+      return res.status(400).json({ success: false, message: '縺薙・繝ｦ繝ｼ繧ｶ繝ｼ蜷阪・譌｢縺ｫ菴ｿ逕ｨ縺輔ｌ縺ｦ縺・∪縺・ });
     }
 
-    // パスワードをハッシュ化
+    // 繝代せ繝ｯ繝ｼ繝峨ｒ繝上ャ繧ｷ繝･蛹・
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // ユーザーを追加（ゲートウェイ方式）
+    // 繝ｦ繝ｼ繧ｶ繝ｼ繧定ｿｽ蜉・医ご繝ｼ繝医え繧ｧ繧､譁ｹ蠑擾ｼ・
     const users = await dynamicInsert('users', {
       username,
       password: hashedPassword,
@@ -882,24 +882,24 @@ app.post('/api/users', requireAdmin, async (req, res) => {
       role: role || 'user'
     });
 
-    res.json({ success: true, user: users[0], message: 'ユーザーを追加しました' });
+    res.json({ success: true, user: users[0], message: '繝ｦ繝ｼ繧ｶ繝ｼ繧定ｿｽ蜉縺励∪縺励◆' });
   } catch (err) {
     console.error('User create error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// ユーザー更新エンドポイント
+// 繝ｦ繝ｼ繧ｶ繝ｼ譖ｴ譁ｰ繧ｨ繝ｳ繝峨・繧､繝ｳ繝・
 app.put('/api/users/:id', requireAdmin, async (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   const userId = req.params.id;
   
   if (!token) {
-    return res.status(401).json({ success: false, message: '認証が必要です' });
+    return res.status(401).json({ success: false, message: '隱崎ｨｼ縺悟ｿ・ｦ√〒縺・ });
   }
 
   try {
-    // トークンを検証
+    // 繝医・繧ｯ繝ｳ繧呈､懆ｨｼ
     jwt.verify(token, process.env.JWT_SECRET, {
       issuer: 'emergency-assistance-app',
       audience: 'emergency-assistance-app'
@@ -907,24 +907,24 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
     
     const { username, display_name, password, role } = req.body;
 
-    // バリデーション
+    // 繝舌Μ繝・・繧ｷ繝ｧ繝ｳ
     if (!username) {
-      return res.status(400).json({ success: false, message: 'ユーザー名は必須です' });
+      return res.status(400).json({ success: false, message: '繝ｦ繝ｼ繧ｶ繝ｼ蜷阪・蠢・医〒縺・ });
     }
 
-    // ユーザー名の重複チェック（自分以外）
+    // 繝ｦ繝ｼ繧ｶ繝ｼ蜷阪・驥崎､・メ繧ｧ繝・け・郁・蛻・ｻ･螟厄ｼ・
     const route = await resolveTablePath('users');
     const checkQuery = `SELECT id FROM ${route.fullPath} WHERE username = $1 AND id != $2`;
     const checkResult = await pool.query(checkQuery, [username, userId]);
 
     if (checkResult.rows.length > 0) {
-      return res.status(400).json({ success: false, message: 'このユーザー名は既に使用されています' });
+      return res.status(400).json({ success: false, message: '縺薙・繝ｦ繝ｼ繧ｶ繝ｼ蜷阪・譌｢縺ｫ菴ｿ逕ｨ縺輔ｌ縺ｦ縺・∪縺・ });
     }
 
-    // パスワードが指定されている場合
+    // 繝代せ繝ｯ繝ｼ繝峨′謖・ｮ壹＆繧後※縺・ｋ蝣ｴ蜷・
     if (password) {
       if (password.length < 8) {
-        return res.status(400).json({ success: false, message: 'パスワードは8文字以上で入力してください' });
+        return res.status(400).json({ success: false, message: '繝代せ繝ｯ繝ｼ繝峨・8譁・ｭ嶺ｻ･荳翫〒蜈･蜉帙＠縺ｦ縺上□縺輔＞' });
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -940,12 +940,12 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       );
 
       if (users.length === 0) {
-        return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
+        return res.status(404).json({ success: false, message: '繝ｦ繝ｼ繧ｶ繝ｼ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
       }
 
-      res.json({ success: true, user: users[0], message: 'ユーザーを更新しました' });
+      res.json({ success: true, user: users[0], message: '繝ｦ繝ｼ繧ｶ繝ｼ繧呈峩譁ｰ縺励∪縺励◆' });
     } else {
-      // パスワードを変更しない場合
+      // 繝代せ繝ｯ繝ｼ繝峨ｒ螟画峩縺励↑縺・ｴ蜷・
       const users = await dynamicUpdate('users', 
         {
           username,
@@ -957,57 +957,57 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       );
 
       if (users.length === 0) {
-        return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
+        return res.status(404).json({ success: false, message: '繝ｦ繝ｼ繧ｶ繝ｼ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
       }
 
-      res.json({ success: true, user: users[0], message: 'ユーザーを更新しました' });
+      res.json({ success: true, user: users[0], message: '繝ｦ繝ｼ繧ｶ繝ｼ繧呈峩譁ｰ縺励∪縺励◆' });
     }
   } catch (err) {
     console.error('User update error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// ユーザー削除エンドポイント
+// 繝ｦ繝ｼ繧ｶ繝ｼ蜑企勁繧ｨ繝ｳ繝峨・繧､繝ｳ繝・
 app.delete('/api/users/:id', requireAdmin, async (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   const userId = req.params.id;
   
   if (!token) {
-    return res.status(401).json({ success: false, message: '認証が必要です' });
+    return res.status(401).json({ success: false, message: '隱崎ｨｼ縺悟ｿ・ｦ√〒縺・ });
   }
 
   try {
-    // トークンを検証
+    // 繝医・繧ｯ繝ｳ繧呈､懆ｨｼ
     const decoded = jwt.verify(token, process.env.JWT_SECRET, {
       issuer: 'emergency-assistance-app',
       audience: 'emergency-assistance-app'
     });
     
-    // 自分自身を削除しようとしていないかチェック
+    // 閾ｪ蛻・・霄ｫ繧貞炎髯､縺励ｈ縺・→縺励※縺・↑縺・°繝√ぉ繝・け
     if (decoded.id === parseInt(userId)) {
-      return res.status(400).json({ success: false, message: '自分自身は削除できません' });
+      return res.status(400).json({ success: false, message: '閾ｪ蛻・・霄ｫ縺ｯ蜑企勁縺ｧ縺阪∪縺帙ｓ' });
     }
 
-    // ユーザーを削除（ゲートウェイ方式）
+    // 繝ｦ繝ｼ繧ｶ繝ｼ繧貞炎髯､・医ご繝ｼ繝医え繧ｧ繧､譁ｹ蠑擾ｼ・
     const users = await dynamicDelete('users', { id: userId }, true);
 
     if (users.length === 0) {
-      return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
+      return res.status(404).json({ success: false, message: '繝ｦ繝ｼ繧ｶ繝ｼ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
     }
 
-    res.json({ success: true, message: 'ユーザーを削除しました' });
+    res.json({ success: true, message: '繝ｦ繝ｼ繧ｶ繝ｼ繧貞炎髯､縺励∪縺励◆' });
   } catch (err) {
     console.error('User delete error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
 
 
-// ========== 保守用車マスタ API ==========
+// ========== 菫晏ｮ育畑霆翫・繧ｹ繧ｿ API ==========
 
-// 保守用車一覧取得エンドポイント（機種・機械番号・管理事業所を結合）
+// 菫晏ｮ育畑霆贋ｸ隕ｧ蜿門ｾ励お繝ｳ繝峨・繧､繝ｳ繝茨ｼ域ｩ溽ｨｮ繝ｻ讖滓｢ｰ逡ｪ蜿ｷ繝ｻ邂｡逅・ｺ区･ｭ謇繧堤ｵ仙粋・・
 app.get('/api/vehicles', requireAdmin, async (req, res) => {
   try {
     const vehiclesRoute = await resolveTablePath('vehicles');
@@ -1041,11 +1041,11 @@ app.get('/api/vehicles', requireAdmin, async (req, res) => {
     res.json({ success: true, vehicles: result.rows });
   } catch (err) {
     console.error('Vehicles get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// 保守用車詳細取得エンドポイント
+// 菫晏ｮ育畑霆願ｩｳ邏ｰ蜿門ｾ励お繝ｳ繝峨・繧､繝ｳ繝・
 app.get('/api/vehicles/:id', requireAdmin, async (req, res) => {
   const vehicleId = req.params.id;
 
@@ -1066,41 +1066,41 @@ app.get('/api/vehicles/:id', requireAdmin, async (req, res) => {
     const result = await pool.query(query, [vehicleId]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: '車両が見つかりません' });
+      return res.status(404).json({ success: false, message: '霆贋ｸ｡縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
     }
 
     res.json({ success: true, vehicle: result.rows[0] });
   } catch (err) {
     console.error('Vehicle get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// 保守用車追加エンドポイント
+// 菫晏ｮ育畑霆願ｿｽ蜉繧ｨ繝ｳ繝峨・繧､繝ｳ繝・
 app.post('/api/vehicles', requireAdmin, async (req, res) => {
   const username = req.user.username;
   const { vehicle_number, machine_id, office_id, model, registration_number, notes } = req.body;
 
   try {
-    // バリデーション
+    // 繝舌Μ繝・・繧ｷ繝ｧ繝ｳ
     if (!vehicle_number) {
-      return res.status(400).json({ success: false, message: '車両番号は必須です' });
+      return res.status(400).json({ success: false, message: '霆贋ｸ｡逡ｪ蜿ｷ縺ｯ蠢・医〒縺・ });
     }
 
     if (!machine_id) {
-      return res.status(400).json({ success: false, message: '機械番号は必須です' });
+      return res.status(400).json({ success: false, message: '讖滓｢ｰ逡ｪ蜿ｷ縺ｯ蠢・医〒縺・ });
     }
 
-    // 車両番号の重複チェック
+    // 霆贋ｸ｡逡ｪ蜿ｷ縺ｮ驥崎､・メ繧ｧ繝・け
     const route = await resolveTablePath('vehicles');
     const checkQuery = `SELECT vehicle_id FROM ${route.fullPath} WHERE vehicle_number = $1`;
     const checkResult = await pool.query(checkQuery, [vehicle_number]);
 
     if (checkResult.rows.length > 0) {
-      return res.status(400).json({ success: false, message: 'この車両番号は既に使用されています' });
+      return res.status(400).json({ success: false, message: '縺薙・霆贋ｸ｡逡ｪ蜿ｷ縺ｯ譌｢縺ｫ菴ｿ逕ｨ縺輔ｌ縺ｦ縺・∪縺・ });
     }
 
-    // 車両を追加（ゲートウェイ方式）
+    // 霆贋ｸ｡繧定ｿｽ蜉・医ご繝ｼ繝医え繧ｧ繧､譁ｹ蠑擾ｼ・
     const vehicles = await dynamicInsert('vehicles', {
       vehicle_number,
       machine_id,
@@ -1110,15 +1110,15 @@ app.post('/api/vehicles', requireAdmin, async (req, res) => {
       notes: notes || null
     });
 
-    res.json({ success: true, vehicle: vehicles[0], message: '車両を追加しました' });
+    res.json({ success: true, vehicle: vehicles[0], message: '霆贋ｸ｡繧定ｿｽ蜉縺励∪縺励◆' });
   } catch (err) {
     console.error('Vehicle create error:', err);
     console.error('Error details:', err.message, err.stack);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆: ' + err.message });
   }
 });
 
-// 保守用車更新エンドポイント
+// 菫晏ｮ育畑霆頑峩譁ｰ繧ｨ繝ｳ繝峨・繧､繝ｳ繝・
 app.put('/api/vehicles/:id', requireAdmin, async (req, res) => {
   const vehicleId = req.params.id;
   const username = req.user.username;
@@ -1126,25 +1126,25 @@ app.put('/api/vehicles/:id', requireAdmin, async (req, res) => {
   try {
     const { vehicle_number, machine_id, office_id, model, registration_number, notes } = req.body;
 
-    // バリデーション
+    // 繝舌Μ繝・・繧ｷ繝ｧ繝ｳ
     if (!vehicle_number) {
-      return res.status(400).json({ success: false, message: '車両番号は必須です' });
+      return res.status(400).json({ success: false, message: '霆贋ｸ｡逡ｪ蜿ｷ縺ｯ蠢・医〒縺・ });
     }
 
     if (!machine_id) {
-      return res.status(400).json({ success: false, message: '機械番号は必須です' });
+      return res.status(400).json({ success: false, message: '讖滓｢ｰ逡ｪ蜿ｷ縺ｯ蠢・医〒縺・ });
     }
 
-    // 車両番号の重複チェック（自分以外）
+    // 霆贋ｸ｡逡ｪ蜿ｷ縺ｮ驥崎､・メ繧ｧ繝・け・郁・蛻・ｻ･螟厄ｼ・
     const route = await resolveTablePath('vehicles');
     const checkQuery = `SELECT vehicle_id FROM ${route.fullPath} WHERE vehicle_number = $1 AND vehicle_id != $2`;
     const checkResult = await pool.query(checkQuery, [vehicle_number, vehicleId]);
 
     if (checkResult.rows.length > 0) {
-      return res.status(400).json({ success: false, message: 'この車両番号は既に使用されています' });
+      return res.status(400).json({ success: false, message: '縺薙・霆贋ｸ｡逡ｪ蜿ｷ縺ｯ譌｢縺ｫ菴ｿ逕ｨ縺輔ｌ縺ｦ縺・∪縺・ });
     }
 
-    // 車両を更新（ゲートウェイ方式）
+    // 霆贋ｸ｡繧呈峩譁ｰ・医ご繝ｼ繝医え繧ｧ繧､譁ｹ蠑擾ｼ・
     const vehicles = await dynamicUpdate('vehicles', 
       {
         vehicle_number,
@@ -1159,41 +1159,41 @@ app.put('/api/vehicles/:id', requireAdmin, async (req, res) => {
     );
 
     if (vehicles.length === 0) {
-      return res.status(404).json({ success: false, message: '車両が見つかりません' });
+      return res.status(404).json({ success: false, message: '霆贋ｸ｡縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
     }
 
-    res.json({ success: true, vehicle: vehicles[0], message: '車両を更新しました' });
+    res.json({ success: true, vehicle: vehicles[0], message: '霆贋ｸ｡繧呈峩譁ｰ縺励∪縺励◆' });
   } catch (err) {
     console.error('Vehicle update error:', err);
     console.error('Error details:', err.message, err.stack);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆: ' + err.message });
   }
 });
 
-// 保守用車削除エンドポイント
+// 菫晏ｮ育畑霆雁炎髯､繧ｨ繝ｳ繝峨・繧､繝ｳ繝・
 app.delete('/api/vehicles/:id', requireAdmin, async (req, res) => {
   const vehicleId = req.params.id;
   
   try {
-    // 車両を削除（ゲートウェイ方式）
+    // 霆贋ｸ｡繧貞炎髯､・医ご繝ｼ繝医え繧ｧ繧､譁ｹ蠑擾ｼ・
     const vehicles = await dynamicDelete('vehicles', { vehicle_id: vehicleId }, true);
 
     if (vehicles.length === 0) {
-      return res.status(404).json({ success: false, message: '車両が見つかりません' });
+      return res.status(404).json({ success: false, message: '霆贋ｸ｡縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
     }
 
-    res.json({ success: true, message: '車両を削除しました' });
+    res.json({ success: true, message: '霆贋ｸ｡繧貞炎髯､縺励∪縺励◆' });
   } catch (err) {
     console.error('Vehicle delete error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
 // ========================================
-// 事業所マスタ API
+// 莠区･ｭ謇繝槭せ繧ｿ API
 // ========================================
 
-// 事業所一覧取得
+// 莠区･ｭ謇荳隕ｧ蜿門ｾ・
 app.get('/api/offices', authenticateToken, async (req, res) => {
   try {
     const route = await resolveTablePath('managements_offices');
@@ -1202,16 +1202,16 @@ app.get('/api/offices', authenticateToken, async (req, res) => {
     res.json({ success: true, offices: result.rows });
   } catch (err) {
     console.error('Offices list error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// 事業所追加
+// 莠区･ｭ謇霑ｽ蜉
 app.post('/api/offices', requireAdmin, async (req, res) => {
   const { office_code, office_name, office_type, address } = req.body;
 
   if (!office_code || !office_name) {
-    return res.status(400).json({ success: false, message: '事業所コードと事業所名は必須です' });
+    return res.status(400).json({ success: false, message: '莠区･ｭ謇繧ｳ繝ｼ繝峨→莠区･ｭ謇蜷阪・蠢・医〒縺・ });
   }
 
   try {
@@ -1227,18 +1227,18 @@ app.post('/api/offices', requireAdmin, async (req, res) => {
       address || null
     ]);
 
-    res.json({ success: true, office: result.rows[0], message: '事業所を追加しました' });
+    res.json({ success: true, office: result.rows[0], message: '莠区･ｭ謇繧定ｿｽ蜉縺励∪縺励◆' });
   } catch (err) {
     console.error('Office insert error:', err);
     if (err.code === '23505') {
-      res.status(409).json({ success: false, message: 'この事業所コードは既に登録されています' });
+      res.status(409).json({ success: false, message: '縺薙・莠区･ｭ謇繧ｳ繝ｼ繝峨・譌｢縺ｫ逋ｻ骭ｲ縺輔ｌ縺ｦ縺・∪縺・ });
     } else {
-      res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+      res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
     }
   }
 });
 
-// 事業所更新
+// 莠区･ｭ謇譖ｴ譁ｰ
 app.put('/api/offices/:id', requireAdmin, async (req, res) => {
   const officeId = req.params.id;
   const { office_code, office_name, office_type, address, postal_code, phone_number, manager_name, email } = req.body;
@@ -1265,17 +1265,17 @@ app.put('/api/offices/:id', requireAdmin, async (req, res) => {
     ]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: '事業所が見つかりません' });
+      return res.status(404).json({ success: false, message: '莠区･ｭ謇縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
     }
 
-    res.json({ success: true, office: result.rows[0], message: '事業所を更新しました' });
+    res.json({ success: true, office: result.rows[0], message: '莠区･ｭ謇繧呈峩譁ｰ縺励∪縺励◆' });
   } catch (err) {
     console.error('Office update error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// 事業所削除
+// 莠区･ｭ謇蜑企勁
 app.delete('/api/offices/:id', requireAdmin, async (req, res) => {
   const officeId = req.params.id;
   
@@ -1284,21 +1284,21 @@ app.delete('/api/offices/:id', requireAdmin, async (req, res) => {
     const result = await pool.query(deleteQuery, [officeId]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: '事業所が見つかりません' });
+      return res.status(404).json({ success: false, message: '莠区･ｭ謇縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
     }
 
-    res.json({ success: true, message: '事業所を削除しました' });
+    res.json({ success: true, message: '莠区･ｭ謇繧貞炎髯､縺励∪縺励◆' });
   } catch (err) {
     console.error('Office delete error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
 // ========================================
-// 保守基地マスタ API
+// 菫晏ｮ亥渕蝨ｰ繝槭せ繧ｿ API
 // ========================================
 
-// 保守基地一覧取得
+// 菫晏ｮ亥渕蝨ｰ荳隕ｧ蜿門ｾ・
 app.get('/api/bases', authenticateToken, async (req, res) => {
   try {
     const query = `
@@ -1311,16 +1311,16 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
     res.json({ success: true, bases: result.rows });
   } catch (err) {
     console.error('Bases list error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// 保守基地追加
+// 菫晏ｮ亥渕蝨ｰ霑ｽ蜉
 app.post('/api/bases', requireAdmin, async (req, res) => {
   const { base_code, base_name, office_id, location, address, postal_code, phone_number, latitude, longitude } = req.body;
 
   if (!base_code || !base_name) {
-    return res.status(400).json({ success: false, message: '基地コードと基地名は必須です' });
+    return res.status(400).json({ success: false, message: '蝓ｺ蝨ｰ繧ｳ繝ｼ繝峨→蝓ｺ蝨ｰ蜷阪・蠢・医〒縺・ });
   }
 
   try {
@@ -1342,18 +1342,18 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
       longitude || null
     ]);
 
-    res.json({ success: true, base: result.rows[0], message: '保守基地を追加しました' });
+    res.json({ success: true, base: result.rows[0], message: '菫晏ｮ亥渕蝨ｰ繧定ｿｽ蜉縺励∪縺励◆' });
   } catch (err) {
     console.error('Base insert error:', err);
     if (err.code === '23505') {
-      res.status(409).json({ success: false, message: 'この基地コードは既に登録されています' });
+      res.status(409).json({ success: false, message: '縺薙・蝓ｺ蝨ｰ繧ｳ繝ｼ繝峨・譌｢縺ｫ逋ｻ骭ｲ縺輔ｌ縺ｦ縺・∪縺・ });
     } else {
-      res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+      res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
     }
   }
 });
 
-// 保守基地更新
+// 菫晏ｮ亥渕蝨ｰ譖ｴ譁ｰ
 app.put('/api/bases/:id', requireAdmin, async (req, res) => {
   const baseId = req.params.id;
   const { base_code, base_name, office_id, location, address, postal_code, phone_number, latitude, longitude } = req.body;
@@ -1381,17 +1381,17 @@ app.put('/api/bases/:id', requireAdmin, async (req, res) => {
     ]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: '保守基地が見つかりません' });
+      return res.status(404).json({ success: false, message: '菫晏ｮ亥渕蝨ｰ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
     }
 
-    res.json({ success: true, base: result.rows[0], message: '保守基地を更新しました' });
+    res.json({ success: true, base: result.rows[0], message: '菫晏ｮ亥渕蝨ｰ繧呈峩譁ｰ縺励∪縺励◆' });
   } catch (err) {
     console.error('Base update error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// 保守基地削除
+// 菫晏ｮ亥渕蝨ｰ蜑企勁
 app.delete('/api/bases/:id', requireAdmin, async (req, res) => {
   const baseId = req.params.id;
   
@@ -1400,21 +1400,21 @@ app.delete('/api/bases/:id', requireAdmin, async (req, res) => {
     const result = await pool.query(deleteQuery, [baseId]);
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: '保守基地が見つかりません' });
+      return res.status(404).json({ success: false, message: '菫晏ｮ亥渕蝨ｰ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
     }
 
-    res.json({ success: true, message: '保守基地を削除しました' });
+    res.json({ success: true, message: '菫晏ｮ亥渕蝨ｰ繧貞炎髯､縺励∪縺励◆' });
   } catch (err) {
     console.error('Base delete error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
 
 
-// ========== データベース管理 API ==========
+// ========== 繝・・繧ｿ繝吶・繧ｹ邂｡逅・API ==========
 
-// データベース統計情報取得エンドポイント
+// 繝・・繧ｿ繝吶・繧ｹ邨ｱ險域ュ蝣ｱ蜿門ｾ励お繝ｳ繝峨・繧､繝ｳ繝・
 app.get('/api/database/stats', requireAdmin, async (req, res) => {
   try {
     const stats = {
@@ -1427,7 +1427,7 @@ app.get('/api/database/stats', requireAdmin, async (req, res) => {
       table_sizes: []
     };
 
-    // PostgreSQLバージョン取得
+    // PostgreSQL繝舌・繧ｸ繝ｧ繝ｳ蜿門ｾ・
     try {
       const versionResult = await pool.query('SELECT version()');
       const versionString = versionResult.rows[0].version;
@@ -1437,7 +1437,7 @@ app.get('/api/database/stats', requireAdmin, async (req, res) => {
       console.error('Failed to get version:', err);
     }
 
-    // 接続数取得
+    // 謗･邯壽焚蜿門ｾ・
     try {
       const connectionsResult = await pool.query(`
         SELECT count(*) as connection_count 
@@ -1449,7 +1449,7 @@ app.get('/api/database/stats', requireAdmin, async (req, res) => {
       console.error('Failed to get connections:', err);
     }
 
-    // データベースサイズ取得
+    // 繝・・繧ｿ繝吶・繧ｹ繧ｵ繧､繧ｺ蜿門ｾ・
     try {
       const sizeResult = await pool.query(`
         SELECT pg_size_pretty(pg_database_size(current_database())) as db_size
@@ -1459,20 +1459,20 @@ app.get('/api/database/stats', requireAdmin, async (req, res) => {
       console.error('Failed to get database size:', err);
     }
 
-    // 稼働時間取得
+    // 遞ｼ蜒肴凾髢灘叙蠕・
     try {
       const uptimeResult = await pool.query(`
         SELECT 
-          EXTRACT(DAY FROM (now() - pg_postmaster_start_time())) || '日' ||
-          EXTRACT(HOUR FROM (now() - pg_postmaster_start_time())) || '時間' ||
-          ROUND(EXTRACT(MINUTE FROM (now() - pg_postmaster_start_time()))) || '分' as uptime
+          EXTRACT(DAY FROM (now() - pg_postmaster_start_time())) || '譌･' ||
+          EXTRACT(HOUR FROM (now() - pg_postmaster_start_time())) || '譎る俣' ||
+          ROUND(EXTRACT(MINUTE FROM (now() - pg_postmaster_start_time()))) || '蛻・ as uptime
       `);
       stats.uptime = uptimeResult.rows[0].uptime;
     } catch (err) {
       console.error('Failed to get uptime:', err);
     }
 
-    // テーブルサイズ取得（上位10件）
+    // 繝・・繝悶Ν繧ｵ繧､繧ｺ蜿門ｾ暦ｼ井ｸ贋ｽ・0莉ｶ・・
     try {
       const tableSizeResult = await pool.query(`
         SELECT 
@@ -1488,7 +1488,7 @@ app.get('/api/database/stats', requireAdmin, async (req, res) => {
       console.error('Failed to get table sizes:', err);
     }
 
-    // ディスク使用率（簡易計算、実際にはOS依存）
+    // 繝・ぅ繧ｹ繧ｯ菴ｿ逕ｨ邇・ｼ育ｰ｡譏楢ｨ育ｮ励∝ｮ滄圀縺ｫ縺ｯOS萓晏ｭ假ｼ・
     try {
       const diskResult = await pool.query(`
         SELECT 
@@ -1497,23 +1497,23 @@ app.get('/api/database/stats', requireAdmin, async (req, res) => {
       stats.disk_usage = Math.min(100, diskResult.rows[0].disk_usage_percent || 0);
     } catch (err) {
       console.error('Failed to calculate disk usage:', err);
-      stats.disk_usage = 7.2; // デフォルト値（画像と同じ）
+      stats.disk_usage = 7.2; // 繝・ヵ繧ｩ繝ｫ繝亥､・育判蜒上→蜷後§・・
     }
 
     res.json({ success: true, stats });
   } catch (err) {
     console.error('Database stats error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', stats: { connected: false } });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', stats: { connected: false } });
   }
 });
 
 
 
 // ========================================
-// データベース管理API
+// 繝・・繧ｿ繝吶・繧ｹ邂｡逅・PI
 // ========================================
 
-// テーブルデータ取得（汎用）
+// 繝・・繝悶Ν繝・・繧ｿ蜿門ｾ暦ｼ域ｱ守畑・・
 app.get('/api/database/table/:schemaTable', authenticateToken, async (req, res) => {
   try {
     const { schemaTable } = req.params;
@@ -1523,7 +1523,7 @@ app.get('/api/database/table/:schemaTable', authenticateToken, async (req, res) 
       return res.status(400).json({ success: false, message: 'Invalid table name format' });
     }
 
-    // SQLインジェクション対策：スキーマとテーブル名を検証
+    // SQL繧､繝ｳ繧ｸ繧ｧ繧ｯ繧ｷ繝ｧ繝ｳ蟇ｾ遲厄ｼ壹せ繧ｭ繝ｼ繝槭→繝・・繝悶Ν蜷阪ｒ讀懆ｨｼ
     const validTableQuery = await pool.query(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`,
       [schema, table]
@@ -1535,7 +1535,7 @@ app.get('/api/database/table/:schemaTable', authenticateToken, async (req, res) 
 
     const result = await pool.query(`SELECT * FROM ${schema}.${table} ORDER BY 1 DESC LIMIT 100`);
     
-    // カラム情報も取得
+    // 繧ｫ繝ｩ繝諠・ｱ繧ょ叙蠕・
     const columnsQuery = await pool.query(`
       SELECT column_name, data_type 
       FROM information_schema.columns 
@@ -1554,7 +1554,7 @@ app.get('/api/database/table/:schemaTable', authenticateToken, async (req, res) 
   }
 });
 
-// レコード追加（汎用）
+// 繝ｬ繧ｳ繝ｼ繝芽ｿｽ蜉・域ｱ守畑・・
 app.post('/api/database/table/:schemaTable', authenticateToken, async (req, res) => {
   try {
     const { schemaTable } = req.params;
@@ -1565,7 +1565,7 @@ app.post('/api/database/table/:schemaTable', authenticateToken, async (req, res)
       return res.status(400).json({ success: false, message: 'Invalid table name format' });
     }
 
-    // テーブル存在確認
+    // 繝・・繝悶Ν蟄伜惠遒ｺ隱・
     const validTableQuery = await pool.query(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`,
       [schema, table]
@@ -1589,7 +1589,7 @@ app.post('/api/database/table/:schemaTable', authenticateToken, async (req, res)
   }
 });
 
-// レコード更新（汎用）
+// 繝ｬ繧ｳ繝ｼ繝画峩譁ｰ・域ｱ守畑・・
 app.put('/api/database/table/:schemaTable/:id', authenticateToken, async (req, res) => {
   try {
     const { schemaTable, id } = req.params;
@@ -1600,7 +1600,7 @@ app.put('/api/database/table/:schemaTable/:id', authenticateToken, async (req, r
       return res.status(400).json({ success: false, message: 'Invalid table name format' });
     }
 
-    // 主キーカラム名を取得
+    // 荳ｻ繧ｭ繝ｼ繧ｫ繝ｩ繝蜷阪ｒ蜿門ｾ・
     const pkQuery = await pool.query(`
       SELECT a.attname
       FROM pg_index i
@@ -1632,7 +1632,7 @@ app.put('/api/database/table/:schemaTable/:id', authenticateToken, async (req, r
   }
 });
 
-// レコード削除（汎用）
+// 繝ｬ繧ｳ繝ｼ繝牙炎髯､・域ｱ守畑・・
 app.delete('/api/database/table/:schemaTable/:id', authenticateToken, async (req, res) => {
   try {
     const { schemaTable, id } = req.params;
@@ -1642,7 +1642,7 @@ app.delete('/api/database/table/:schemaTable/:id', authenticateToken, async (req
       return res.status(400).json({ success: false, message: 'Invalid table name format' });
     }
 
-    // 主キーカラム名を取得
+    // 荳ｻ繧ｭ繝ｼ繧ｫ繝ｩ繝蜷阪ｒ蜿門ｾ・
     const pkQuery = await pool.query(`
       SELECT a.attname
       FROM pg_index i
@@ -1670,14 +1670,14 @@ app.delete('/api/database/table/:schemaTable/:id', authenticateToken, async (req
   }
 });
 
-// データベースバックアップ
+// 繝・・繧ｿ繝吶・繧ｹ繝舌ャ繧ｯ繧｢繝・・
 app.post('/api/database/backup', authenticateToken, async (req, res) => {
   try {
     const { exec } = require('child_process');
     const fs = require('fs');
     const backupDir = path.join(__dirname, 'backups');
     
-    // バックアップディレクトリ作成
+    // 繝舌ャ繧ｯ繧｢繝・・繝・ぅ繝ｬ繧ｯ繝医Μ菴懈・
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true });
     }
@@ -1701,12 +1701,12 @@ app.post('/api/database/backup', authenticateToken, async (req, res) => {
         return res.status(500).json({ success: false, message: 'Backup failed', error: error.message });
       }
 
-      // バックアップファイルをダウンロード
+      // 繝舌ャ繧ｯ繧｢繝・・繝輔ぃ繧､繝ｫ繧偵ム繧ｦ繝ｳ繝ｭ繝ｼ繝・
       res.download(backupFile, `webappdb_backup_${timestamp}.sql`, (err) => {
         if (err) {
           console.error('Download error:', err);
         }
-        // ダウンロード後、ファイルを削除（オプション）
+        // 繝繧ｦ繝ｳ繝ｭ繝ｼ繝牙ｾ後√ヵ繧｡繧､繝ｫ繧貞炎髯､・医が繝励す繝ｧ繝ｳ・・
         // fs.unlinkSync(backupFile);
       });
     });
@@ -1716,7 +1716,7 @@ app.post('/api/database/backup', authenticateToken, async (req, res) => {
   }
 });
 
-// CSVエクスポート
+// CSV繧ｨ繧ｯ繧ｹ繝昴・繝・
 app.get('/api/database/export-csv/:schemaTable', authenticateToken, async (req, res) => {
   try {
     const { schemaTable } = req.params;
@@ -1732,13 +1732,13 @@ app.get('/api/database/export-csv/:schemaTable', authenticateToken, async (req, 
       return res.status(404).json({ success: false, message: 'No data found' });
     }
 
-    // CSV生成
+    // CSV逕滓・
     const columns = Object.keys(result.rows[0]);
     const csvHeader = columns.join(',') + '\n';
     const csvRows = result.rows.map(row => 
       columns.map(col => {
         const value = row[col];
-        // 値にカンマや改行が含まれる場合はダブルクォートで囲む
+        // 蛟､縺ｫ繧ｫ繝ｳ繝槭ｄ謾ｹ陦後′蜷ｫ縺ｾ繧後ｋ蝣ｴ蜷医・繝繝悶Ν繧ｯ繧ｩ繝ｼ繝医〒蝗ｲ繧
         if (value === null) return '';
         const strValue = String(value);
         if (strValue.includes(',') || strValue.includes('\n') || strValue.includes('"')) {
@@ -1759,7 +1759,7 @@ app.get('/api/database/export-csv/:schemaTable', authenticateToken, async (req, 
   }
 });
 
-// CSVインポート
+// CSV繧､繝ｳ繝昴・繝・
 app.post('/api/database/import-csv/:schemaTable', authenticateToken, async (req, res) => {
   try {
     const { schemaTable } = req.params;
@@ -1770,7 +1770,7 @@ app.post('/api/database/import-csv/:schemaTable', authenticateToken, async (req,
       return res.status(400).json({ success: false, message: 'Invalid request' });
     }
 
-    // CSV解析
+    // CSV隗｣譫・
     const lines = csvData.trim().split('\n');
     if (lines.length < 2) {
       return res.status(400).json({ success: false, message: 'CSV must have header and data rows' });
@@ -1818,10 +1818,10 @@ app.get('/user-management', (req, res) => {
   res.sendFile(path.join(__dirname, 'user-management.html'));
 });
 
-// ヘルスチェックエンドポイント
+// 繝倥Ν繧ｹ繝√ぉ繝・け繧ｨ繝ｳ繝峨・繧､繝ｳ繝・
 app.get('/health', async (req, res) => {
   try {
-    // データベース接続確認
+    // 繝・・繧ｿ繝吶・繧ｹ謗･邯夂｢ｺ隱・
     await pool.query('SELECT 1');
     res.json({ 
       status: 'healthy', 
@@ -1839,24 +1839,24 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// デバッグ用エンドポイント（本番環境では削除推奨）
+// 繝・ヰ繝・げ逕ｨ繧ｨ繝ｳ繝峨・繧､繝ｳ繝茨ｼ域悽逡ｪ迺ｰ蠅・〒縺ｯ蜑企勁謗ｨ螂ｨ・・
 app.get('/debug/env', (req, res) => {
-  // パスワードなどの機密情報は隠す
+  // 繝代せ繝ｯ繝ｼ繝峨↑縺ｩ縺ｮ讖溷ｯ・ュ蝣ｱ縺ｯ髫縺・
   const safeEnv = {
     NODE_ENV: process.env.NODE_ENV,
     PORT: process.env.PORT,
     CLOUD_SQL_INSTANCE: process.env.CLOUD_SQL_INSTANCE,
     DB_NAME: process.env.DB_NAME,
     DB_USER: process.env.DB_USER,
-    DB_PASSWORD: process.env.DB_PASSWORD ? '***設定済み***' : '未設定',
-    DATABASE_URL: process.env.DATABASE_URL ? '***設定済み***' : '未設定',
-    JWT_SECRET: process.env.JWT_SECRET ? '***設定済み***' : '未設定',
+    DB_PASSWORD: process.env.DB_PASSWORD ? '***險ｭ螳壽ｸ医∩***' : '譛ｪ險ｭ螳・,
+    DATABASE_URL: process.env.DATABASE_URL ? '***險ｭ螳壽ｸ医∩***' : '譛ｪ險ｭ螳・,
+    JWT_SECRET: process.env.JWT_SECRET ? '***險ｭ螳壽ｸ医∩***' : '譛ｪ險ｭ螳・,
     CORS_ORIGIN: process.env.CORS_ORIGIN,
   };
   res.json(safeEnv);
 });
 
-// デバッグ用: usersテーブルの確認（本番環境では削除必須）
+// 繝・ヰ繝・げ逕ｨ: users繝・・繝悶Ν縺ｮ遒ｺ隱搾ｼ域悽逡ｪ迺ｰ蠅・〒縺ｯ蜑企勁蠢・茨ｼ・
 app.get('/debug/users', async (req, res) => {
   try {
     const result = await pool.query(`
@@ -1866,8 +1866,8 @@ app.get('/debug/users', async (req, res) => {
         display_name,
         role,
         CASE 
-          WHEN password LIKE '$2%' THEN 'ハッシュ化済み'
-          ELSE '平文'
+          WHEN password LIKE '$2%' THEN '繝上ャ繧ｷ繝･蛹匁ｸ医∩'
+          ELSE '蟷ｳ譁・
         END as password_type,
         LEFT(password, 10) as password_preview
       FROM master_data.users 
@@ -1884,12 +1884,12 @@ app.get('/debug/users', async (req, res) => {
     res.status(500).json({ 
       success: false, 
       error: err.message,
-      hint: 'master_data.usersテーブルが存在しない可能性があります'
+      hint: 'master_data.users繝・・繝悶Ν縺悟ｭ伜惠縺励↑縺・庄閭ｽ諤ｧ縺後≠繧翫∪縺・
     });
   }
 });
 
-// デバッグ用: ログインテスト
+// 繝・ヰ繝・げ逕ｨ: 繝ｭ繧ｰ繧､繝ｳ繝・せ繝・
 app.post('/debug/test-login', async (req, res) => {
   const { username, password } = req.body;
   
@@ -1900,7 +1900,7 @@ app.post('/debug/test-login', async (req, res) => {
     if (result.rows.length === 0) {
       return res.json({
         success: false,
-        message: 'ユーザーが見つかりません',
+        message: '繝ｦ繝ｼ繧ｶ繝ｼ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ',
         username: username
       });
     }
@@ -1919,7 +1919,7 @@ app.post('/debug/test-login', async (req, res) => {
     res.json({
       success: true,
       userFound: true,
-      passwordType: isHashed ? 'ハッシュ化' : '平文',
+      passwordType: isHashed ? '繝上ャ繧ｷ繝･蛹・ : '蟷ｳ譁・,
       passwordMatch: match,
       dbPasswordPreview: dbPassword ? dbPassword.substring(0, 15) + '...' : null,
       inputPassword: password,
@@ -1935,10 +1935,10 @@ app.post('/debug/test-login', async (req, res) => {
 });
 
 // ========================================
-// 機種マスタ・機械番号マスタ API (統合表示用)
+// 讖溽ｨｮ繝槭せ繧ｿ繝ｻ讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ API (邨ｱ蜷郁｡ｨ遉ｺ逕ｨ)
 // ========================================
 
-// 機種マスタ一覧取得
+// 讖溽ｨｮ繝槭せ繧ｿ荳隕ｧ蜿門ｾ・
 app.get('/api/machine-types', requireAdmin, async (req, res) => {
   try {
     const route = await resolveTablePath('machine_types');
@@ -1947,17 +1947,17 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error('Machine types get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// 機種マスタ追加
+// 讖溽ｨｮ繝槭せ繧ｿ霑ｽ蜉
 app.post('/api/machine-types', requireAdmin, async (req, res) => {
   try {
     const { type_code, type_name, manufacturer, category, description } = req.body;
     
     if (!type_code || !type_name) {
-      return res.status(400).json({ success: false, message: '機種コードと機種名は必須です' });
+      return res.status(400).json({ success: false, message: '讖溽ｨｮ繧ｳ繝ｼ繝峨→讖溽ｨｮ蜷阪・蠢・医〒縺・ });
     }
     
     const types = await dynamicInsert('machine_types', {
@@ -1967,18 +1967,18 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
       category,
       description
     });
-    res.json({ success: true, data: types[0], message: '機種を追加しました' });
+    res.json({ success: true, data: types[0], message: '讖溽ｨｮ繧定ｿｽ蜉縺励∪縺励◆' });
   } catch (err) {
     console.error('Machine type create error:', err);
     if (err.code === '23505') {
-      res.status(409).json({ success: false, message: 'この機種コードは既に登録されています' });
+      res.status(409).json({ success: false, message: '縺薙・讖溽ｨｮ繧ｳ繝ｼ繝峨・譌｢縺ｫ逋ｻ骭ｲ縺輔ｌ縺ｦ縺・∪縺・ });
     } else {
-      res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+      res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
     }
   }
 });
 
-// 機械番号マスタ一覧取得（機種情報も含む統合ビュー）
+// 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ荳隕ｧ蜿門ｾ暦ｼ域ｩ溽ｨｮ諠・ｱ繧ょ性繧邨ｱ蜷医ン繝･繝ｼ・・
 app.get('/api/machines', requireAdmin, async (req, res) => {
   try {
     const machinesRoute = await resolveTablePath('machines');
@@ -2012,17 +2012,17 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error('Machines get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// 機械番号マスタ追加
+// 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ霑ｽ蜉
 app.post('/api/machines', requireAdmin, async (req, res) => {
   try {
     const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, status, assigned_base_id, notes } = req.body;
     
     if (!machine_number || !machine_type_id) {
-      return res.status(400).json({ success: false, message: '機械番号と機種は必須です' });
+      return res.status(400).json({ success: false, message: '讖滓｢ｰ逡ｪ蜿ｷ縺ｨ讖溽ｨｮ縺ｯ蠢・医〒縺・ });
     }
     
     const machines = await dynamicInsert('machines', {
@@ -2035,18 +2035,18 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
       assigned_base_id,
       notes
     });
-    res.json({ success: true, data: machines[0], message: '機械を追加しました' });
+    res.json({ success: true, data: machines[0], message: '讖滓｢ｰ繧定ｿｽ蜉縺励∪縺励◆' });
   } catch (err) {
     console.error('Machine create error:', err);
     if (err.code === '23505') {
-      res.status(409).json({ success: false, message: 'この機械番号は既に登録されています' });
+      res.status(409).json({ success: false, message: '縺薙・讖滓｢ｰ逡ｪ蜿ｷ縺ｯ譌｢縺ｫ逋ｻ骭ｲ縺輔ｌ縺ｦ縺・∪縺・ });
     } else {
-      res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+      res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
     }
   }
 });
 
-// 機械番号マスタ更新
+// 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ譖ｴ譁ｰ
 app.put('/api/machines/:id', requireAdmin, async (req, res) => {
   try {
     const machineId = req.params.id;
@@ -2068,66 +2068,66 @@ app.put('/api/machines/:id', requireAdmin, async (req, res) => {
     );
     
     if (machines.length === 0) {
-      return res.status(404).json({ success: false, message: '機械が見つかりません' });
+      return res.status(404).json({ success: false, message: '讖滓｢ｰ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
     }
     
-    res.json({ success: true, data: machines[0], message: '機械を更新しました' });
+    res.json({ success: true, data: machines[0], message: '讖滓｢ｰ繧呈峩譁ｰ縺励∪縺励◆' });
   } catch (err) {
     console.error('Machine update error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// 機械番号マスタ削除
+// 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ蜑企勁
 app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
   try {
     const machineId = req.params.id;
     const machines = await dynamicDelete('machines', { id: machineId }, true);
     
     if (machines.length === 0) {
-      return res.status(404).json({ success: false, message: '機械が見つかりません' });
+      return res.status(404).json({ success: false, message: '讖滓｢ｰ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ' });
     }
     
-    res.json({ success: true, message: '機械を削除しました' });
+    res.json({ success: true, message: '讖滓｢ｰ繧貞炎髯､縺励∪縺励◆' });
   } catch (err) {
     console.error('Machine delete error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: '繧ｵ繝ｼ繝舌・繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆' });
   }
 });
 
-// サーバー起動
+// 繧ｵ繝ｼ繝舌・襍ｷ蜍・
 console.log('=' .repeat(60));
-console.log(`🚀 ATTEMPTING TO START SERVER ON PORT ${PORT}...`);
+console.log(`噫 ATTEMPTING TO START SERVER ON PORT ${PORT}...`);
 console.log('=' .repeat(60));
 
-// JWT_SECRETのデバッグ情報（セキュリティのため一部のみ表示）
+// JWT_SECRET縺ｮ繝・ヰ繝・げ諠・ｱ・医そ繧ｭ繝･繝ｪ繝・ぅ縺ｮ縺溘ａ荳驛ｨ縺ｮ縺ｿ陦ｨ遉ｺ・・
 const secret = process.env.JWT_SECRET;
 if (secret) {
-  console.log(`✅ JWT_SECRET is set. Length: ${secret.length}`);
+  console.log(`笨・JWT_SECRET is set. Length: ${secret.length}`);
   console.log(`JWT_SECRET prefix: ${secret.substring(0, 2)}***`);
   console.log(`JWT_SECRET suffix: ***${secret.substring(secret.length - 2)}`);
 } else {
-  console.error('⚠️ JWT_SECRET is NOT set!');
+  console.error('笞・・JWT_SECRET is NOT set!');
 }
 
-console.log(`📡 About to call app.listen(${PORT}, '0.0.0.0')...`);
+console.log(`藤 About to call app.listen(${PORT}, '0.0.0.0')...`);
 
 const server = app.listen(PORT, '0.0.0.0', (err) => {
   if (err) {
-    console.error('❌ Failed to start server:', err);
+    console.error('笶・Failed to start server:', err);
     console.error('Stack trace:', err.stack);
     process.exit(1);
   }
   console.log('=' .repeat(60));
-  console.log(`✅✅✅ SERVER STARTED SUCCESSFULLY ✅✅✅`);
-  console.log(`🌐 Listening on 0.0.0.0:${PORT}`);
-  console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`❤️ Health check: http://0.0.0.0:${PORT}/health`);
+  console.log(`笨・怛笨・SERVER STARTED SUCCESSFULLY 笨・怛笨・);
+  console.log(`倹 Listening on 0.0.0.0:${PORT}`);
+  console.log(`逃 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`笶､・・Health check: http://0.0.0.0:${PORT}/health`);
   console.log('=' .repeat(60));
 });
 
 server.on('error', (err) => {
-  console.error('❌ Server error:', err);
+  console.error('笶・Server error:', err);
   if (err.code === 'EADDRINUSE') {
     console.error(`Port ${PORT} is already in use`);
   }

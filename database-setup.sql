@@ -1,10 +1,10 @@
 -- ========================================
--- 統一データベースセットアップスクリプト
--- 既存クラウドDB構造対応版
--- webappdb用（既存スキーマ・テーブルに合わせる）
+-- 邨ｱ荳繝・・繧ｿ繝吶・繧ｹ繧ｻ繝・ヨ繧｢繝・・繧ｹ繧ｯ繝ｪ繝励ヨ
+-- 譌｢蟄倥け繝ｩ繧ｦ繝吋B讒矩蟇ｾ蠢懃沿
+-- webappdb逕ｨ・域里蟄倥せ繧ｭ繝ｼ繝槭・繝・・繝悶Ν縺ｫ蜷医ｏ縺帙ｋ・・
 -- ========================================
 
--- スキーマ作成（既に存在する場合はスキップ）
+-- 繧ｹ繧ｭ繝ｼ繝樔ｽ懈・・域里縺ｫ蟄伜惠縺吶ｋ蝣ｴ蜷医・繧ｹ繧ｭ繝・・・・
 CREATE SCHEMA IF NOT EXISTS master_data;
 CREATE SCHEMA IF NOT EXISTS maintenance;
 CREATE SCHEMA IF NOT EXISTS operations;
@@ -13,11 +13,11 @@ CREATE SCHEMA IF NOT EXISTS emergency;
 CREATE SCHEMA IF NOT EXISTS google_vacuum_mgmt;
 
 -- ========================================
--- master_data スキーマ（既存構造に合わせる）
+-- master_data 繧ｹ繧ｭ繝ｼ繝橸ｼ域里蟄俶ｧ矩縺ｫ蜷医ｏ縺帙ｋ・・
 -- ========================================
 
--- ユーザーテーブル（既存）
--- role: 'user' (一般ユーザー), 'operation_admin' (運用管理者), 'system_admin' (システム管理者)
+-- 繝ｦ繝ｼ繧ｶ繝ｼ繝・・繝悶Ν・域里蟄假ｼ・
+-- role: 'user' (荳闊ｬ繝ｦ繝ｼ繧ｶ繝ｼ), 'operation_admin' (驕狗畑邂｡逅・・, 'system_admin' (繧ｷ繧ｹ繝・Β邂｡逅・・
 CREATE TABLE IF NOT EXISTS master_data.users (
     id SERIAL PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS master_data.users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 事業所マスタ（既存: managements_offices）
+-- 莠区･ｭ謇繝槭せ繧ｿ・域里蟄・ managements_offices・・
 CREATE TABLE IF NOT EXISTS master_data.managements_offices (
     office_id SERIAL PRIMARY KEY,
     office_code VARCHAR(20) UNIQUE NOT NULL,
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS master_data.managements_offices (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 保守基地マスタ（既存: bases）
+-- 菫晏ｮ亥渕蝨ｰ繝槭せ繧ｿ・域里蟄・ bases・・
 CREATE TABLE IF NOT EXISTS master_data.bases (
     base_id SERIAL PRIMARY KEY,
     base_code VARCHAR(20) UNIQUE NOT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS master_data.bases (
     FOREIGN KEY (office_id) REFERENCES master_data.managements_offices(office_id)
 );
 
--- 保守用車マスタ（既存: vehicles）
+-- 菫晏ｮ育畑霆翫・繧ｹ繧ｿ・域里蟄・ vehicles・・
 CREATE TABLE IF NOT EXISTS master_data.vehicles (
     vehicle_id SERIAL PRIMARY KEY,
     vehicle_number VARCHAR(50) UNIQUE NOT NULL,
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS master_data.vehicles (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 機種マスタ
+-- 讖溽ｨｮ繝槭せ繧ｿ
 CREATE TABLE IF NOT EXISTS master_data.machine_types (
     id SERIAL PRIMARY KEY,
     type_code VARCHAR(20) UNIQUE NOT NULL,
@@ -83,7 +83,7 @@ CREATE TABLE IF NOT EXISTS master_data.machine_types (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 機械番号マスタ
+-- 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ
 CREATE TABLE IF NOT EXISTS master_data.machines (
     id SERIAL PRIMARY KEY,
     machine_number VARCHAR(50) UNIQUE NOT NULL,
@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS master_data.machines (
     FOREIGN KEY (assigned_base_id) REFERENCES master_data.bases(base_id)
 );
 
--- 外部キー制約を追加
+-- 螟夜Κ繧ｭ繝ｼ蛻ｶ邏・ｒ霑ｽ蜉
 ALTER TABLE master_data.vehicles 
     DROP CONSTRAINT IF EXISTS fk_vehicles_machine_id;
 ALTER TABLE master_data.vehicles 
@@ -113,7 +113,7 @@ ALTER TABLE master_data.vehicles
     ADD CONSTRAINT fk_vehicles_office_id 
     FOREIGN KEY (office_id) REFERENCES master_data.managements_offices(office_id) ON DELETE SET NULL;
 
--- 車両タイプマスタ（既存）
+-- 霆贋ｸ｡繧ｿ繧､繝励・繧ｹ繧ｿ・域里蟄假ｼ・
 CREATE TABLE IF NOT EXISTS master_data.vehicle_types (
     type_id SERIAL PRIMARY KEY,
     type_name VARCHAR(50) UNIQUE NOT NULL,
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS master_data.vehicle_types (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 点検タイプマスタ（既存）
+-- 轤ｹ讀懊ち繧､繝励・繧ｹ繧ｿ・域里蟄假ｼ・
 CREATE TABLE IF NOT EXISTS master_data.inspection_types (
     type_id SERIAL PRIMARY KEY,
     type_name VARCHAR(50) UNIQUE NOT NULL,
@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS master_data.inspection_types (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- ベース文書（既存）
+-- 繝吶・繧ｹ譁・嶌・域里蟄假ｼ・
 CREATE TABLE IF NOT EXISTS master_data.base_documents (
     document_id SERIAL PRIMARY KEY,
     base_id INTEGER,
@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS master_data.base_documents (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- チャット履歴（既存）
+-- 繝√Ε繝・ヨ螻･豁ｴ・域里蟄假ｼ・
 CREATE TABLE IF NOT EXISTS master_data.chat_history (
     chat_id SERIAL PRIMARY KEY,
     user_id INTEGER,
@@ -146,7 +146,7 @@ CREATE TABLE IF NOT EXISTS master_data.chat_history (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- アプリケーション設定（ダッシュボード用に追加）
+-- 繧｢繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ險ｭ螳夲ｼ医ム繝・す繝･繝懊・繝臥畑縺ｫ霑ｽ蜉・・
 CREATE TABLE IF NOT EXISTS master_data.app_config (
     config_key VARCHAR(100) PRIMARY KEY,
     config_value TEXT,
@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS master_data.app_config (
     updated_by INTEGER
 );
 
--- 設定変更履歴（ダッシュボード用に追加）
+-- 險ｭ螳壼､画峩螻･豁ｴ・医ム繝・す繝･繝懊・繝臥畑縺ｫ霑ｽ蜉・・
 CREATE TABLE IF NOT EXISTS master_data.app_config_history (
     history_id SERIAL PRIMARY KEY,
     config_key VARCHAR(100),
@@ -166,10 +166,10 @@ CREATE TABLE IF NOT EXISTS master_data.app_config_history (
 );
 
 -- ========================================
--- operations スキーマ（既存構造に合わせる）
+-- operations 繧ｹ繧ｭ繝ｼ繝橸ｼ域里蟄俶ｧ矩縺ｫ蜷医ｏ縺帙ｋ・・
 -- ========================================
 
--- 運転計画（既存構造を想定）
+-- 驕玖ｻ｢險育判・域里蟄俶ｧ矩繧呈Φ螳夲ｼ・
 CREATE TABLE IF NOT EXISTS operations.schedules (
     schedule_id SERIAL PRIMARY KEY,
     vehicle_id INTEGER,
@@ -180,7 +180,7 @@ CREATE TABLE IF NOT EXISTS operations.schedules (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 運用実績
+-- 驕狗畑螳溽ｸｾ
 CREATE TABLE IF NOT EXISTS operations.operation_records (
     record_id SERIAL PRIMARY KEY,
     schedule_id INTEGER,
@@ -195,10 +195,10 @@ CREATE TABLE IF NOT EXISTS operations.operation_records (
 );
 
 -- ========================================
--- maintenance スキーマ（既存構造に合わせる）
+-- maintenance 繧ｹ繧ｭ繝ｼ繝橸ｼ域里蟄俶ｧ矩縺ｫ蜷医ｏ縺帙ｋ・・
 -- ========================================
 
--- 故障記録
+-- 謨・囿險倬鹸
 CREATE TABLE IF NOT EXISTS maintenance.fault_records (
     fault_id SERIAL PRIMARY KEY,
     vehicle_id INTEGER,
@@ -210,10 +210,10 @@ CREATE TABLE IF NOT EXISTS maintenance.fault_records (
 );
 
 -- ========================================
--- inspections スキーマ
+-- inspections 繧ｹ繧ｭ繝ｼ繝・
 -- ========================================
 
--- 点検記録
+-- 轤ｹ讀懆ｨ倬鹸
 CREATE TABLE IF NOT EXISTS inspections.inspection_records (
     inspection_id SERIAL PRIMARY KEY,
     vehicle_id INTEGER,
@@ -227,10 +227,10 @@ CREATE TABLE IF NOT EXISTS inspections.inspection_records (
 );
 
 -- ========================================
--- emergency スキーマ
+-- emergency 繧ｹ繧ｭ繝ｼ繝・
 -- ========================================
 
--- 応急復旧記録
+-- 蠢懈･蠕ｩ譌ｧ險倬鹸
 CREATE TABLE IF NOT EXISTS emergency.emergency_records (
     emergency_id SERIAL PRIMARY KEY,
     incident_date TIMESTAMP NOT NULL,
@@ -244,33 +244,33 @@ CREATE TABLE IF NOT EXISTS emergency.emergency_records (
 );
 
 -- ========================================
--- 初期データ投入
+-- 蛻晄悄繝・・繧ｿ謚募・
 -- ========================================
 
--- デフォルト管理者ユーザー
--- admin: パスワード admin123 (システム管理者)
--- niina: パスワード G&896845 (システム管理者)
+-- 繝・ヵ繧ｩ繝ｫ繝育ｮ｡逅・・Θ繝ｼ繧ｶ繝ｼ
+-- admin: 繝代せ繝ｯ繝ｼ繝・admin123 (繧ｷ繧ｹ繝・Β邂｡逅・・
+-- niina: 繝代せ繝ｯ繝ｼ繝・G&896845 (繧ｷ繧ｹ繝・Β邂｡逅・・
 INSERT INTO master_data.users (username, password, display_name, email, role)
 VALUES 
-    ('admin', '$2b$10$Wvq4AxAkP52kudPSW2.A0.J7j2VPbdCigM0EyoiePhn1Wvvg9Mtpe', '管理者', 'admin@example.com', 'system_admin'),
-    ('niina', '$2b$10$BiKD0cFkIZfpxPlfwu6wTeBla8pXoBf59NC8Ap9gOWefpzExp1oZq', '管理者', 'niina@example.com', 'system_admin')
+    ('admin', '$2b$10$Wvq4AxAkP52kudPSW2.A0.J7j2VPbdCigM0EyoiePhn1Wvvg9Mtpe', '邂｡逅・・, 'admin@example.com', 'system_admin'),
+    ('niina', '$2b$10$BiKD0cFkIZfpxPlfwu6wTeBla8pXoBf59NC8Ap9gOWefpzExp1oZq', '邂｡逅・・, 'niina@example.com', 'system_admin')
 ON CONFLICT (username) DO NOTHING;
 
--- デフォルトCORS設定
+-- 繝・ヵ繧ｩ繝ｫ繝・ORS險ｭ螳・
 INSERT INTO master_data.app_config (config_key, config_value, description)
 VALUES 
-    ('cors_origin', '*', 'CORS許可オリジン設定（開発環境用）'),
-    ('app_url_emergency', 'https://emergency-client-u3tejuflja-dt.a.run.app/', '応急復旧支援システムURL'),
-    ('app_url_planning', 'https://準備中', '計画・実績管理システムURL（準備中）'),
-    ('app_url_equipment', 'https://準備中', '保守用車管理システムURL（準備中）'),
-    ('app_url_failure', 'https://準備中', '機械故障管理システムURL（準備中）')
+    ('cors_origin', '*', 'CORS險ｱ蜿ｯ繧ｪ繝ｪ繧ｸ繝ｳ險ｭ螳夲ｼ磯幕逋ｺ迺ｰ蠅・畑・・),
+    ('app_url_emergency', 'https://emergency-client-u3tejuflja-dt.a.run.app/', '蠢懈･蠕ｩ譌ｧ謾ｯ謠ｴ繧ｷ繧ｹ繝・ΒURL'),
+    ('app_url_planning', 'https://貅門ｙ荳ｭ', '險育判繝ｻ螳溽ｸｾ邂｡逅・す繧ｹ繝・ΒURL・域ｺ門ｙ荳ｭ・・),
+    ('app_url_equipment', 'https://貅門ｙ荳ｭ', '菫晏ｮ育畑霆顔ｮ｡逅・す繧ｹ繝・ΒURL・域ｺ門ｙ荳ｭ・・),
+    ('app_url_failure', 'https://貅門ｙ荳ｭ', '讖滓｢ｰ謨・囿邂｡逅・す繧ｹ繝・ΒURL・域ｺ門ｙ荳ｭ・・)
 ON CONFLICT (config_key) DO NOTHING;
 
 -- ========================================
--- インデックス作成（パフォーマンス最適化）
+-- 繧､繝ｳ繝・ャ繧ｯ繧ｹ菴懈・・医ヱ繝輔か繝ｼ繝槭Φ繧ｹ譛驕ｩ蛹厄ｼ・
 -- ========================================
 
--- master_data スキーマ
+-- master_data 繧ｹ繧ｭ繝ｼ繝・
 CREATE INDEX IF NOT EXISTS idx_users_username ON master_data.users(username);
 CREATE INDEX IF NOT EXISTS idx_users_role ON master_data.users(role);
 CREATE INDEX IF NOT EXISTS idx_offices_code ON master_data.managements_offices(office_code);
@@ -283,38 +283,38 @@ CREATE INDEX IF NOT EXISTS idx_machines_type ON master_data.machines(machine_typ
 CREATE INDEX IF NOT EXISTS idx_machines_base ON master_data.machines(assigned_base_id);
 CREATE INDEX IF NOT EXISTS idx_machine_types_code ON master_data.machine_types(type_code);
 
--- operations スキーマ
+-- operations 繧ｹ繧ｭ繝ｼ繝・
 CREATE INDEX IF NOT EXISTS idx_schedules_vehicle ON operations.schedules(vehicle_id);
 CREATE INDEX IF NOT EXISTS idx_schedules_date ON operations.schedules(schedule_date);
 CREATE INDEX IF NOT EXISTS idx_schedules_status ON operations.schedules(status);
 
--- maintenance スキーマ
+-- maintenance 繧ｹ繧ｭ繝ｼ繝・
 CREATE INDEX IF NOT EXISTS idx_fault_records_vehicle ON maintenance.fault_records(vehicle_id);
 CREATE INDEX IF NOT EXISTS idx_fault_records_date ON maintenance.fault_records(fault_date);
 CREATE INDEX IF NOT EXISTS idx_fault_records_status ON maintenance.fault_records(status);
 
--- inspections スキーマ
+-- inspections 繧ｹ繧ｭ繝ｼ繝・
 CREATE INDEX IF NOT EXISTS idx_inspections_vehicle ON inspections.inspection_records(vehicle_id);
 CREATE INDEX IF NOT EXISTS idx_inspections_date ON inspections.inspection_records(inspection_date);
 
 -- ========================================
--- 完了メッセージ
+-- 螳御ｺ・Γ繝・そ繝ｼ繧ｸ
 -- ========================================
 
 DO $$
 BEGIN
     RAISE NOTICE '========================================';
-    RAISE NOTICE 'データベースセットアップ完了！';
+    RAISE NOTICE '繝・・繧ｿ繝吶・繧ｹ繧ｻ繝・ヨ繧｢繝・・螳御ｺ・ｼ・;
     RAISE NOTICE '========================================';
-    RAISE NOTICE '既存クラウドDB構造に対応';
-    RAISE NOTICE 'スキーマ: master_data, maintenance, operations, inspections, emergency';
-    RAISE NOTICE '主要テーブル:';
-    RAISE NOTICE '  - master_data.managements_offices (事業所)';
-    RAISE NOTICE '  - master_data.bases (保守基地)';
-    RAISE NOTICE '  - master_data.vehicles (保守用車)';
-    RAISE NOTICE '  - master_data.machine_types (機種マスタ)';
-    RAISE NOTICE '  - master_data.machines (機械番号マスタ)';
-    RAISE NOTICE '  - master_data.users (ユーザー)';
+    RAISE NOTICE '譌｢蟄倥け繝ｩ繧ｦ繝吋B讒矩縺ｫ蟇ｾ蠢・;
+    RAISE NOTICE '繧ｹ繧ｭ繝ｼ繝・ master_data, maintenance, operations, inspections, emergency';
+    RAISE NOTICE '荳ｻ隕√ユ繝ｼ繝悶Ν:';
+    RAISE NOTICE '  - master_data.managements_offices (莠区･ｭ謇)';
+    RAISE NOTICE '  - master_data.bases (菫晏ｮ亥渕蝨ｰ)';
+    RAISE NOTICE '  - master_data.vehicles (菫晏ｮ育畑霆・';
+    RAISE NOTICE '  - master_data.machine_types (讖溽ｨｮ繝槭せ繧ｿ)';
+    RAISE NOTICE '  - master_data.machines (讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ)';
+    RAISE NOTICE '  - master_data.users (繝ｦ繝ｼ繧ｶ繝ｼ)';
     RAISE NOTICE '========================================';
 END $$;
 
