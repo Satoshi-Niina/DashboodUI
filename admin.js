@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // メイン画面に戻る
     document.getElementById('back-to-main-btn').addEventListener('click', () => {
-        window.location.href = '/dashboard';
+        window.location.href = '/index.html';
     });
 
     // タブ機能の初期化
