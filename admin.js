@@ -50,19 +50,27 @@ function initializeTabs() {
     const tabButtons = document.querySelectorAll('.tab-button');
     const tabContents = document.querySelectorAll('.tab-content');
 
+    console.log('[initializeTabs] Found tab buttons:', tabButtons.length);
+    console.log('[initializeTabs] Found tab contents:', tabContents.length);
+
     // 最初のタブをアクティブにする
     if (tabButtons.length > 0) {
         tabButtons[0].classList.add('active');
         const firstTabName = tabButtons[0].getAttribute('data-tab');
+        console.log('[initializeTabs] First tab name:', firstTabName);
         const firstTabContent = document.getElementById(`${firstTabName}-tab`);
         if (firstTabContent) {
             firstTabContent.style.display = 'block';
+            console.log('[initializeTabs] First tab activated');
+        } else {
+            console.error('[initializeTabs] First tab content not found:', `${firstTabName}-tab`);
         }
     }
 
     tabButtons.forEach(button => {
         button.addEventListener('click', () => {
             const tabName = button.getAttribute('data-tab');
+            console.log('[Tab Click] Clicked tab:', tabName);
 
             // すべてのタブボタンとコンテンツを非アクティブにする
             tabButtons.forEach(btn => btn.classList.remove('active'));
@@ -73,6 +81,9 @@ function initializeTabs() {
             const targetTab = document.getElementById(`${tabName}-tab`);
             if (targetTab) {
                 targetTab.style.display = 'block';
+                console.log('[Tab Click] Tab activated:', tabName);
+            } else {
+                console.error('[Tab Click] Tab content not found:', `${tabName}-tab`);
             }
 
             // タブに応じてデータを読み込み
@@ -177,10 +188,19 @@ async function loadUsers() {
 
     try {
         const token = localStorage.getItem('user_token');
+        console.log('[loadUsers] Fetching users...');
         const response = await fetch('/api/users', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
+
+        console.log('[loadUsers] Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
+        console.log('[loadUsers] Data received:', data);
 
         if (data.success && data.users.length > 0) {
             usersList.innerHTML = data.users.map(user => `
@@ -200,8 +220,8 @@ async function loadUsers() {
             usersList.innerHTML = '<p class="loading">ユーザーが登録されていません</p>';
         }
     } catch (error) {
-        console.error('Failed to load users:', error);
-        usersList.innerHTML = '<p class="loading">ユーザーの読み込みに失敗しました</p>';
+        console.error('[loadUsers] Error:', error);
+        usersList.innerHTML = `<p class="loading" style="color: red;">⚠️ ユーザーの読み込みに失敗しました<br>エラー: ${error.message}<br>データベース接続を確認してください</p>`;
     }
 }
 
@@ -321,10 +341,19 @@ async function loadVehicles() {
 
     try {
         const token = localStorage.getItem('user_token');
+        console.log('[loadVehicles] Fetching vehicles...');
         const response = await fetch('/api/vehicles', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
+
+        console.log('[loadVehicles] Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
+        console.log('[loadVehicles] Data received:', data);
 
         if (data.success && data.vehicles.length > 0) {
             let html = `
@@ -366,8 +395,8 @@ async function loadVehicles() {
             vehiclesList.innerHTML = '<p class="loading">保守用車が登録されていません</p>';
         }
     } catch (error) {
-        console.error('Failed to load vehicles:', error);
-        vehiclesList.innerHTML = '<p class="loading">保守用車の読み込みに失敗しました</p>';
+        console.error('[loadVehicles] Error:', error);
+        vehiclesList.innerHTML = `<p class="loading" style="color: red;">⚠️ 保守用車の読み込みに失敗しました<br>エラー: ${error.message}<br>データベース接続を確認してください</p>`;
     }
 }
 
@@ -727,10 +756,19 @@ async function loadOffices() {
 
     try {
         const token = localStorage.getItem('user_token');
+        console.log('[loadOffices] Fetching offices...');
         const response = await fetch('/api/offices', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
+
+        console.log('[loadOffices] Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
+        console.log('[loadOffices] Data received:', data);
 
         if (data.success && data.offices.length > 0) {
             officesList.innerHTML = data.offices.map(office => `
@@ -752,8 +790,8 @@ async function loadOffices() {
             officesList.innerHTML = '<p class="loading">事業所が登録されていません</p>';
         }
     } catch (error) {
-        console.error('Failed to load offices:', error);
-        officesList.innerHTML = '<p class="loading">事業所の読み込みに失敗しました</p>';
+        console.error('[loadOffices] Error:', error);
+        officesList.innerHTML = `<p class="loading" style="color: red;">⚠️ 事業所の読み込みに失敗しました<br>エラー: ${error.message}<br>データベース接続を確認してください</p>`;
     }
 }
 
@@ -914,10 +952,19 @@ async function loadBases() {
 
     try {
         const token = localStorage.getItem('user_token');
+        console.log('[loadBases] Fetching bases...');
         const response = await fetch('/api/bases', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
+
+        console.log('[loadBases] Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
+        console.log('[loadBases] Data received:', data);
 
         if (data.success && data.bases.length > 0) {
             basesList.innerHTML = data.bases.map(base => `
@@ -939,8 +986,8 @@ async function loadBases() {
             basesList.innerHTML = '<p class="loading">保守基地が登録されていません</p>';
         }
     } catch (error) {
-        console.error('Failed to load bases:', error);
-        basesList.innerHTML = '<p class="loading">保守基地の読み込みに失敗しました</p>';
+        console.error('[loadBases] Error:', error);
+        basesList.innerHTML = `<p class="loading" style="color: red;">⚠️ 保守基地の読み込みに失敗しました<br>エラー: ${error.message}<br>データベース接続を確認してください</p>`;
     }
 }
 
@@ -1117,10 +1164,19 @@ function getStatusLabel(status) {
 async function loadDatabaseStats() {
     try {
         const token = localStorage.getItem('user_token');
+        console.log('[loadDatabaseStats] Fetching database stats...');
         const response = await fetch('/api/database/stats', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
+
+        console.log('[loadDatabaseStats] Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
+        console.log('[loadDatabaseStats] Data received:', data);
 
         if (data.success) {
             // 接続状態
@@ -1162,11 +1218,16 @@ async function loadDatabaseStats() {
             } else {
                 tableSizes.innerHTML = '<p class="loading">テーブル情報がありません</p>';
             }
+        } else {
+            console.error('[loadDatabaseStats] Response not successful:', data);
         }
     } catch (error) {
-        console.error('Failed to load database stats:', error);
-        document.getElementById('db-connection-status').innerHTML = 
-            '<span class="status-badge status-error">✕ エラー</span>';
+        console.error('[loadDatabaseStats] Error:', error);
+        const statusBadge = document.getElementById('db-connection-status');
+        if (statusBadge) {
+            statusBadge.innerHTML = `<span class="status-badge status-error">✕ エラー: ${error.message}</span>`;
+        }
+        showToast('データベース情報の取得に失敗しました', 'error');
     }
 
     // テーブル管理機能の初期化
@@ -1512,17 +1573,29 @@ window.deleteRecord = deleteRecord;
 async function loadCorsSettings() {
     try {
         const token = localStorage.getItem('user_token');
+        console.log('[loadCorsSettings] Fetching CORS settings...');
         const response = await fetch('/api/config', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
+
+        console.log('[loadCorsSettings] Response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
+        console.log('[loadCorsSettings] Data received:', data);
 
         if (data.success) {
             const corsOrigin = data.config.cors_origin || '*';
             document.getElementById('cors_origin').value = corsOrigin;
+        } else {
+            console.error('[loadCorsSettings] Response not successful:', data);
         }
     } catch (error) {
-        console.error('Failed to load CORS settings:', error);
+        console.error('[loadCorsSettings] Error:', error);
+        showToast('CORS設定の読み込みに失敗しました', 'error');
     }
 }
 
