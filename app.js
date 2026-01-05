@@ -53,12 +53,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const headerUserName = document.getElementById('header-user-name');
         const headerAvatar = document.getElementById('header-avatar');
 
-        // システム管理者以外はシステム設定リンクを非表示
+        // システム管理者と運用管理者以外はシステム設定リンクを非表示
         const footerNav = document.querySelector('.footer-nav');
-        if (footerNav && userInfo.role !== 'admin') {
-            const adminLink = footerNav.querySelector('a[href="/admin"]');
+        if (footerNav && userInfo.role !== 'system_admin' && userInfo.role !== 'operation_admin') {
+            const adminLink = footerNav.querySelector('a[href="/admin.html"]');
             if (adminLink) {
                 adminLink.style.display = 'none';
+                console.log('[App] System settings link hidden for role:', userInfo.role);
             }
         }
 
