@@ -2059,7 +2059,7 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
 // 機械番号マスタ追加
 app.post('/api/machines', requireAdmin, async (req, res) => {
   try {
-    const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, status, assigned_base_id, notes } = req.body;
+    const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, notes } = req.body;
     
     if (!machine_number || !machine_type_id) {
       return res.status(400).json({ success: false, message: '機械番号と機種は必須です' });
@@ -2071,8 +2071,6 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
       serial_number,
       manufacture_date,
       purchase_date,
-      status: status || 'active',
-      assigned_base_id,
       notes
     });
     res.json({ success: true, data: machines[0], message: '機械を追加しました' });
@@ -2090,7 +2088,7 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
 app.put('/api/machines/:id', requireAdmin, async (req, res) => {
   try {
     const machineId = req.params.id;
-    const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, status, assigned_base_id, notes } = req.body;
+    const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, notes } = req.body;
     
     const machines = await dynamicUpdate('machines', 
       {
@@ -2099,8 +2097,6 @@ app.put('/api/machines/:id', requireAdmin, async (req, res) => {
         serial_number,
         manufacture_date,
         purchase_date,
-        status,
-        assigned_base_id,
         notes,
         updated_at: new Date()
       },

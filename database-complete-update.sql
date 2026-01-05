@@ -21,6 +21,11 @@ DROP COLUMN IF EXISTS capacity,
 DROP COLUMN IF EXISTS manager_name,
 DROP COLUMN IF EXISTS phone_number;
 
+-- 機械番号マスタから不要カラムを削除
+ALTER TABLE master_data.machines
+DROP COLUMN IF EXISTS assigned_base_id,
+DROP COLUMN IF EXISTS status;
+
 -- 保守用車マスタに型式認定と取得年月日を追加
 ALTER TABLE master_data.vehicles 
 ADD COLUMN IF NOT EXISTS type_certification VARCHAR(100),
@@ -88,8 +93,6 @@ CREATE INDEX IF NOT EXISTS idx_vehicles_acquisition_date ON master_data.vehicles
 
 -- machinesテーブルのインデックス
 CREATE INDEX IF NOT EXISTS idx_machines_machine_type_id ON master_data.machines(machine_type_id);
-CREATE INDEX IF NOT EXISTS idx_machines_assigned_base_id ON master_data.machines(assigned_base_id);
-CREATE INDEX IF NOT EXISTS idx_machines_status ON master_data.machines(status);
 
 -- machine_typesテーブルのインデックス
 CREATE INDEX IF NOT EXISTS idx_machine_types_type_code ON master_data.machine_types(type_code);
@@ -143,18 +146,6 @@ BEGIN
         ADD CONSTRAINT fk_machines_machine_type_id 
         FOREIGN KEY (machine_type_id) REFERENCES master_data.machine_types(id) 
         ON DELETE RESTRICT;
-    END IF;
-
-    -- assigned_base_idの外部キー
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.table_constraints 
-        WHERE constraint_name = 'fk_machines_assigned_base_id' 
-        AND table_name = 'machines'
-    ) THEN
-        ALTER TABLE master_data.machines 
-        ADD CONSTRAINT fk_machines_assigned_base_id 
-        FOREIGN KEY (assigned_base_id) REFERENCES master_data.bases(base_id) 
-        ON DELETE SET NULL;
     END IF;
 END $$;
 
