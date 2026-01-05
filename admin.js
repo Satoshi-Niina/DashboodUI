@@ -495,7 +495,6 @@ async function loadMachineTypeData(machineTypeId) {
             const machineType = data.data.find(mt => mt.id === machineTypeId);
             if (machineType) {
                 document.getElementById('machine-type-id').value = machineType.id;
-                document.getElementById('machine-type-code').value = machineType.type_code || '';
                 document.getElementById('machine-type-name').value = machineType.type_name || '';
                 document.getElementById('machine-type-manufacturer').value = machineType.manufacturer || '';
                 document.getElementById('machine-type-category').value = machineType.category || '';
@@ -513,7 +512,6 @@ async function saveMachineType() {
     const token = localStorage.getItem('user_token');
     
     const machineTypeData = {
-        type_code: document.getElementById('machine-type-code').value,
         type_name: document.getElementById('machine-type-name').value,
         manufacturer: document.getElementById('machine-type-manufacturer').value,
         category: document.getElementById('machine-type-category').value,

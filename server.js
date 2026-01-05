@@ -1977,11 +1977,17 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
 // 機種マスタ追加
 app.post('/api/machine-types', requireAdmin, async (req, res) => {
   try {
-    const { type_code, type_name, manufacturer, category, description } = req.body;
+    const { type_name, manufacturer, category, description } = req.body;
     
-    if (!type_code || !type_name) {
-      return res.status(400).json({ success: false, message: '機種コードと機種名は必須です' });
+    if (!type_name) {
+      return res.status(400).json({ success: false, message: '機種名は必須です' });
     }
+    
+    // 機種コードを自動生成（MT + 連番）
+    const route = await resolveTablePath('machine_types');
+    const countResult = await pool.query(`SELECT COUNT(*) as count FROM ${route.fullPath}`);
+    const nextNumber = parseInt(countResult.rows[0].count) + 1;
+    const type_code = `MT${String(nextNumber).padStart(4, '0')}`; // MT0001, MT0002, ...
     
     const types = await dynamicInsert('machine_types', {
       type_code,
