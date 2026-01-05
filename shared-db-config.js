@@ -1,7 +1,7 @@
 /**
- * 邨ｱ荳繝・・繧ｿ繝吶・繧ｹ謗･邯夊ｨｭ螳・
- * 蜷・い繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ縺九ｉ菴ｿ逕ｨ縺吶ｋ蜈ｱ騾壹・DB謗･邯夊ｨｭ螳・
- * 繝ｭ繝ｼ繧ｫ繝ｫ迺ｰ蠅・→譛ｬ逡ｪ迺ｰ蠅・ｼ・loud Run + Cloud SQL・峨・荳｡譁ｹ縺ｫ蟇ｾ蠢・
+ * 統一データベース接続設定
+ * 各アプリケーションから使用する共通のDB接続設定
+ * ローカル環境と本番環境（Cloud Run + Cloud SQL）の両方に対応
  */
 
 const { Pool } = require('pg');
@@ -9,22 +9,22 @@ require('dotenv').config();
 
 const isProduction = process.env.NODE_ENV === 'production';
 
-// 譛ｬ逡ｪ迺ｰ蠅・ｼ・loud SQL・峨→繝ｭ繝ｼ繧ｫ繝ｫ迺ｰ蠅・〒謗･邯夊ｨｭ螳壹ｒ蛻・ｊ譖ｿ縺・
+// 本番環境（Cloud SQL）とローカル環境で接続設定を切り替え
 const dbConfig = isProduction && process.env.CLOUD_SQL_INSTANCE ? {
-  // 譛ｬ逡ｪ迺ｰ蠅・ Cloud SQL Unix socket謗･邯・
+  // 本番環境: Cloud SQL Unix socket接続
   host: `/cloudsql/${process.env.CLOUD_SQL_INSTANCE}`,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || 'webappdb',
   max: 5,
 } : {
-  // 繝ｭ繝ｼ繧ｫ繝ｫ迺ｰ蠅・ 謗･邯壽枚蟄怜・繧剃ｽｿ逕ｨ
+  // ローカル環境: 接続文字列を使用
   connectionString: process.env.DATABASE_URL,
 };
 
 const pool = new Pool(dbConfig);
 
-// 謗･邯壹お繝ｩ繝ｼ繝上Φ繝峨Μ繝ｳ繧ｰ
+// 接続エラーハンドリング
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);
   process.exit(-1);

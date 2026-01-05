@@ -3,308 +3,262 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>險ｭ螳夂ｮ｡逅・- Dashboard Admin</title>
+    <title>設定管理 - Dashboard Admin</title>
     <link rel="stylesheet" href="admin.css">
 </head>
 <body>
     <div class="admin-container">
         <header class="admin-header">
-            <h1>肌 繧ｷ繧ｹ繝・Β險ｭ螳夂ｮ｡逅・/h1>
+            <h1>🔧 システム設定管理</h1>
             <div class="user-info">
                 <span id="admin-user"></span>
-                <button id="back-to-main-btn" class="btn-secondary">竊・繝｡繧､繝ｳ逕ｻ髱｢縺ｫ謌ｻ繧・/button>
+                <button id="back-to-main-btn" class="btn-secondary">← メイン画面に戻る</button>
             </div>
         </header>
 
-        <!-- 繧ｿ繝悶Γ繝九Η繝ｼ -->
+        <!-- タブメニュー -->
         <div class="tab-menu">
             <button class="tab-button" data-tab="user-management">
-                <span class="tab-icon">則</span>
-                <span class="tab-label">繝ｦ繝ｼ繧ｶ繝ｼ邂｡逅・/span>
+                <span class="tab-icon">👥</span>
+                <span class="tab-label">ユーザー管理</span>
             </button>
             <button class="tab-button" data-tab="office-master">
-                <span class="tab-icon">召</span>
-                <span class="tab-label">莠区･ｭ謇繝槭せ繧ｿ</span>
+                <span class="tab-icon">🏢</span>
+                <span class="tab-label">事業所マスタ</span>
             </button>
             <button class="tab-button" data-tab="base-master">
-                <span class="tab-icon">女・・/span>
-                <span class="tab-label">菫晏ｮ亥渕蝨ｰ繝槭せ繧ｿ</span>
-            </button>
-            <button class="tab-button" data-tab="machine-type-master">
-                <span class="tab-icon">笞呻ｸ・/span>
-                <span class="tab-label">讖溽ｨｮ繝槭せ繧ｿ</span>
-            </button>
-            <button class="tab-button" data-tab="machine-master">
-                <span class="tab-icon">肌</span>
-                <span class="tab-label">讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ</span>
+                <span class="tab-icon">🏗️</span>
+                <span class="tab-label">保守基地マスタ</span>
             </button>
             <button class="tab-button" data-tab="vehicle-master">
-                <span class="tab-icon">圀</span>
-                <span class="tab-label">菫晏ｮ育畑霆翫・繧ｹ繧ｿ</span>
+                <span class="tab-icon">🚛</span>
+                <span class="tab-label">保守用車マスタ</span>
             </button>
             <button class="tab-button" data-tab="database-management">
-                <span class="tab-icon">沈</span>
-                <span class="tab-label">繝・・繧ｿ繝吶・繧ｹ邂｡逅・/span>
+                <span class="tab-icon">💾</span>
+                <span class="tab-label">データベース管理</span>
             </button>
             <button class="tab-button" data-tab="cors-settings">
-                <span class="tab-icon">倹</span>
-                <span class="tab-label">CORS險ｭ螳・/span>
+                <span class="tab-icon">🌐</span>
+                <span class="tab-label">CORS設定</span>
             </button>
         </div>
 
         <div class="admin-content">
-            <!-- 繝ｦ繝ｼ繧ｶ繝ｼ邂｡逅・ち繝・-->
+            <!-- ユーザー管理タブ -->
             <div id="user-management-tab" class="tab-content">
                 <div class="info-banner">
-                    <p>庁 繝ｭ繧ｰ繧､繝ｳ繝ｦ繝ｼ繧ｶ繝ｼ縺ｮ霑ｽ蜉繝ｻ邱ｨ髮・・蜑企勁繧定｡後＞縺ｾ縺・/p>
+                    <p>💡 ログインユーザーの追加・編集・削除を行います</p>
                 </div>
 
                 <section class="config-section">
                     <div class="user-actions">
                         <button type="button" id="add-new-user-btn" class="btn-primary">
-                            筐・譁ｰ隕上Θ繝ｼ繧ｶ繝ｼ霑ｽ蜉
+                            ➕ 新規ユーザー追加
                         </button>
                     </div>
 
                     <div id="users-list" class="users-list">
-                        <p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>
+                        <p class="loading">読み込み中...</p>
                     </div>
                 </section>
             </div>
 
-            <!-- 讖溽ｨｮ繝槭せ繧ｿ繧ｿ繝・-->
-            <div id="machine-type-master-tab" class="tab-content" style="display: none;">
-                <div class="info-banner">
-                    <p>庁 讖溽ｨｮ繝槭せ繧ｿ繧堤ｮ｡逅・＠縺ｾ縺吶よｩ溽ｨｮ繧ｳ繝ｼ繝峨∵ｩ溽ｨｮ蜷阪√Γ繝ｼ繧ｫ繝ｼ縲√き繝・ざ繝ｪ縺ｪ縺ｩ繧堤匳骭ｲ縺ｧ縺阪∪縺吶・/p>
-                </div>
-
-                <section class="config-section">
-                    <div class="user-actions">
-                        <button type="button" id="add-new-machine-type-btn" class="btn-primary">
-                            筐・譁ｰ隕乗ｩ溽ｨｮ霑ｽ蜉
-                        </button>
-                    </div>
-
-                    <div id="machine-types-list" class="vehicles-list">
-                        <p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>
-                    </div>
-                </section>
-            </div>
-
-            <!-- 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ繧ｿ繝・-->
-            <div id="machine-master-tab" class="tab-content" style="display: none;">
-                <div class="info-banner">
-                    <p>庁 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ繧堤ｮ｡逅・＠縺ｾ縺吶よｩ滓｢ｰ逡ｪ蜿ｷ縲√す繝ｪ繧｢繝ｫ逡ｪ蜿ｷ縲∬｣ｽ騾蟷ｴ譛域律縺ｪ縺ｩ繧堤匳骭ｲ縺ｧ縺阪∪縺吶・/p>
-                </div>
-
-                <section class="config-section">
-                    <div class="user-actions">
-                        <button type="button" id="add-new-machine-btn" class="btn-primary">
-                            筐・譁ｰ隕乗ｩ滓｢ｰ逡ｪ蜿ｷ霑ｽ蜉
-                        </button>
-                    </div>
-
-                    <div id="machines-list" class="vehicles-list">
-                        <p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>
-                    </div>
-                </section>
-            </div>
-
-            <!-- 菫晏ｮ育畑霆翫・繧ｹ繧ｿ繧ｿ繝・-->
+            <!-- 保守用車マスタタブ -->
             <div id="vehicle-master-tab" class="tab-content" style="display: none;">
                 <div class="info-banner">
-                    <p>庁 菫晏ｮ育畑霆翫・繧ｹ繧ｿ繧堤ｮ｡逅・＠縺ｾ縺吶ら匳骭ｲ貂医∩縺ｮ讖溽ｨｮ縺ｨ讖滓｢ｰ逡ｪ蜿ｷ縺九ｉ驕ｸ謚槭＠縺ｦ霆贋ｸ｡繧堤匳骭ｲ縺ｧ縺阪∪縺吶・/p>
+                    <p>💡 保守用車の機種と機械番号を管理します。新規に機種・機械番号を登録することもできます。</p>
                 </div>
 
                 <section class="config-section">
                     <div class="user-actions">
                         <button type="button" id="add-new-vehicle-btn" class="btn-primary">
-                            筐・譁ｰ隕剰ｻ贋ｸ｡霑ｽ蜉
+                            ➕ 新規車両追加
                         </button>
                     </div>
 
                     <div id="vehicles-list" class="vehicles-list">
-                        <p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>
+                        <p class="loading">読み込み中...</p>
                     </div>
                 </section>
             </div>
 
-            <!-- 莠区･ｭ謇繝槭せ繧ｿ繧ｿ繝・-->
+            <!-- 事業所マスタタブ -->
             <div id="office-master-tab" class="tab-content" style="display: none;">
                 <div class="info-banner">
-                    <p>庁 莠区･ｭ謇縺ｮ諠・ｱ繧堤ｮ｡逅・＠縺ｾ縺・/p>
+                    <p>💡 事業所の情報を管理します</p>
                 </div>
 
                 <section class="config-section">
                     <div class="user-actions">
                         <button type="button" id="add-new-office-btn" class="btn-primary">
-                            筐・譁ｰ隕丈ｺ区･ｭ謇霑ｽ蜉
+                            ➕ 新規事業所追加
                         </button>
                     </div>
 
                     <div id="offices-list" class="vehicles-list">
-                        <p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>
+                        <p class="loading">読み込み中...</p>
                     </div>
                 </section>
             </div>
 
-            <!-- 菫晏ｮ亥渕蝨ｰ繝槭せ繧ｿ繧ｿ繝・-->
+            <!-- 保守基地マスタタブ -->
             <div id="base-master-tab" class="tab-content" style="display: none;">
                 <div class="info-banner">
-                    <p>庁 菫晏ｮ亥渕蝨ｰ縺ｮ諠・ｱ繧堤ｮ｡逅・＠縺ｾ縺・/p>
+                    <p>💡 保守基地の情報を管理します</p>
                 </div>
 
                 <section class="config-section">
                     <div class="user-actions">
                         <button type="button" id="add-new-base-btn" class="btn-primary">
-                            筐・譁ｰ隕丈ｿ晏ｮ亥渕蝨ｰ霑ｽ蜉
+                            ➕ 新規保守基地追加
                         </button>
                     </div>
 
                     <div id="bases-list" class="vehicles-list">
-                        <p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>
+                        <p class="loading">読み込み中...</p>
                     </div>
                 </section>
             </div>
 
-            <!-- 繝・・繧ｿ繝吶・繧ｹ邂｡逅・ち繝・-->
+            <!-- データベース管理タブ -->
             <div id="database-management-tab" class="tab-content" style="display: none;">
                 <div class="info-banner">
-                    <p>庁 繝・・繧ｿ繝吶・繧ｹ縺ｮ謗･邯夂憾諷九√ヰ繝・け繧｢繝・・縲∝ｾｩ蜈・ｒ邂｡逅・＠縺ｾ縺・/p>
+                    <p>💡 データベースの接続状態、バックアップ、復元を管理します</p>
                 </div>
 
-                <!-- 謗･邯夂憾諷・-->
+                <!-- 接続状態 -->
                 <section class="config-section">
-                    <h2>投 繝・・繧ｿ繝吶・繧ｹ謗･邯夂憾諷・/h2>
+                    <h2>📊 データベース接続状態</h2>
                     <div class="db-status-card">
                         <div class="status-item">
-                            <div class="status-label">謗･邯夂憾諷・/div>
+                            <div class="status-label">接続状態</div>
                             <div class="status-value" id="db-connection-status">
-                                <span class="status-badge status-checking">遒ｺ隱堺ｸｭ...</span>
+                                <span class="status-badge status-checking">確認中...</span>
                             </div>
                         </div>
                         <div class="status-item">
-                            <div class="status-label">繝舌・繧ｸ繝ｧ繝ｳ</div>
+                            <div class="status-label">バージョン</div>
                             <div class="status-value" id="db-version">--</div>
                         </div>
                         <div class="status-item">
-                            <div class="status-label">謗･邯壽焚</div>
+                            <div class="status-label">接続数</div>
                             <div class="status-value" id="db-connections">--</div>
                         </div>
                     </div>
                 </section>
 
-                <!-- 繝代ヵ繧ｩ繝ｼ繝槭Φ繧ｹ -->
+                <!-- パフォーマンス -->
                 <section class="config-section">
-                    <h2>笞｡ 繝代ヵ繧ｩ繝ｼ繝槭Φ繧ｹ</h2>
+                    <h2>⚡ パフォーマンス</h2>
                     <div class="performance-grid">
                         <div class="perf-card">
-                            <div class="perf-label">繝・ぅ繧ｹ繧ｯ菴ｿ逕ｨ邇・ｼ亥ｮ滓ｸｬ蛟､・・/div>
+                            <div class="perf-label">ディスク使用率（実測値）</div>
                             <div class="perf-value" id="disk-usage">--</div>
                             <div class="progress-bar">
                                 <div class="progress-fill" id="disk-progress" style="width: 0%"></div>
                             </div>
                         </div>
                         <div class="perf-card">
-                            <div class="perf-label">繝・・繧ｿ繝吶・繧ｹ繧ｵ繧､繧ｺ・亥ｮ滓ｸｬ蛟､・・/div>
+                            <div class="perf-label">データベースサイズ（実測値）</div>
                             <div class="perf-value" id="db-size">--</div>
                         </div>
                         <div class="perf-card">
-                            <div class="perf-label">謗･邯壽焚</div>
+                            <div class="perf-label">接続数</div>
                             <div class="perf-value" id="connection-count">--</div>
                         </div>
                         <div class="perf-card">
-                            <div class="perf-label">遞ｼ蜒肴凾髢・/div>
+                            <div class="perf-label">稼働時間</div>
                             <div class="perf-value" id="uptime">--</div>
                         </div>
                     </div>
                 </section>
 
-                <!-- 繝・・繝悶Ν繧ｵ繧､繧ｺ -->
+                <!-- テーブルサイズ -->
                 <section class="config-section">
-                    <h2>逃 繝・・繝悶Ν繧ｵ繧､繧ｺ・亥ｮ滓ｸｬ蛟､繝ｻ荳贋ｽ・0莉ｶ・・/h2>
+                    <h2>📦 テーブルサイズ（実測値・上位10件）</h2>
                     <div id="table-sizes" class="table-sizes">
-                        <p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>
+                        <p class="loading">読み込み中...</p>
                     </div>
                 </section>
 
-                <!-- 繝・・繝悶Ν邂｡逅・-->
+                <!-- テーブル管理 -->
                 <section class="config-section">
-                    <h2>翌・・繝・・繝悶Ν繝・・繧ｿ邂｡逅・/h2>
+                    <h2>🗂️ テーブルデータ管理</h2>
                     <div class="table-selector">
-                        <label for="table-select">繝・・繝悶Ν驕ｸ謚・</label>
+                        <label for="table-select">テーブル選択:</label>
                         <select id="table-select">
-                            <option value="">-- 繝・・繝悶Ν繧帝∈謚・--</option>
-                            <option value="master_data.users">繝ｦ繝ｼ繧ｶ繝ｼ (master_data.users)</option>
-                            <option value="master_data.managements_offices">莠区･ｭ謇 (master_data.managements_offices)</option>
-                            <option value="master_data.bases">菫晏ｮ亥渕蝨ｰ (master_data.bases)</option>
-                            <option value="master_data.vehicles">菫晏ｮ育畑霆・(master_data.vehicles)</option>
-                            <option value="operations.schedules">驕玖ｻ｢險育判 (operations.schedules)</option>
-                            <option value="maintenance.fault_records">謨・囿險倬鹸 (maintenance.fault_records)</option>
+                            <option value="">-- テーブルを選択 --</option>
+                            <option value="master_data.users">ユーザー (master_data.users)</option>
+                            <option value="master_data.managements_offices">事業所 (master_data.managements_offices)</option>
+                            <option value="master_data.bases">保守基地 (master_data.bases)</option>
+                            <option value="master_data.vehicles">保守用車 (master_data.vehicles)</option>
+                            <option value="operations.schedules">運転計画 (operations.schedules)</option>
+                            <option value="maintenance.fault_records">故障記録 (maintenance.fault_records)</option>
                         </select>
-                        <button id="load-table-btn" class="btn-primary">搭 隱ｭ縺ｿ霎ｼ縺ｿ</button>
-                        <button id="add-record-btn" class="btn-success">筐・譁ｰ隕剰ｿｽ蜉</button>
+                        <button id="load-table-btn" class="btn-primary">📋 読み込み</button>
+                        <button id="add-record-btn" class="btn-success">➕ 新規追加</button>
                     </div>
 
                     <div id="table-data-container" class="table-data-container">
-                        <p class="info-text">繝・・繝悶Ν繧帝∈謚槭＠縺ｦ縲瑚ｪｭ縺ｿ霎ｼ縺ｿ縲阪・繧ｿ繝ｳ繧偵け繝ｪ繝・け縺励※縺上□縺輔＞</p>
+                        <p class="info-text">テーブルを選択して「読み込み」ボタンをクリックしてください</p>
                     </div>
                 </section>
 
-                <!-- 繝舌ャ繧ｯ繧｢繝・・繝ｻ蠕ｩ蜈・-->
+                <!-- バックアップ・復元 -->
                 <section class="config-section">
-                    <h2>沈 繝舌ャ繧ｯ繧｢繝・・繝ｻ蠕ｩ蜈・/h2>
+                    <h2>💾 バックアップ・復元</h2>
                     <div class="backup-controls">
                         <button id="backup-db-btn" class="btn-warning">
-                            逃 繝・・繧ｿ繝吶・繧ｹ繝舌ャ繧ｯ繧｢繝・・
+                            📦 データベースバックアップ
                         </button>
                         <button id="restore-db-btn" class="btn-danger">
-                            笞・・繝舌ャ繧ｯ繧｢繝・・縺九ｉ蠕ｩ蜈・
+                            ⚠️ バックアップから復元
                         </button>
                         <input type="file" id="restore-file-input" accept=".sql,.backup" style="display:none;">
                     </div>
                 </section>
 
-                <!-- 繝・・繧ｿ蜈･蜃ｺ蜉・-->
+                <!-- データ入出力 -->
                 <section class="config-section">
-                    <h2>豆 繝・・繧ｿ蜈･蜃ｺ蜉・/h2>
+                    <h2>📤 データ入出力</h2>
                     <div class="import-export-controls">
                         <button id="export-csv-btn" class="btn-info" disabled>
-                            豆 CSV繧ｨ繧ｯ繧ｹ繝昴・繝・
+                            📤 CSVエクスポート
                         </button>
                         <button id="import-csv-btn" class="btn-info" disabled>
-                            踏 CSV繧､繝ｳ繝昴・繝・
+                            📥 CSVインポート
                         </button>
                         <input type="file" id="import-csv-file" accept=".csv" style="display:none;">
                     </div>
-                    <p class="info-text">窶ｻ 繝・・繝悶Ν繧帝∈謚槭☆繧九→菴ｿ逕ｨ縺ｧ縺阪∪縺・/p>
+                    <p class="info-text">※ テーブルを選択すると使用できます</p>
                 </section>
             </div>
 
             <div class="info-banner">
-                <p>庁 縺薙％縺ｧ險ｭ螳壹ｒ螟画峩縺吶ｋ縺ｨ縲∝・繝・・繝ｭ繧､縺ｪ縺励〒蜊ｳ蠎ｧ縺ｫ蜿肴丐縺輔ｌ縺ｾ縺・/p>
+                <p>💡 ここで設定を変更すると、再デプロイなしで即座に反映されます</p>
             </div>
 
             <section class="config-section" style="display: none;">
-                <h2>繧｢繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ URL 險ｭ螳・/h2>
-                <p class="section-desc">蜷・し繝悶す繧ｹ繝・Β縺ｮ謗･邯壼・URL繧定ｨｭ螳壹＠縺ｾ縺・/p>
+                <h2>アプリケーション URL 設定</h2>
+                <p class="section-desc">各サブシステムの接続先URLを設定します</p>
 
                 <form id="config-form">
                     <div class="form-group">
                         <label for="app_url_emergency">
-                            屏・・蠢懈･蠕ｩ譌ｧ謾ｯ謠ｴ繧ｷ繧ｹ繝・Β
+                            🛠️ 応急復旧支援システム
                         </label>
                         <input type="url" 
                                id="app_url_emergency" 
                                name="app_url_emergency"
                                placeholder="https://emergency-client-xxx.run.app"
                                required>
-                        <small>螳悟・縺ｪURL・・ttps://...・峨ｒ蜈･蜉帙＠縺ｦ縺上□縺輔＞</small>
+                        <small>完全なURL（https://...）を入力してください</small>
                     </div>
 
                     <div class="form-group">
                         <label for="app_url_planning">
-                            套 險育判繝ｻ螳溽ｸｾ邂｡逅・す繧ｹ繝・Β
+                            📅 計画・実績管理システム
                         </label>
                         <input type="url" 
                                id="app_url_planning" 
@@ -315,7 +269,7 @@
 
                     <div class="form-group">
                         <label for="app_url_equipment">
-                            圀 菫晏ｮ育畑霆顔ｮ｡逅・す繧ｹ繝・Β
+                            🚛 保守用車管理システム
                         </label>
                         <input type="url" 
                                id="app_url_equipment" 
@@ -326,7 +280,7 @@
 
                     <div class="form-group">
                         <label for="app_url_failure">
-                            笞・・讖滓｢ｰ謨・囿邂｡逅・す繧ｹ繝・Β
+                            ⚠️ 機械故障管理システム
                         </label>
                         <input type="url" 
                                id="app_url_failure" 
@@ -337,321 +291,225 @@
 
                     <div class="form-actions">
                         <button type="submit" class="btn-primary">
-                            沈 險ｭ螳壹ｒ菫晏ｭ・
+                            💾 設定を保存
                         </button>
                     </div>
                 </form>
             </section>
 
-            <!-- CORS險ｭ螳壹ち繝・-->
+            <!-- CORS設定タブ -->
             <div id="cors-settings-tab" class="tab-content" style="display: none;">
                 <div class="info-banner">
-                    <p>庁 逡ｰ縺ｪ繧九ラ繝｡繧､繝ｳ縺九ｉ縺ｮAPI繧｢繧ｯ繧ｻ繧ｹ繧貞宛蠕｡縺励∪縺・/p>
+                    <p>💡 異なるドメインからのAPIアクセスを制御します</p>
                 </div>
 
                 <section class="config-section">
-                    <h2>倹 CORS 險ｱ蜿ｯ繧ｪ繝ｪ繧ｸ繝ｳ險ｭ螳・/h2>
+                    <h2>🌐 CORS 許可オリジン設定</h2>
                     
                     <div class="form-group">
                         <label for="cors_origin">
-                            CORS 險ｱ蜿ｯ繧ｪ繝ｪ繧ｸ繝ｳ
+                            CORS 許可オリジン
                         </label>
                         <input type="text" 
                                id="cors_origin" 
                                name="cors_origin"
-                               placeholder="* 縺ｾ縺溘・ https://domain1.com,https://domain2.com">
-                        <small class="small-text">隍・焚謖・ｮ壹☆繧句ｴ蜷医・繧ｫ繝ｳ繝槫玄蛻・ｊ縲ゅ☆縺ｹ縺ｦ險ｱ蜿ｯ縺吶ｋ蝣ｴ蜷医・ * 繧貞・蜉・/small>
+                               placeholder="* または https://domain1.com,https://domain2.com">
+                        <small class="small-text">複数指定する場合はカンマ区切り。すべて許可する場合は * を入力</small>
                         <div class="info-box">
-                            <strong class="small-text">東 CORS・・ross-Origin Resource Sharing・峨→縺ｯ・・/strong><br>
-                            <span class="small-text">逡ｰ縺ｪ繧九ラ繝｡繧､繝ｳ縺九ｉ縺薙・繧ｵ繝ｼ繝舌・縺ｮAPI縺ｫ繧｢繧ｯ繧ｻ繧ｹ縺吶ｋ縺薙→繧定ｨｱ蜿ｯ縺吶ｋ繧ｻ繧ｭ繝･繝ｪ繝・ぅ險ｭ螳壹〒縺吶・/span><br>
+                            <strong class="small-text">📌 CORS（Cross-Origin Resource Sharing）とは？</strong><br>
+                            <span class="small-text">異なるドメインからこのサーバーのAPIにアクセスすることを許可するセキュリティ設定です。</span><br>
                             <br>
-                            <strong class="small-text">險ｭ螳壻ｾ具ｼ・/strong><br>
-                            <span class="small-text">窶｢ <code>*</code> - 縺吶∋縺ｦ縺ｮ繝峨Γ繧､繝ｳ縺九ｉ縺ｮ繧｢繧ｯ繧ｻ繧ｹ繧定ｨｱ蜿ｯ・磯幕逋ｺ迺ｰ蠅・耳螂ｨ・・/span><br>
-                            <span class="small-text">窶｢ <code>https://example.com</code> - 迚ｹ螳壹・繝峨Γ繧､繝ｳ縺ｮ縺ｿ險ｱ蜿ｯ・域悽逡ｪ迺ｰ蠅・耳螂ｨ・・/span><br>
-                            <span class="small-text">窶｢ <code>https://app1.com,https://app2.com</code> - 隍・焚繝峨Γ繧､繝ｳ繧定ｨｱ蜿ｯ</span><br>
+                            <strong class="small-text">設定例：</strong><br>
+                            <span class="small-text">• <code>*</code> - すべてのドメインからのアクセスを許可（開発環境推奨）</span><br>
+                            <span class="small-text">• <code>https://example.com</code> - 特定のドメインのみ許可（本番環境推奨）</span><br>
+                            <span class="small-text">• <code>https://app1.com,https://app2.com</code> - 複数ドメインを許可</span><br>
                             <br>
-                            <strong class="small-text">笞・・繧ｻ繧ｭ繝･繝ｪ繝・ぅ荳翫・豕ｨ諢擾ｼ・/strong><br>
-                            <span class="small-text">譛ｬ逡ｪ迺ｰ蠅・〒縺ｯ蠢・ｦ√↑繝峨Γ繧､繝ｳ縺ｮ縺ｿ繧呈欠螳壹☆繧九％縺ｨ繧貞ｼｷ縺乗耳螂ｨ縺励∪縺吶・/span>
+                            <strong class="small-text">⚠️ セキュリティ上の注意：</strong><br>
+                            <span class="small-text">本番環境では必要なドメインのみを指定することを強く推奨します。</span>
                         </div>
                     </div>
 
                     <div class="form-actions">
                         <button type="button" id="save-cors-btn" class="btn-primary">
-                            沈 CORS險ｭ螳壹ｒ菫晏ｭ・
+                            💾 CORS設定を保存
                         </button>
                     </div>
                 </section>
             </div>
 
             <section class="config-section">
-                <h2>險ｭ螳壼ｱ･豁ｴ</h2>
+                <h2>設定履歴</h2>
                 <div id="history-list" class="history-list">
-                    <p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>
+                    <p class="loading">読み込み中...</p>
                 </div>
             </section>
 
             <section class="config-section" style="display: none;">
-                <h2>繝ｦ繝ｼ繧ｶ繝ｼ邂｡逅・/h2>
-                <p class="section-desc">繝ｭ繧ｰ繧､繝ｳ繝ｦ繝ｼ繧ｶ繝ｼ縺ｮ霑ｽ蜉繝ｻ邱ｨ髮・・蜑企勁繧定｡後＞縺ｾ縺・/p>
+                <h2>ユーザー管理</h2>
+                <p class="section-desc">ログインユーザーの追加・編集・削除を行います</p>
 
                 <div class="user-actions">
                     <a href="/user-management" class="btn-primary" style="display: inline-block; text-decoration: none; text-align: center;">
-                        則 繝ｦ繝ｼ繧ｶ繝ｼ邂｡逅・ｒ髢九￥
+                        👥 ユーザー管理を開く
                     </a>
                 </div>
             </section>
         </div>
     </div>
 
-    <!-- 繝ｦ繝ｼ繧ｶ繝ｼ霑ｽ蜉繝ｻ邱ｨ髮・Δ繝ｼ繝繝ｫ -->
+    <!-- ユーザー追加・編集モーダル -->
     <div id="user-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 id="modal-title">繝ｦ繝ｼ繧ｶ繝ｼ繧定ｿｽ蜉</h3>
+                <h3 id="modal-title">ユーザーを追加</h3>
                 <button class="modal-close" id="modal-close">&times;</button>
             </div>
             <form id="user-form">
                 <input type="hidden" id="user-id" name="user_id">
                 
                 <div class="form-group">
-                    <label for="user-username">繝ｦ繝ｼ繧ｶ繝ｼ蜷・*</label>
+                    <label for="user-username">ユーザー名 *</label>
                     <input type="text" id="user-username" name="username" required>
                 </div>
 
                 <div class="form-group">
-                    <label for="user-full-name">陦ｨ遉ｺ蜷・*</label>
+                    <label for="user-full-name">表示名 *</label>
                     <input type="text" id="user-full-name" name="full_name" required>
                 </div>
 
                 <div class="form-group">
-                    <label for="user-email">繝｡繝ｼ繝ｫ繧｢繝峨Ξ繧ｹ</label>
+                    <label for="user-email">メールアドレス</label>
                     <input type="email" id="user-email" name="email" autocomplete="email">
                 </div>
 
                 <div class="form-group">
-                    <label for="user-password">繝代せ繝ｯ繝ｼ繝・<span id="password-required-label">*</span></label>
+                    <label for="user-password">パスワード <span id="password-required-label">*</span></label>
                     <input type="password" id="user-password" name="password" autocomplete="new-password">
-                    <small id="password-help">譁ｰ隕冗匳骭ｲ譎ゅ・蠢・医〒縺吶らｷｨ髮・凾縺ｯ螟画峩縺吶ｋ蝣ｴ蜷医・縺ｿ蜈･蜉帙＠縺ｦ縺上□縺輔＞縲・/small>
+                    <small id="password-help">新規登録時は必須です。編集時は変更する場合のみ入力してください。</small>
                 </div>
 
                 <div class="form-group">
-                    <label for="user-role">蠖ｹ蜑ｲ *</label>
+                    <label for="user-role">役割 *</label>
                     <select id="user-role" name="role" required>
-                        <option value="user">荳闊ｬ繝ｦ繝ｼ繧ｶ繝ｼ</option>
-                        <option value="operation_admin">驕狗畑邂｡逅・・/option>
-                        <option value="system_admin">繧ｷ繧ｹ繝・Β邂｡逅・・/option>
+                        <option value="user">一般ユーザー</option>
+                        <option value="operation_admin">運用管理者</option>
+                        <option value="system_admin">システム管理者</option>
                     </select>
                 </div>
 
                 <div class="form-actions">
-                    <button type="submit" class="btn-primary" id="submit-user-btn">菫晏ｭ・/button>
-                    <button type="button" class="btn-secondary" id="cancel-user-btn">繧ｭ繝｣繝ｳ繧ｻ繝ｫ</button>
+                    <button type="submit" class="btn-primary" id="submit-user-btn">保存</button>
+                    <button type="button" class="btn-secondary" id="cancel-user-btn">キャンセル</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- 菫晏ｮ育畑霆願ｿｽ蜉繝ｻ邱ｨ髮・Δ繝ｼ繝繝ｫ -->
+    <!-- 保守用車追加・編集モーダル -->
     <div id="vehicle-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 id="vehicle-modal-title">菫晏ｮ育畑霆翫ｒ霑ｽ蜉</h3>
+                <h3 id="vehicle-modal-title">保守用車を追加</h3>
                 <button class="modal-close" id="vehicle-modal-close">&times;</button>
             </div>
             <form id="vehicle-form">
                 <input type="hidden" id="vehicle-id" name="vehicle_id">
                 
-                <!-- 讖溽ｨｮ縺ｮ驕ｸ謚槭∪縺溘・譁ｰ隕冗匳骭ｲ -->
+                <!-- 機種の選択または新規登録 -->
                 <div class="form-group">
-                    <label for="vehicle-machine-type">讖溽ｨｮ</label>
+                    <label for="vehicle-machine-type">機種</label>
                     <select id="vehicle-machine-type" name="machine_type_id">
-                        <option value="">-- 讖溽ｨｮ繧帝∈謚・--</option>
-                        <option value="__new__">筐・譁ｰ縺励＞讖溽ｨｮ繧堤匳骭ｲ</option>
+                        <option value="">-- 機種を選択 --</option>
+                        <option value="__new__">➕ 新しい機種を登録</option>
                     </select>
                 </div>
 
-                <!-- 譁ｰ隕乗ｩ溽ｨｮ逋ｻ骭ｲ繝輔ぅ繝ｼ繝ｫ繝会ｼ医ョ繝輔か繝ｫ繝医・髱櫁｡ｨ遉ｺ・・-->
+                <!-- 新規機種登録フィールド（デフォルトは非表示） -->
                 <div id="new-machine-type-fields" style="display: none;">
                     <div class="form-group">
-                        <label for="new-type-code">讖溽ｨｮ繧ｳ繝ｼ繝・*</label>
-                        <input type="text" id="new-type-code" name="new_type_code" placeholder="萓・ DT-01">
+                        <label for="new-type-code">機種コード *</label>
+                        <input type="text" id="new-type-code" name="new_type_code" placeholder="例: DT-01">
                     </div>
                     <div class="form-group">
-                        <label for="new-type-name">讖溽ｨｮ蜷・*</label>
-                        <input type="text" id="new-type-name" name="new_type_name" placeholder="萓・ 繝繝ｳ繝励ヨ繝ｩ繝・け10t">
+                        <label for="new-type-name">機種名 *</label>
+                        <input type="text" id="new-type-name" name="new_type_name" placeholder="例: ダンプトラック10t">
                     </div>
                     <div class="form-group">
-                        <label for="new-manufacturer">繝｡繝ｼ繧ｫ繝ｼ</label>
-                        <input type="text" id="new-manufacturer" name="new_manufacturer" placeholder="萓・ 繧ｳ繝槭ヤ">
+                        <label for="new-manufacturer">メーカー</label>
+                        <input type="text" id="new-manufacturer" name="new_manufacturer" placeholder="例: コマツ">
                     </div>
                     <div class="form-group">
-                        <label for="new-category">繧ｫ繝・ざ繝ｪ</label>
-                        <input type="text" id="new-category" name="new_category" placeholder="萓・ 驕区成霆贋ｸ｡">
+                        <label for="new-category">カテゴリ</label>
+                        <input type="text" id="new-category" name="new_category" placeholder="例: 運搬車両">
                     </div>
                 </div>
 
-                <!-- 讖滓｢ｰ逡ｪ蜿ｷ縺ｮ驕ｸ謚槭∪縺溘・譁ｰ隕冗匳骭ｲ -->
+                <!-- 機械番号の選択または新規登録 -->
                 <div class="form-group">
-                    <label for="vehicle-machine">讖滓｢ｰ逡ｪ蜿ｷ *</label>
+                    <label for="vehicle-machine">機械番号 *</label>
                     <select id="vehicle-machine" name="machine_id" required>
-                        <option value="">-- 讖滓｢ｰ逡ｪ蜿ｷ繧帝∈謚・--</option>
-                        <option value="__new__">筐・譁ｰ縺励＞讖滓｢ｰ逡ｪ蜿ｷ繧堤匳骭ｲ</option>
+                        <option value="">-- 機械番号を選択 --</option>
+                        <option value="__new__">➕ 新しい機械番号を登録</option>
                     </select>
                 </div>
 
-                <!-- 譁ｰ隕乗ｩ滓｢ｰ逡ｪ蜿ｷ逋ｻ骭ｲ繝輔ぅ繝ｼ繝ｫ繝会ｼ医ョ繝輔か繝ｫ繝医・髱櫁｡ｨ遉ｺ・・-->
+                <!-- 新規機械番号登録フィールド（デフォルトは非表示） -->
                 <div id="new-machine-fields" style="display: none;">
                     <div class="form-group">
-                        <label for="new-machine-number">讖滓｢ｰ逡ｪ蜿ｷ *</label>
-                        <input type="text" id="new-machine-number" name="new_machine_number" placeholder="萓・ M-12345">
+                        <label for="new-machine-number">機械番号 *</label>
+                        <input type="text" id="new-machine-number" name="new_machine_number" placeholder="例: M-12345">
                     </div>
                     <div class="form-group">
-                        <label for="new-serial-number">繧ｷ繝ｪ繧｢繝ｫ逡ｪ蜿ｷ</label>
-                        <input type="text" id="new-serial-number" name="new_serial_number" placeholder="萓・ SN123456789">
+                        <label for="new-serial-number">シリアル番号</label>
+                        <input type="text" id="new-serial-number" name="new_serial_number" placeholder="例: SN123456789">
                     </div>
                     <div class="form-group">
-                        <label for="new-manufacture-date">陬ｽ騾蟷ｴ譛域律</label>
+                        <label for="new-manufacture-date">製造年月日</label>
                         <input type="date" id="new-manufacture-date" name="new_manufacture_date">
                     </div>
                     <div class="form-group">
-                        <label for="new-assigned-base">驟榊ｱ槫渕蝨ｰ</label>
+                        <label for="new-assigned-base">配属基地</label>
                         <select id="new-assigned-base" name="new_assigned_base_id">
-                            <option value="">-- 驟榊ｱ槫渕蝨ｰ繧帝∈謚・--</option>
+                            <option value="">-- 配属基地を選択 --</option>
                         </select>
                     </div>
                 </div>
 
                 <div class="form-group">
-                    <label for="vehicle-number">霆贋ｸ｡逡ｪ蜿ｷ</label>
-                    <input type="text" id="vehicle-number" name="vehicle_number" placeholder="萓・ V-001">
+                    <label for="vehicle-number">車両番号</label>
+                    <input type="text" id="vehicle-number" name="vehicle_number" placeholder="例: V-001">
                 </div>
 
                 <div class="form-group">
-                    <label for="vehicle-type-text">蝙句ｼ剰ｪ榊ｮ・/label>
-                    <input type="text" id="vehicle-type-text" name="vehicle_type" placeholder="萓・ DT-2024">
+                    <label for="vehicle-type-text">型式</label>
+                    <input type="text" id="vehicle-type-text" name="vehicle_type" placeholder="例: DT-2024">
                 </div>
 
                 <div class="form-group">
-                    <label for="vehicle-office">邂｡逅・ｺ区･ｭ謇</label>
+                    <label for="vehicle-registration">車両登録番号</label>
+                    <input type="text" id="vehicle-registration" name="registration_number" placeholder="例: 品川 100 あ 1234">
+                </div>
+
+                <div class="form-group">
+                    <label for="vehicle-office">管理事業所</label>
                     <select id="vehicle-office" name="office_id">
-                        <option value="">-- 莠区･ｭ謇繧帝∈謚・--</option>
+                        <option value="">-- 事業所を選択 --</option>
                     </select>
                 </div>
 
                 <div class="form-group">
-                    <label for="vehicle-notes">蛯呵・/label>
-                    <textarea id="vehicle-notes" name="notes" rows="3" placeholder="縺昴・莉悶Γ繝｢"></textarea>
+                    <label for="vehicle-notes">備考</label>
+                    <textarea id="vehicle-notes" name="notes" rows="3" placeholder="その他メモ"></textarea>
                 </div>
 
                 <div class="form-actions">
-                    <button type="submit" class="btn-primary" id="submit-vehicle-btn">菫晏ｭ・/button>
-                    <button type="button" class="btn-secondary" id="cancel-vehicle-btn">繧ｭ繝｣繝ｳ繧ｻ繝ｫ</button>
+                    <button type="submit" class="btn-primary" id="submit-vehicle-btn">保存</button>
+                    <button type="button" class="btn-secondary" id="cancel-vehicle-btn">キャンセル</button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- 讖溽ｨｮ繝槭せ繧ｿ霑ｽ蜉繝ｻ邱ｨ髮・Δ繝ｼ繝繝ｫ -->
-    <div id="machine-type-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="machine-type-modal-title">讖溽ｨｮ繧定ｿｽ蜉</h3>
-                <button class="modal-close" id="machine-type-modal-close">&times;</button>
-            </div>
-            <form id="machine-type-form">
-                <input type="hidden" id="machine-type-id" name="type_id">
-                
-                <div class="form-group">
-                    <label for="type-code">讖溽ｨｮ繧ｳ繝ｼ繝・*</label>
-                    <input type="text" id="type-code" name="type_code" required placeholder="萓・ DT-01">
-                </div>
-
-                <div class="form-group">
-                    <label for="type-name">讖溽ｨｮ蜷・*</label>
-                    <input type="text" id="type-name" name="type_name" required placeholder="萓・ 繝繝ｳ繝励ヨ繝ｩ繝・け10t">
-                </div>
-
-                <div class="form-group">
-                    <label for="manufacturer">繝｡繝ｼ繧ｫ繝ｼ</label>
-                    <input type="text" id="manufacturer" name="manufacturer" placeholder="萓・ 繧ｳ繝槭ヤ">
-                </div>
-
-                <div class="form-group">
-                    <label for="category">繧ｫ繝・ざ繝ｪ</label>
-                    <input type="text" id="category" name="category" placeholder="萓・ 驕区成霆贋ｸ｡">
-                </div>
-
-                <div class="form-group">
-                    <label for="type-description">隱ｬ譏・/label>
-                    <textarea id="type-description" name="description" rows="3" placeholder="讖溽ｨｮ縺ｮ隱ｬ譏・></textarea>
-                </div>
-
-                <div class="form-actions">
-                    <button type="submit" class="btn-primary" id="submit-machine-type-btn">菫晏ｭ・/button>
-                    <button type="button" class="btn-secondary" id="cancel-machine-type-btn">繧ｭ繝｣繝ｳ繧ｻ繝ｫ</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ霑ｽ蜉繝ｻ邱ｨ髮・Δ繝ｼ繝繝ｫ -->
-    <div id="machine-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="machine-modal-title">讖滓｢ｰ逡ｪ蜿ｷ繧定ｿｽ蜉</h3>
-                <button class="modal-close" id="machine-modal-close">&times;</button>
-            </div>
-            <form id="machine-form">
-                <input type="hidden" id="machine-id" name="machine_id">
-                
-                <div class="form-group">
-                    <label for="machine-type-select">讖溽ｨｮ *</label>
-                    <select id="machine-type-select" name="machine_type_id" required>
-                        <option value="">-- 讖溽ｨｮ繧帝∈謚・--</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="machine-number">讖滓｢ｰ逡ｪ蜿ｷ *</label>
-                    <input type="text" id="machine-number" name="machine_number" required placeholder="萓・ M-12345">
-                </div>
-
-                <div class="form-group">
-                    <label for="serial-number">繧ｷ繝ｪ繧｢繝ｫ逡ｪ蜿ｷ</label>
-                    <input type="text" id="serial-number" name="serial_number" placeholder="萓・ SN123456789">
-                </div>
-
-                <div class="form-group">
-                    <label for="manufacture-date">陬ｽ騾蟷ｴ譛域律</label>
-                    <input type="date" id="manufacture-date" name="manufacture_date">
-                </div>
-
-                <div class="form-group">
-                    <label for="assigned-base">驟榊ｱ槫渕蝨ｰ</label>
-                    <select id="assigned-base" name="assigned_base_id">
-                        <option value="">-- 驟榊ｱ槫渕蝨ｰ繧帝∈謚・--</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="machine-status">繧ｹ繝・・繧ｿ繧ｹ</label>
-                    <select id="machine-status" name="status">
-                        <option value="active">遞ｼ蜒堺ｸｭ</option>
-                        <option value="maintenance">菫晏ｮ井ｸｭ</option>
-                        <option value="retired">蟒・｣・/option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="machine-notes">蛯呵・/label>
-                    <textarea id="machine-notes" name="notes" rows="3" placeholder="縺昴・莉悶Γ繝｢"></textarea>
-                </div>
-
-                <div class="form-actions">
-                    <button type="submit" class="btn-primary" id="submit-machine-btn">菫晏ｭ・/button>
-                    <button type="button" class="btn-secondary" id="cancel-machine-btn">繧ｭ繝｣繝ｳ繧ｻ繝ｫ</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
+    <script src="admin.js"></script>
+</body>
+</html>

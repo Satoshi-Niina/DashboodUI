@@ -1,190 +1,190 @@
-# GitHub Actions 閾ｪ蜍輔ョ繝励Ο繧､險ｭ螳壹ぎ繧､繝・
+# GitHub Actions 自動デプロイ設定ガイド
 
-## 讎りｦ・
-縺薙・繧ｬ繧､繝峨〒縺ｯ縲；itHub縺ｫpush縺吶ｋ縺縺代〒Cloud Run縺ｸ閾ｪ蜍輔ョ繝励Ο繧､縺輔ｌ繧玖ｨｭ螳壹ｒ陦後＞縺ｾ縺吶・
+## 概要
+このガイドでは、GitHubにpushするだけでCloud Runへ自動デプロイされる設定を行います。
 
-## 蜑肴署譚｡莉ｶ
-- GitHub繝ｪ繝昴ず繝医Μ縺御ｽ懈・貂医∩
-- Google Cloud Project縺御ｽ懈・貂医∩
-- Cloud SQL繧､繝ｳ繧ｹ繧ｿ繝ｳ繧ｹ縺御ｽ懈・貂医∩
+## 前提条件
+- GitHubリポジトリが作成済み
+- Google Cloud Projectが作成済み
+- Cloud SQLインスタンスが作成済み
 
 ---
 
-## 1. Cloud SQL 繧､繝ｳ繧ｹ繧ｿ繝ｳ繧ｹ謗･邯壼錐縺ｮ遒ｺ隱・
+## 1. Cloud SQL インスタンス接続名の確認
 
 ```bash
 gcloud sql instances describe YOUR_INSTANCE_NAME --format="value(connectionName)"
 ```
 
-蜃ｺ蜉帑ｾ・ `my-project:asia-northeast1:webappdb-instance`
+出力例: `my-project:asia-northeast1:webappdb-instance`
 
-縺薙・蛟､繧呈而縺医※縺翫＞縺ｦ縺上□縺輔＞縲・
+この値を控えておいてください。
 
 ---
 
-## 2. Google Cloud 繧ｵ繝ｼ繝薙せ繧｢繧ｫ繧ｦ繝ｳ繝医・菴懈・
+## 2. Google Cloud サービスアカウントの作成
 
-### 2.1 繧ｵ繝ｼ繝薙せ繧｢繧ｫ繧ｦ繝ｳ繝井ｽ懈・
+### 2.1 サービスアカウント作成
 ```bash
-# 繧ｵ繝ｼ繝薙せ繧｢繧ｫ繧ｦ繝ｳ繝亥錐繧定ｨｭ螳・
+# サービスアカウント名を設定
 export SA_NAME="github-actions-deployer"
 export PROJECT_ID="YOUR_PROJECT_ID"
 
-# 繧ｵ繝ｼ繝薙せ繧｢繧ｫ繧ｦ繝ｳ繝井ｽ懈・
+# サービスアカウント作成
 gcloud iam service-accounts create $SA_NAME \
   --display-name="GitHub Actions Deployer" \
   --project=$PROJECT_ID
 ```
 
-### 2.2 蠢・ｦ√↑讓ｩ髯舌ｒ莉倅ｸ・
+### 2.2 必要な権限を付与
 ```bash
-# Cloud Run邂｡逅・・ｨｩ髯・
+# Cloud Run管理者権限
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/run.admin"
 
-# Cloud SQL繧ｯ繝ｩ繧､繧｢繝ｳ繝域ｨｩ髯・
+# Cloud SQLクライアント権限
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/cloudsql.client"
 
-# 繧ｵ繝ｼ繝薙せ繧｢繧ｫ繧ｦ繝ｳ繝医Θ繝ｼ繧ｶ繝ｼ讓ｩ髯・
+# サービスアカウントユーザー権限
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/iam.serviceAccountUser"
 
-# Storage邂｡逅・・ｨｩ髯撰ｼ医ン繝ｫ繝画凾縺ｫ蠢・ｦ・ｼ・
+# Storage管理者権限（ビルド時に必要）
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/storage.admin"
 ```
 
-### 2.3 JSON繧ｭ繝ｼ繝輔ぃ繧､繝ｫ繧剃ｽ懈・
+### 2.3 JSONキーファイルを作成
 ```bash
 gcloud iam service-accounts keys create key.json \
   --iam-account=$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com
 
-# 繧ｭ繝ｼ繝輔ぃ繧､繝ｫ縺ｮ蜀・ｮｹ繧定｡ｨ遉ｺ・医％繧後ｒGitHub Secrets縺ｫ逋ｻ骭ｲ縺励∪縺呻ｼ・
+# キーファイルの内容を表示（これをGitHub Secretsに登録します）
 cat key.json
 ```
 
-**笞・・驥崎ｦ・ 縺薙・JSON繝輔ぃ繧､繝ｫ縺ｯ讖溷ｯ・ュ蝣ｱ縺ｧ縺吶ょｮ牙・縺ｫ菫晉ｮ｡縺励※縺上□縺輔＞縲・*
+**⚠️ 重要: このJSONファイルは機密情報です。安全に保管してください。**
 
 ---
 
-## 3. GitHub Secrets 縺ｮ險ｭ螳・
+## 3. GitHub Secrets の設定
 
-GitHub繝ｪ繝昴ず繝医Μ縺ｧ莉･荳九・Secrets繧定ｨｭ螳壹＠縺ｾ縺呻ｼ・
+GitHubリポジトリで以下のSecretsを設定します：
 
-1. GitHub繝ｪ繝昴ず繝医Μ繝壹・繧ｸ繧帝幕縺・
-2. **Settings** 竊・**Secrets and variables** 竊・**Actions** 繧帝∈謚・
-3. **New repository secret** 繧偵け繝ｪ繝・け縺励※縲∽ｻ･荳九ｒ鬆・分縺ｫ霑ｽ蜉・・
+1. GitHubリポジトリページを開く
+2. **Settings** → **Secrets and variables** → **Actions** を選択
+3. **New repository secret** をクリックして、以下を順番に追加：
 
-### 蠢・・ecrets荳隕ｧ
+### 必須Secrets一覧
 
-| Secret蜷・| 蛟､縺ｮ萓・| 隱ｬ譏・|
+| Secret名 | 値の例 | 説明 |
 |---------|-------|------|
-| `GCP_PROJECT_ID` | `my-project-123` | Google Cloud縺ｮ繝励Ο繧ｸ繧ｧ繧ｯ繝・D |
-| `GCP_SA_KEY` | `{"type":"service_account",...}` | 繧ｵ繝ｼ繝薙せ繧｢繧ｫ繧ｦ繝ｳ繝医・JSON繧ｭ繝ｼ蜈ｨ菴・|
-| `CLOUD_SQL_INSTANCE` | `my-project:asia-northeast1:webappdb` | Cloud SQL繧､繝ｳ繧ｹ繧ｿ繝ｳ繧ｹ謗･邯壼錐 |
-| `DB_NAME` | `webappdb` | 繝・・繧ｿ繝吶・繧ｹ蜷・|
-| `DB_USER` | `postgres` | 繝・・繧ｿ繝吶・繧ｹ繝ｦ繝ｼ繧ｶ繝ｼ蜷・|
-| `DB_PASSWORD` | `your-secure-password` | 繝・・繧ｿ繝吶・繧ｹ繝代せ繝ｯ繝ｼ繝・|
-| `JWT_SECRET` | `your-super-secret-jwt-key` | JWT鄂ｲ蜷咲畑縺ｮ遘伜ｯ・嵯・医Λ繝ｳ繝繝縺ｪ髟ｷ縺・枚蟄怜・・・|
+| `GCP_PROJECT_ID` | `my-project-123` | Google CloudのプロジェクトID |
+| `GCP_SA_KEY` | `{"type":"service_account",...}` | サービスアカウントのJSONキー全体 |
+| `CLOUD_SQL_INSTANCE` | `my-project:asia-northeast1:webappdb` | Cloud SQLインスタンス接続名 |
+| `DB_NAME` | `webappdb` | データベース名 |
+| `DB_USER` | `postgres` | データベースユーザー名 |
+| `DB_PASSWORD` | `your-secure-password` | データベースパスワード |
+| `JWT_SECRET` | `your-super-secret-jwt-key` | JWT署名用の秘密鍵（ランダムな長い文字列） |
 
-### Secrets縺ｮ霑ｽ蜉謇矩・
+### Secretsの追加手順
 
-#### GCP_SA_KEY 縺ｮ險ｭ螳・
-1. 蜈医⊇縺ｩ菴懈・縺励◆ `key.json` 縺ｮ蜀・ｮｹ繧・*蜈ｨ縺ｦ繧ｳ繝斐・**
-2. GitHub Secrets 縺ｮ Name 縺ｫ `GCP_SA_KEY` 繧貞・蜉・
-3. Value 縺ｫ JSON縺ｮ蜀・ｮｹ繧・*縺昴・縺ｾ縺ｾ雋ｼ繧贋ｻ倥￠**
-4. **Add secret** 繧偵け繝ｪ繝・け
+#### GCP_SA_KEY の設定
+1. 先ほど作成した `key.json` の内容を**全てコピー**
+2. GitHub Secrets の Name に `GCP_SA_KEY` を入力
+3. Value に JSONの内容を**そのまま貼り付け**
+4. **Add secret** をクリック
 
-#### CLOUD_SQL_INSTANCE 縺ｮ險ｭ螳・
+#### CLOUD_SQL_INSTANCE の設定
 1. Name: `CLOUD_SQL_INSTANCE`
-2. Value: `PROJECT_ID:REGION:INSTANCE_NAME` 縺ｮ蠖｢蠑・
-   - 萓・ `my-project:asia-northeast1:webappdb-instance`
-3. **Add secret** 繧偵け繝ｪ繝・け
+2. Value: `PROJECT_ID:REGION:INSTANCE_NAME` の形式
+   - 例: `my-project:asia-northeast1:webappdb-instance`
+3. **Add secret** をクリック
 
-莉悶・Secrets繧ょ酔讒倥↓霑ｽ蜉縺励※縺上□縺輔＞縲・
+他のSecretsも同様に追加してください。
 
 ---
 
-## 4. 繝・・繝ｭ繧､縺ｮ繝・せ繝・
+## 4. デプロイのテスト
 
-### 4.1 謇句虚螳溯｡後〒繝・せ繝・
+### 4.1 手動実行でテスト
 
-1. GitHub繝ｪ繝昴ず繝医Μ縺ｮ **Actions** 繧ｿ繝悶ｒ髢九￥
-2. 蟾ｦ蛛ｴ縺九ｉ **Deploy to Cloud Run** 繧帝∈謚・
-3. 蜿ｳ荳翫・ **Run workflow** 繧偵け繝ｪ繝・け
-4. **Run workflow** 繝懊ち繝ｳ繧偵け繝ｪ繝・け縺励※螳溯｡・
+1. GitHubリポジトリの **Actions** タブを開く
+2. 左側から **Deploy to Cloud Run** を選択
+3. 右上の **Run workflow** をクリック
+4. **Run workflow** ボタンをクリックして実行
 
-### 4.2 閾ｪ蜍輔ョ繝励Ο繧､縺ｮ繝・せ繝・
+### 4.2 自動デプロイのテスト
 
 ```bash
-# 繝ｭ繝ｼ繧ｫ繝ｫ縺ｧ螟画峩繧偵さ繝溘ャ繝・
+# ローカルで変更をコミット
 git add .
 git commit -m "Test GitHub Actions deployment"
 git push origin main
 ```
 
-GitHub縺ｮ **Actions** 繧ｿ繝悶〒繝・・繝ｭ繧､縺ｮ騾ｲ陦檎憾豕√ｒ遒ｺ隱阪〒縺阪∪縺吶・
+GitHubの **Actions** タブでデプロイの進行状況を確認できます。
 
 ---
 
-## 5. 繝医Λ繝悶Ν繧ｷ繝･繝ｼ繝・ぅ繝ｳ繧ｰ
+## 5. トラブルシューティング
 
-### 繧ｨ繝ｩ繝ｼ: "Invalid cloud sql instance names"
+### エラー: "Invalid cloud sql instance names"
 
-**蜴溷屏**: CLOUD_SQL_INSTANCE縺ｮ蠖｢蠑上′豁｣縺励￥縺ｪ縺・
+**原因**: CLOUD_SQL_INSTANCEの形式が正しくない
 
-**隗｣豎ｺ遲・*:
+**解決策**:
 ```bash
-# 豁｣縺励＞謗･邯壼錐繧堤｢ｺ隱・
+# 正しい接続名を確認
 gcloud sql instances list --format="value(connectionName)"
 
-# GitHub Secrets繧呈峩譁ｰ
+# GitHub Secretsを更新
 ```
 
-### 繧ｨ繝ｩ繝ｼ: "Permission denied"
+### エラー: "Permission denied"
 
-**蜴溷屏**: 繧ｵ繝ｼ繝薙せ繧｢繧ｫ繧ｦ繝ｳ繝医↓蠢・ｦ√↑讓ｩ髯舌′縺ｪ縺・
+**原因**: サービスアカウントに必要な権限がない
 
-**隗｣豎ｺ遲・*: 讓ｩ髯舌ｒ蜀榊ｺｦ莉倅ｸ・
+**解決策**: 権限を再度付与
 ```bash
 gcloud projects add-iam-policy-binding $PROJECT_ID \
   --member="serviceAccount:$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/run.admin"
 ```
 
-### 繧ｨ繝ｩ繝ｼ: "Database connection error"
+### エラー: "Database connection error"
 
-**蜴溷屏**: DB_PASSWORD 繧・CLOUD_SQL_INSTANCE 縺碁俣驕輔▲縺ｦ縺・ｋ
+**原因**: DB_PASSWORD や CLOUD_SQL_INSTANCE が間違っている
 
-**隗｣豎ｺ遲・*:
-1. GitHub Secrets縺ｮ蛟､繧堤｢ｺ隱・
-2. Cloud SQL繧､繝ｳ繧ｹ繧ｿ繝ｳ繧ｹ縺瑚ｵｷ蜍輔＠縺ｦ縺・ｋ縺狗｢ｺ隱・
-3. 繝・・繝ｭ繧､蠕後↓ `/health` 繧ｨ繝ｳ繝峨・繧､繝ｳ繝医ｒ遒ｺ隱・
+**解決策**:
+1. GitHub Secretsの値を確認
+2. Cloud SQLインスタンスが起動しているか確認
+3. デプロイ後に `/health` エンドポイントを確認
 
 ```bash
-# 繝・・繝ｭ繧､縺輔ｌ縺溘し繝ｼ繝薙せ縺ｮURL繧貞叙蠕・
+# デプロイされたサービスのURLを取得
 gcloud run services describe dashboard-ui \
   --region=asia-northeast1 \
   --format='value(status.url)'
 
-# 繝倥Ν繧ｹ繝√ぉ繝・け
+# ヘルスチェック
 curl https://YOUR_SERVICE_URL/health
 ```
 
-### 繝ｭ繧ｰ縺ｮ遒ｺ隱肴婿豕・
+### ログの確認方法
 
 ```bash
-# 譛譁ｰ縺ｮ繝ｭ繧ｰ繧堤｢ｺ隱・
+# 最新のログを確認
 gcloud run services logs read dashboard-ui \
   --region=asia-northeast1 \
   --limit=50
 
-# 繧ｨ繝ｩ繝ｼ縺縺代ヵ繧｣繝ｫ繧ｿ
+# エラーだけフィルタ
 gcloud run services logs read dashboard-ui \
   --region=asia-northeast1 \
   --limit=100 | grep -i error
@@ -192,26 +192,26 @@ gcloud run services logs read dashboard-ui \
 
 ---
 
-## 6. 繧ｻ繧ｭ繝･繝ｪ繝・ぅ縺ｮ繝吶せ繝医・繝ｩ繧ｯ繝・ぅ繧ｹ
+## 6. セキュリティのベストプラクティス
 
-### 譛ｬ逡ｪ迺ｰ蠅・〒縺ｯ蠢・★螳滓命縺吶ｋ縺薙→
+### 本番環境では必ず実施すること
 
-1. **JWT_SECRET縺ｮ螟画峩**
+1. **JWT_SECRETの変更**
    ```bash
-   # 繝ｩ繝ｳ繝繝縺ｪ遘伜ｯ・嵯繧堤函謌・
+   # ランダムな秘密鍵を生成
    openssl rand -base64 32
    ```
 
-2. **DB_PASSWORD縺ｮ蠑ｷ蛹・*
-   - 譛菴・6譁・ｭ嶺ｻ･荳・
-   - 闍ｱ謨ｰ蟄暦ｼ玖ｨ伜捷繧貞性繧
+2. **DB_PASSWORDの強化**
+   - 最低16文字以上
+   - 英数字＋記号を含む
 
-3. **繝・ヰ繝・げ繧ｨ繝ｳ繝峨・繧､繝ｳ繝医・蜑企勁**
-   - server.js縺ｮ `/debug/env` 繧ｨ繝ｳ繝峨・繧､繝ｳ繝医ｒ蜑企勁
+3. **デバッグエンドポイントの削除**
+   - server.jsの `/debug/env` エンドポイントを削除
    
-4. **繧ｵ繝ｼ繝薙せ繧｢繧ｫ繧ｦ繝ｳ繝医く繝ｼ縺ｮ螳壽悄繝ｭ繝ｼ繝・・繧ｷ繝ｧ繝ｳ**
+4. **サービスアカウントキーの定期ローテーション**
    ```bash
-   # 蜿､縺・く繝ｼ繧貞炎髯､
+   # 古いキーを削除
    gcloud iam service-accounts keys list \
      --iam-account=$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com
    
@@ -221,40 +221,40 @@ gcloud run services logs read dashboard-ui \
 
 ---
 
-## 7. 繝・・繝ｭ繧､繝ｯ繝ｼ繧ｯ繝輔Ο繝ｼ縺ｮ隱ｬ譏・
+## 7. デプロイワークフローの説明
 
-迴ｾ蝨ｨ縺ｮ險ｭ螳壹〒縺ｯ莉･荳九・繧ｿ繧､繝溘Φ繧ｰ縺ｧ繝・・繝ｭ繧､縺悟ｮ溯｡後＆繧後∪縺呻ｼ・
+現在の設定では以下のタイミングでデプロイが実行されます：
 
-1. **閾ｪ蜍輔ョ繝励Ο繧､**: `main` 縺ｾ縺溘・ `master` 繝悶Λ繝ｳ繝√↓push縺励◆譎・
-2. **謇句虚繝・・繝ｭ繧､**: GitHub Actions繝壹・繧ｸ縺九ｉ謇句虚螳溯｡・
+1. **自動デプロイ**: `main` または `master` ブランチにpushした時
+2. **手動デプロイ**: GitHub Actionsページから手動実行
 
-繝・・繝ｭ繧､縺ｮ豬√ｌ・・
-1. 繧ｽ繝ｼ繧ｹ繧ｳ繝ｼ繝峨ｒ繝√ぉ繝・け繧｢繧ｦ繝・
-2. Google Cloud隱崎ｨｼ
-3. Cloud SQL謗･邯壼錐縺ｮ讀懆ｨｼ
-4. Cloud Run縺ｸ繝・・繝ｭ繧､
-5. 繝倥Ν繧ｹ繝√ぉ繝・け螳溯｡・
-6. 繝・・繝ｭ繧､邨先棡陦ｨ遉ｺ
-
----
-
-## 8. 謌仙粥縺ｮ遒ｺ隱・
-
-繝・・繝ｭ繧､縺梧・蜉溘☆繧九→縲；itHub Actions縺ｮ繝ｭ繧ｰ縺ｫ莉･荳九′陦ｨ遉ｺ縺輔ｌ縺ｾ縺呻ｼ・
-
-```
-笨・Deployment completed successfully!
-倹 Service URL: https://dashboard-ui-xxxxx-an.a.run.app
-剥 Health Check: https://dashboard-ui-xxxxx-an.a.run.app/health
-菅 Debug Info: https://dashboard-ui-xxxxx-an.a.run.app/debug/env
-```
-
-陦ｨ遉ｺ縺輔ｌ縺欟RL縺ｫ繧｢繧ｯ繧ｻ繧ｹ縺励※縲√Ο繧ｰ繧､繝ｳ逕ｻ髱｢縺瑚｡ｨ遉ｺ縺輔ｌ繧九％縺ｨ繧堤｢ｺ隱阪＠縺ｦ縺上□縺輔＞縲・
+デプロイの流れ：
+1. ソースコードをチェックアウト
+2. Google Cloud認証
+3. Cloud SQL接続名の検証
+4. Cloud Runへデプロイ
+5. ヘルスチェック実行
+6. デプロイ結果表示
 
 ---
 
-## 蜿り・Μ繝ｳ繧ｯ
+## 8. 成功の確認
 
-- [GitHub Actions 繝峨く繝･繝｡繝ｳ繝・(https://docs.github.com/ja/actions)
-- [Cloud Run 繝・・繝ｭ繧､繧ｬ繧､繝云(https://cloud.google.com/run/docs/deploying)
-- [Cloud SQL 謗･邯壹ぎ繧､繝云(https://cloud.google.com/sql/docs/postgres/connect-run)
+デプロイが成功すると、GitHub Actionsのログに以下が表示されます：
+
+```
+✅ Deployment completed successfully!
+🌐 Service URL: https://dashboard-ui-xxxxx-an.a.run.app
+🔍 Health Check: https://dashboard-ui-xxxxx-an.a.run.app/health
+🐛 Debug Info: https://dashboard-ui-xxxxx-an.a.run.app/debug/env
+```
+
+表示されたURLにアクセスして、ログイン画面が表示されることを確認してください。
+
+---
+
+## 参考リンク
+
+- [GitHub Actions ドキュメント](https://docs.github.com/ja/actions)
+- [Cloud Run デプロイガイド](https://cloud.google.com/run/docs/deploying)
+- [Cloud SQL 接続ガイド](https://cloud.google.com/sql/docs/postgres/connect-run)

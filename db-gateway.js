@@ -1,26 +1,26 @@
 /**
  * Database Gateway Routing Module
- * 蜍慕噪繝・・繝悶Ν繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ讖溯・繧呈署萓・
- * app_resource_routing繝・・繝悶Ν繧剃ｽｿ逕ｨ縺励※隲也炊繝ｪ繧ｽ繝ｼ繧ｹ蜷阪ｒ迚ｩ逅・ユ繝ｼ繝悶Ν繝代せ縺ｫ螟画鋤
+ * 動的テーブルルーティング機能を提供
+ * app_resource_routingテーブルを使用して論理リソース名を物理テーブルパスに変換
  */
 
 const pool = require('./shared-db-config');
 
-// 繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ繧ｭ繝｣繝・す繝･
+// ルーティングキャッシュ
 const routingCache = new Map();
-const CACHE_TTL = 60000; // 1蛻・
+const CACHE_TTL = 60000; // 1分
 
 /**
- * 隲也炊繝ｪ繧ｽ繝ｼ繧ｹ蜷阪°繧臥黄逅・ユ繝ｼ繝悶Ν繝代せ繧貞叙蠕・
- * @param {string} logicalResourceName - 隲也炊繝ｪ繧ｽ繝ｼ繧ｹ蜷・(萓・ 'users', 'machines')
- * @param {string} appId - 繧｢繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳID (萓・ 'dashboard-ui')
- * @returns {Promise<string>} - 迚ｩ逅・ユ繝ｼ繝悶Ν繝代せ (萓・ 'master_data.users')
+ * 論理リソース名から物理テーブルパスを取得
+ * @param {string} logicalResourceName - 論理リソース名 (例: 'users', 'machines')
+ * @param {string} appId - アプリケーションID (例: 'dashboard-ui')
+ * @returns {Promise<string>} - 物理テーブルパス (例: 'master_data.users')
  */
 async function getTablePath(logicalResourceName, appId = 'dashboard-ui') {
     const cacheKey = `${appId}:${logicalResourceName}`;
     const cached = routingCache.get(cacheKey);
     
-    // 繧ｭ繝｣繝・す繝･繝√ぉ繝・け
+    // キャッシュチェック
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
         return cached.path;
     }
@@ -40,7 +40,7 @@ async function getTablePath(logicalResourceName, appId = 'dashboard-ui') {
             const { physical_schema, physical_table } = result.rows[0];
             const fullPath = `${physical_schema}.${physical_table}`;
             
-            // 繧ｭ繝｣繝・す繝･縺ｫ菫晏ｭ・
+            // キャッシュに保存
             routingCache.set(cacheKey, {
                 path: fullPath,
                 timestamp: Date.now()
@@ -49,19 +49,19 @@ async function getTablePath(logicalResourceName, appId = 'dashboard-ui') {
             return fullPath;
         }
         
-        // 繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ縺瑚ｦ九▽縺九ｉ縺ｪ縺・ｴ蜷医・public schema 繧偵ヵ繧ｩ繝ｼ繝ｫ繝舌ャ繧ｯ
+        // ルーティングが見つからない場合はpublic schema をフォールバック
         console.warn(`No routing found for ${appId}:${logicalResourceName}, using public schema`);
         return `public.${logicalResourceName}`;
         
     } catch (error) {
         console.error('Error fetching table routing:', error);
-        // 繧ｨ繝ｩ繝ｼ譎ゅ・繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ
+        // エラー時はフォールバック
         return `public.${logicalResourceName}`;
     }
 }
 
 /**
- * 繧ｭ繝｣繝・す繝･繧偵け繝ｪ繧｢
+ * キャッシュをクリア
  */
 function clearCache() {
     routingCache.clear();
@@ -69,16 +69,16 @@ function clearCache() {
 }
 
 /**
- * 迚ｹ螳壹・繝ｪ繧ｽ繝ｼ繧ｹ縺ｾ縺溘・繧｢繝励Μ縺ｮ繧ｭ繝｣繝・す繝･繧偵け繝ｪ繧｢
- * @param {string} appId - 繧｢繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳID・育怐逡･蜿ｯ・・
- * @param {string} logicalResourceName - 隲也炊繝ｪ繧ｽ繝ｼ繧ｹ蜷搾ｼ育怐逡･蜿ｯ・・
+ * 特定のリソースまたはアプリのキャッシュをクリア
+ * @param {string} appId - アプリケーションID（省略可）
+ * @param {string} logicalResourceName - 論理リソース名（省略可）
  */
 function clearCacheFor(appId, logicalResourceName) {
     if (appId && logicalResourceName) {
         const cacheKey = `${appId}:${logicalResourceName}`;
         routingCache.delete(cacheKey);
     } else if (appId) {
-        // 迚ｹ螳壹・繧｢繝励Μ縺ｮ繧ｭ繝｣繝・す繝･繧偵け繝ｪ繧｢
+        // 特定のアプリのキャッシュをクリア
         for (const key of routingCache.keys()) {
             if (key.startsWith(`${appId}:`)) {
                 routingCache.delete(key);
@@ -88,15 +88,15 @@ function clearCacheFor(appId, logicalResourceName) {
 }
 
 /**
- * SQL繧ｯ繧ｨ繝ｪ蜀・・隲也炊繝・・繝悶Ν蜷阪ｒ迚ｩ逅・ヱ繧ｹ縺ｫ鄂ｮ謠・
- * @param {string} query - SQL繧ｯ繧ｨ繝ｪ
- * @param {Object} resourceMap - {隲也炊蜷・ 迚ｩ逅・ヱ繧ｹ}縺ｮ繝槭ャ繝・
- * @returns {string} - 鄂ｮ謠帛ｾ後・繧ｯ繧ｨ繝ｪ
+ * SQLクエリ内の論理テーブル名を物理パスに置換
+ * @param {string} query - SQLクエリ
+ * @param {Object} resourceMap - {論理名: 物理パス}のマップ
+ * @returns {string} - 置換後のクエリ
  */
 function replaceTableNames(query, resourceMap) {
     let result = query;
     for (const [logical, physical] of Object.entries(resourceMap)) {
-        // 繝・・繝悶Ν蜷阪・鄂ｮ謠幢ｼ亥､ｧ譁・ｭ怜ｰ乗枚蟄励ｒ蛹ｺ蛻･縺励↑縺・ｼ・
+        // テーブル名の置換（大文字小文字を区別しない）
         const regex = new RegExp(`\\b${logical}\\b`, 'gi');
         result = result.replace(regex, physical);
     }

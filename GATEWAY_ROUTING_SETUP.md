@@ -1,59 +1,59 @@
-# 繧ｲ繝ｼ繝医え繧ｧ繧､繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳壽焔鬆・
+# ゲートウェイルーティング設定手順
 
-## 搭 讎りｦ・
+## 📋 概要
 
-縺吶∋縺ｦ縺ｮ繧ｵ繝悶い繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ・・mergency-client, planning, equipment, failure・峨′蜈ｱ騾壹・繧ｹ繧ｿ繝・・繝悶Ν縺ｫ繧｢繧ｯ繧ｻ繧ｹ縺ｧ縺阪ｋ繧医≧縲√ご繝ｼ繝医え繧ｧ繧､繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ繧定ｨｭ螳壹＠縺ｾ縺吶・
+すべてのサブアプリケーション（emergency-client, planning, equipment, failure）が共通マスタテーブルにアクセスできるよう、ゲートウェイルーティングを設定します。
 
-## 識 逶ｮ逧・
+## 🎯 目的
 
-1. **蜈ｬ髢九せ繧ｭ繝ｼ繝槭・邂｡逅・ユ繝ｼ繝悶Ν譖ｴ譁ｰ**: `public.app_resource_routing` 縺ｫ蜈ｨ繧｢繝励Μ縺ｮ險ｭ螳壹ｒ逋ｻ骭ｲ
-2. **蜷・い繝励Μ縺九ｉ縺ｮ繧｢繧ｯ繧ｻ繧ｹ險ｭ螳・*: 蜷・い繝励Μ縺・`master_data` 繧ｹ繧ｭ繝ｼ繝槭・蜈ｱ騾壹・繧ｹ繧ｿ縺ｫ繧｢繧ｯ繧ｻ繧ｹ蜿ｯ閭ｽ縺ｫ縺吶ｋ
-
----
-
-## 投 迴ｾ蝨ｨ縺ｮ迥ｶ豕・
-
-### 笨・螳御ｺ・ｸ医∩
-- 笨・讖溽ｨｮ繝槭せ繧ｿ・・achine_types・峨ｒ `public` 竊・`master_data` 縺ｫ遘ｻ陦・
-- 笨・讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ・・achines・峨ｒ `public` 竊・`master_data` 縺ｫ遘ｻ陦・
-- 笨・DashboardUI 縺ｮ `app_resource_routing` 繧呈峩譁ｰ
-
-### 笞・・蠢・ｦ√↑菴懈･ｭ
-- 笞・・Emergency-Client 縺ｮ繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳・
-- 笞・・Planning 縺ｮ繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳・
-- 笞・・Equipment 縺ｮ繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳・
-- 笞・・Failure 縺ｮ繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳・
+1. **公開スキーマの管理テーブル更新**: `public.app_resource_routing` に全アプリの設定を登録
+2. **各アプリからのアクセス設定**: 各アプリが `master_data` スキーマの共通マスタにアクセス可能にする
 
 ---
 
-## 噫 螳溯｡梧焔鬆・
+## 📊 現在の状況
 
-### 繧ｹ繝・ャ繝・: 蜈ｨ繧｢繝励Μ縺ｮ繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳壹ｒ霑ｽ蜉
+### ✅ 完了済み
+- ✅ 機種マスタ（machine_types）を `public` → `master_data` に移行
+- ✅ 機械番号マスタ（machines）を `public` → `master_data` に移行
+- ✅ DashboardUI の `app_resource_routing` を更新
+
+### ⚠️ 必要な作業
+- ⚠️ Emergency-Client のルーティング設定
+- ⚠️ Planning のルーティング設定
+- ⚠️ Equipment のルーティング設定
+- ⚠️ Failure のルーティング設定
+
+---
+
+## 🚀 実行手順
+
+### ステップ1: 全アプリのルーティング設定を追加
 
 ```powershell
-# 繝ｭ繝ｼ繧ｫ繝ｫ迺ｰ蠅・・蝣ｴ蜷・
+# ローカル環境の場合
 $env:PGPASSWORD = "Takabeni"
 psql -h localhost -U postgres -d webappdb -f setup-all-apps-routing.sql
 ```
 
-縺ｾ縺溘・
+または
 
 ```powershell
-# Cloud SQL縺ｮ蝣ｴ蜷・
-$env:PGPASSWORD = "繝代せ繝ｯ繝ｼ繝・
+# Cloud SQLの場合
+$env:PGPASSWORD = "パスワード"
 psql -h <host> -U <user> -d webappdb -f setup-all-apps-routing.sql
 ```
 
-縺薙・繧ｹ繧ｯ繝ｪ繝励ヨ縺ｯ莉･荳九ｒ螳溯｡後＠縺ｾ縺呻ｼ・
-- emergency-client 逕ｨ縺ｮ繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳・
-- planning 逕ｨ縺ｮ繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳・
-- equipment 逕ｨ縺ｮ繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳・
-- failure 逕ｨ縺ｮ繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳・
-- 蜈ｨ繧｢繝励Μ縺ｮ險ｭ螳夂｢ｺ隱阪け繧ｨ繝ｪ
+このスクリプトは以下を実行します：
+- emergency-client 用のルーティング設定
+- planning 用のルーティング設定
+- equipment 用のルーティング設定
+- failure 用のルーティング設定
+- 全アプリの設定確認クエリ
 
-### 繧ｹ繝・ャ繝・: 蜷・い繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ縺ｮ蜀崎ｵｷ蜍・
+### ステップ2: 各アプリケーションの再起動
 
-繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ繧ｭ繝｣繝・す繝･繧偵け繝ｪ繧｢縺吶ｋ縺溘ａ縲∝・繧｢繝励Μ繧貞・襍ｷ蜍輔＠縺ｦ縺上□縺輔＞・・
+ルーティングキャッシュをクリアするため、全アプリを再起動してください：
 
 ```powershell
 # DashboardUI
@@ -62,75 +62,75 @@ pm2 restart dashboard-ui
 # Emergency-Client
 pm2 restart emergency-client
 
-# 縺昴・莉悶・繧｢繝励Μ・域ｺ門ｙ縺後〒縺阪◆繧会ｼ・
+# その他のアプリ（準備ができたら）
 pm2 restart planning
 pm2 restart equipment
 pm2 restart failure
 ```
 
-### 繧ｹ繝・ャ繝・: 蜍穂ｽ懃｢ｺ隱・
+### ステップ3: 動作確認
 
-蜷・い繝励Μ縺ｧ莉･荳九ｒ遒ｺ隱搾ｼ・
+各アプリで以下を確認：
 
-1. **繝ｭ繧ｰ繧､繝ｳ讖溯・**: `master_data.users` 繝・・繝悶Ν縺ｸ縺ｮ繧｢繧ｯ繧ｻ繧ｹ
-2. **繝槭せ繧ｿ繝・・繧ｿ陦ｨ遉ｺ**: 莠区･ｭ謇縲∽ｿ晏ｮ亥渕蝨ｰ縲∬ｻ贋ｸ｡縲∵ｩ溽ｨｮ縲∵ｩ滓｢ｰ逡ｪ蜿ｷ
-3. **繧ｨ繝ｩ繝ｼ繝ｭ繧ｰ**: 繧ｹ繧ｭ繝ｼ繝槫盾辣ｧ繧ｨ繝ｩ繝ｼ縺後↑縺・°遒ｺ隱・
+1. **ログイン機能**: `master_data.users` テーブルへのアクセス
+2. **マスタデータ表示**: 事業所、保守基地、車両、機種、機械番号
+3. **エラーログ**: スキーマ参照エラーがないか確認
 
 ---
 
-## 投 繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳壻ｸ隕ｧ
+## 📊 ルーティング設定一覧
 
-### 蜈ｱ騾壹・繧ｹ繧ｿ・亥・繧｢繝励Μ縺ｧ蜈ｱ譛会ｼ・
+### 共通マスタ（全アプリで共有）
 
-| 隲也炊繝ｪ繧ｽ繝ｼ繧ｹ蜷・| 迚ｩ逅・ヱ繧ｹ | 隱ｬ譏・| 菴ｿ逕ｨ繧｢繝励Μ |
+| 論理リソース名 | 物理パス | 説明 | 使用アプリ |
 |---|---|---|---|
-| `users` | `master_data.users` | 繝ｦ繝ｼ繧ｶ繝ｼ邂｡逅・| 蜈ｨ繧｢繝励Μ |
-| `managements_offices` | `master_data.managements_offices` | 莠区･ｭ謇繝槭せ繧ｿ | 蜈ｨ繧｢繝励Μ |
-| `bases` | `master_data.bases` | 菫晏ｮ亥渕蝨ｰ繝槭せ繧ｿ | 蜈ｨ繧｢繝励Μ |
-| `vehicles` | `master_data.vehicles` | 菫晏ｮ育畑霆翫・繧ｹ繧ｿ | 蜈ｨ繧｢繝励Μ |
-| `machine_types` | `master_data.machine_types` | 讖溽ｨｮ繝槭せ繧ｿ | 蜈ｨ繧｢繝励Μ |
-| `machines` | `master_data.machines` | 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ | 蜈ｨ繧｢繝励Μ |
+| `users` | `master_data.users` | ユーザー管理 | 全アプリ |
+| `managements_offices` | `master_data.managements_offices` | 事業所マスタ | 全アプリ |
+| `bases` | `master_data.bases` | 保守基地マスタ | 全アプリ |
+| `vehicles` | `master_data.vehicles` | 保守用車マスタ | 全アプリ |
+| `machine_types` | `master_data.machine_types` | 機種マスタ | 全アプリ |
+| `machines` | `master_data.machines` | 機械番号マスタ | 全アプリ |
 
-### 繧｢繝励Μ蟆ら畑繝・・繝悶Ν
+### アプリ専用テーブル
 
 #### Emergency-Client
-- `emergency_records` 竊・`emergency.emergency_records`
+- `emergency_records` → `emergency.emergency_records`
 
 #### Planning
-- `schedules` 竊・`operations.schedules`
-- `operation_records` 竊・`operations.operation_records`
+- `schedules` → `operations.schedules`
+- `operation_records` → `operations.operation_records`
 
 #### Equipment
-- `inspection_records` 竊・`inspections.inspection_records`
-- `inspection_types` 竊・`master_data.inspection_types`
+- `inspection_records` → `inspections.inspection_records`
+- `inspection_types` → `master_data.inspection_types`
 
 #### Failure
-- `fault_records` 竊・`maintenance.fault_records`
+- `fault_records` → `maintenance.fault_records`
 
 ---
 
-## 肌 蜷・い繝励Μ蛛ｴ縺ｮ螳溯｣・ｦ∽ｻｶ
+## 🔧 各アプリ側の実装要件
 
-### 蠢・ｦ√↑險ｭ螳夲ｼ亥推繧｢繝励Μ縺ｮserver.js・・
+### 必要な設定（各アプリのserver.js）
 
-蜷・し繝悶い繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ縺ｧ莉･荳九・螳溯｣・′蠢・ｦ√〒縺呻ｼ・
+各サブアプリケーションで以下の実装が必要です：
 
 ```javascript
-// 1. APP_ID縺ｮ螳夂ｾｩ
-const APP_ID = 'emergency-client'; // 繧｢繝励Μ縺斐→縺ｫ螟画峩
+// 1. APP_IDの定義
+const APP_ID = 'emergency-client'; // アプリごとに変更
 
-// 2. resolveTablePath髢｢謨ｰ縺ｮ螳溯｣・ｼ・ashboardUI縺ｨ蜷後§・・
+// 2. resolveTablePath関数の実装（DashboardUIと同じ）
 async function resolveTablePath(logicalName) {
   const cacheKey = `${APP_ID}:${logicalName}`;
   
-  // 繧ｭ繝｣繝・す繝･繝√ぉ繝・け
+  // キャッシュチェック
   const cached = routingCache.get(cacheKey);
   if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
     return cached;
   }
 
   try {
-    // app_resource_routing繝・・繝悶Ν縺九ｉ迚ｩ逅・ヱ繧ｹ繧貞叙蠕・
+    // app_resource_routingテーブルから物理パスを取得
     const query = `
       SELECT physical_schema, physical_table
       FROM public.app_resource_routing
@@ -148,7 +148,7 @@ async function resolveTablePath(logicalName) {
       return resolved;
     }
 
-    // 繝輔か繝ｼ繝ｫ繝舌ャ繧ｯ
+    // フォールバック
     const fallback = { 
       fullPath: `master_data."${logicalName}"`, 
       schema: 'master_data', 
@@ -170,93 +170,93 @@ async function resolveTablePath(logicalName) {
   }
 }
 
-// 3. 蜍慕噪SELECT/INSERT/UPDATE髢｢謨ｰ縺ｮ螳溯｣・
+// 3. 動的SELECT/INSERT/UPDATE関数の実装
 async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'], limit = null) {
   const route = await resolveTablePath(logicalTableName);
-  // ... (DashboardUI縺ｨ蜷後§螳溯｣・
+  // ... (DashboardUIと同じ実装)
 }
 ```
 
 ---
 
-## 剥 繝医Λ繝悶Ν繧ｷ繝･繝ｼ繝・ぅ繝ｳ繧ｰ
+## 🔍 トラブルシューティング
 
-### 蝠城｡・: 繧｢繝励Μ縺後ユ繝ｼ繝悶Ν繧定ｦ九▽縺代ｉ繧後↑縺・
+### 問題1: アプリがテーブルを見つけられない
 
-**逞・憾**: `relation "public.machines" does not exist` 繧ｨ繝ｩ繝ｼ
+**症状**: `relation "public.machines" does not exist` エラー
 
-**蜴溷屏**: 
-- 繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ險ｭ螳壹′譛ｪ逋ｻ骭ｲ
-- 繧ｭ繝｣繝・す繝･縺悟商縺・
+**原因**: 
+- ルーティング設定が未登録
+- キャッシュが古い
 
-**蟇ｾ蜃ｦ**:
+**対処**:
 ```sql
--- 繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ遒ｺ隱・
+-- ルーティング確認
 SELECT * FROM public.app_resource_routing 
 WHERE app_id = 'emergency-client' AND logical_resource_name = 'machines';
 
--- 縺ｪ縺代ｌ縺ｰ setup-all-apps-routing.sql 繧貞ｮ溯｡・
+-- なければ setup-all-apps-routing.sql を実行
 ```
 
-繧｢繝励Μ繧貞・襍ｷ蜍輔＠縺ｦ繧ｭ繝｣繝・す繝･繧偵け繝ｪ繧｢縲・
+アプリを再起動してキャッシュをクリア。
 
-### 蝠城｡・: Emergency-Client縺後ご繝ｼ繝医え繧ｧ繧､譁ｹ蠑上↓蟇ｾ蠢懊＠縺ｦ縺・↑縺・
+### 問題2: Emergency-Clientがゲートウェイ方式に対応していない
 
-**逞・憾**: 逶ｴ謗･ `public.machines` 繧貞盾辣ｧ縺励※縺・ｋ
+**症状**: 直接 `public.machines` を参照している
 
-**蟇ｾ蜃ｦ**:
-1. Emergency-Client縺ｮserver.js繧堤｢ｺ隱・
-2. `resolveTablePath` 髢｢謨ｰ繧貞ｮ溯｣・
-3. 逶ｴ謗･縺ｮ繝・・繝悶Ν蜿ら・繧貞虚逧・未謨ｰ縺ｫ鄂ｮ縺肴鋤縺・
+**対処**:
+1. Emergency-Clientのserver.jsを確認
+2. `resolveTablePath` 関数を実装
+3. 直接のテーブル参照を動的関数に置き換え
 
-### 蝠城｡・: 螟夜Κ繧ｭ繝ｼ蛻ｶ邏・お繝ｩ繝ｼ
+### 問題3: 外部キー制約エラー
 
-**逞・憾**: `foreign key violation` 繧ｨ繝ｩ繝ｼ
+**症状**: `foreign key violation` エラー
 
-**蜴溷屏**: vehicles 繝・・繝悶Ν縺悟商縺・public.machines 繧貞盾辣ｧ縺励※縺・ｋ
+**原因**: vehicles テーブルが古い public.machines を参照している
 
-**蟇ｾ蜃ｦ**:
+**対処**:
 ```sql
--- 螟夜Κ繧ｭ繝ｼ蛻ｶ邏・ｒ遒ｺ隱・
+-- 外部キー制約を確認
 SELECT conname, conrelid::regclass, confrelid::regclass
 FROM pg_constraint 
 WHERE conname LIKE '%vehicle%machine%';
 
--- migrate-machine-tables-to-master-data.sql 繧貞・螳溯｡・
+-- migrate-machine-tables-to-master-data.sql を再実行
 ```
 
 ---
 
-## 統 繝√ぉ繝・け繝ｪ繧ｹ繝・
+## 📝 チェックリスト
 
-- [ ] `setup-all-apps-routing.sql` 繧貞ｮ溯｡・
-- [ ] 蜈ｨ繧｢繝励Μ繧ｱ繝ｼ繧ｷ繝ｧ繝ｳ繧貞・襍ｷ蜍・
-- [ ] DashboardUI 縺ｧ讖溽ｨｮ繝ｻ讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ縺梧ｭ｣蟶ｸ縺ｫ蜍穂ｽ・
-- [ ] Emergency-Client 縺ｧ繝ｭ繧ｰ繧､繝ｳ蜿ｯ閭ｽ
-- [ ] Emergency-Client 縺ｧ繝槭せ繧ｿ繝・・繧ｿ蜿門ｾ怜庄閭ｽ
-- [ ] Planning・域ｺ門ｙ縺ｧ縺阪◆繧会ｼ峨〒繝槭せ繧ｿ繝・・繧ｿ蜿門ｾ怜庄閭ｽ
-- [ ] Equipment・域ｺ門ｙ縺ｧ縺阪◆繧会ｼ峨〒繝槭せ繧ｿ繝・・繧ｿ蜿門ｾ怜庄閭ｽ
-- [ ] Failure・域ｺ門ｙ縺ｧ縺阪◆繧会ｼ峨〒繝槭せ繧ｿ繝・・繧ｿ蜿門ｾ怜庄閭ｽ
-- [ ] 繧ｨ繝ｩ繝ｼ繝ｭ繧ｰ縺ｫ schema 蜿ら・繧ｨ繝ｩ繝ｼ縺後↑縺・％縺ｨ繧堤｢ｺ隱・
-
----
-
-## 套 谺｡縺ｮ繧ｹ繝・ャ繝・
-
-1. **Emergency-Client縺ｮ蟇ｾ蠢懃｢ｺ隱・*
-   - 譌｢縺ｫ繧ｲ繝ｼ繝医え繧ｧ繧､譁ｹ蠑上ｒ菴ｿ逕ｨ縺励※縺・ｋ縺狗｢ｺ隱・
-   - 蠢・ｦ√↓蠢懊§縺ｦ繧ｳ繝ｼ繝我ｿｮ豁｣
-
-2. **莉悶・繧｢繝励Μ縺ｮ貅門ｙ**
-   - Planning, Equipment, Failure 縺ｮ髢狗匱迥ｶ豕∫｢ｺ隱・
-   - 繧ｲ繝ｼ繝医え繧ｧ繧､譁ｹ蠑上・螳溯｣・
-
-3. **繝｢繝九ち繝ｪ繝ｳ繧ｰ**
-   - 繝ｫ繝ｼ繝・ぅ繝ｳ繧ｰ繧ｭ繝｣繝・す繝･縺ｮ繝偵ャ繝育紫遒ｺ隱・
-   - 繝代ヵ繧ｩ繝ｼ繝槭Φ繧ｹ貂ｬ螳・
+- [ ] `setup-all-apps-routing.sql` を実行
+- [ ] 全アプリケーションを再起動
+- [ ] DashboardUI で機種・機械番号マスタが正常に動作
+- [ ] Emergency-Client でログイン可能
+- [ ] Emergency-Client でマスタデータ取得可能
+- [ ] Planning（準備できたら）でマスタデータ取得可能
+- [ ] Equipment（準備できたら）でマスタデータ取得可能
+- [ ] Failure（準備できたら）でマスタデータ取得可能
+- [ ] エラーログに schema 参照エラーがないことを確認
 
 ---
 
-**譖ｴ譁ｰ譌･**: 2026蟷ｴ1譛・譌･  
-**蟇ｾ雎｡迺ｰ蠅・*: 譛ｬ逡ｪ迺ｰ蠅・(Cloud SQL)  
-**繝・・繧ｿ繝吶・繧ｹ**: webappdb
+## 📅 次のステップ
+
+1. **Emergency-Clientの対応確認**
+   - 既にゲートウェイ方式を使用しているか確認
+   - 必要に応じてコード修正
+
+2. **他のアプリの準備**
+   - Planning, Equipment, Failure の開発状況確認
+   - ゲートウェイ方式の実装
+
+3. **モニタリング**
+   - ルーティングキャッシュのヒット率確認
+   - パフォーマンス測定
+
+---
+
+**更新日**: 2026年1月4日  
+**対象環境**: 本番環境 (Cloud SQL)  
+**データベース**: webappdb

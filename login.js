@@ -7,19 +7,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnLoader = loginBtn.querySelector('.btn-loader');
     const errorMessage = document.getElementById('error-message');
 
-    // 繝壹・繧ｸ隱ｭ縺ｿ霎ｼ縺ｿ譎ゅ↓繝輔か繝ｼ繝繧貞ｼｷ蛻ｶ繧ｯ繝ｪ繧｢
+    // ページ読み込み時にフォームを強制クリア
     usernameInput.value = '';
     passwordInput.value = '';
     usernameInput.setAttribute('value', '');
     passwordInput.setAttribute('value', '');
     loginForm.reset();
     
-    // sessionStorage縺ｮ繝輔Λ繧ｰ繧偵メ繧ｧ繝・け
+    // sessionStorageのフラグをチェック
     if (sessionStorage.getItem('clearLoginForm') === 'true') {
         sessionStorage.removeItem('clearLoginForm');
     }
     
-    // 繝悶Λ繧ｦ繧ｶ縺ｮ閾ｪ蜍募・蜉帙ｒ髦ｲ縺舌◆繧√↓驕・ｻｶ縺励※蜀榊ｺｦ繧ｯ繝ｪ繧｢
+    // ブラウザの自動入力を防ぐために遅延して再度クリア
     setTimeout(() => {
         usernameInput.value = '';
         passwordInput.value = '';
@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 
-        // UI縺ｮ迥ｶ諷九ｒ繝ｪ繧ｻ繝・ヨ
+        // UIの状態をリセット
         hideError();
         setLoading(true);
 
@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const password = passwordInput.value;
 
         try {
-            // API繝ｪ繧ｯ繧ｨ繧ｹ繝磯∽ｿ｡ (UI縺九ｉ縺ｯ蟷ｳ譁・〒騾∽ｿ｡)
+            // APIリクエスト送信 (UIからは平文で送信)
             const response = await fetch('/api/login', {
                 method: 'POST',
                 headers: {
@@ -55,24 +55,24 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
 
             if (data.success) {
-                // 隱崎ｨｼ謌仙粥
-                // 譛ｬ譚･縺ｯ繝医・繧ｯ繝ｳ繧剃ｿ晏ｭ倥☆繧九′縲∽ｻ雁屓縺ｯ繝・Δ縺ｨ縺励※繝繝・す繝･繝懊・繝峨∈逶ｴ謗･驕ｷ遘ｻ
+                // 認証成功
+                // 本来はトークンを保存するが、今回はデモとしてダッシュボードへ直接遷移
                 localStorage.setItem('user_token', data.token);
                 localStorage.setItem('user_info', JSON.stringify(data.user));
 
-                // 謌仙粥繧｢繝九Γ繝ｼ繧ｷ繝ｧ繝ｳ繧定｡ｨ遉ｺ縺励※縺九ｉ驕ｷ遘ｻ
-                btnText.textContent = '繝ｪ繝繧､繝ｬ繧ｯ繝井ｸｭ...';
+                // 成功アニメーションを表示してから遷移
+                btnText.textContent = 'リダイレクト中...';
                 setTimeout(() => {
                     window.location.href = '/dashboard';
                 }, 800);
             } else {
-                // 隱崎ｨｼ螟ｱ謨・
-                showError(data.message || '繝ｭ繧ｰ繧､繝ｳ縺ｫ螟ｱ謨励＠縺ｾ縺励◆');
+                // 認証失敗
+                showError(data.message || 'ログインに失敗しました');
                 setLoading(false);
             }
         } catch (error) {
             console.error('Login error:', error);
-            showError('繝阪ャ繝医Ρ繝ｼ繧ｯ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆');
+            showError('ネットワークエラーが発生しました');
             setLoading(false);
         }
     });
@@ -98,7 +98,7 @@ document.addEventListener('DOMContentLoaded', () => {
         errorMessage.classList.add('hidden');
     }
 
-    // 繝ｭ繧ｰ繧｢繧ｦ繝域凾縺ｫ蜻ｼ縺ｰ繧後ｋ髢｢謨ｰ・医げ繝ｭ繝ｼ繝舌Ν縺ｫ蜈ｬ髢具ｼ・
+    // ログアウト時に呼ばれる関数（グローバルに公開）
     window.clearLoginForm = function() {
         usernameInput.value = '';
         passwordInput.value = '';

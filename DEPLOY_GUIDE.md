@@ -1,20 +1,20 @@
-# Cloud Run 繝・・繝ｭ繧､謇矩・
+# Cloud Run デプロイ手順
 
-## 繝・・繝ｭ繧､蠕後↓繝ｭ繧ｰ繧､繝ｳ縺ｧ縺阪↑縺・撫鬘後・隗｣豎ｺ譁ｹ豕・
+## デプロイ後にログインできない問題の解決方法
 
-### 蝠城｡後・蜴溷屏
-繝・・繧ｿ繝吶・繧ｹ謗･邯壹・迺ｰ蠅・､画焚縺梧ｭ｣縺励￥險ｭ螳壹＆繧後※縺・↑縺・
+### 問題の原因
+データベース接続の環境変数が正しく設定されていない
 
-### 隗｣豎ｺ謇矩・
+### 解決手順
 
-#### 1. Cloud SQL繧､繝ｳ繧ｹ繧ｿ繝ｳ繧ｹ謗･邯壼錐繧堤｢ｺ隱・
+#### 1. Cloud SQLインスタンス接続名を確認
 ```bash
-gcloud sql instances describe [繧､繝ｳ繧ｹ繧ｿ繝ｳ繧ｹ蜷江 --format="value(connectionName)"
+gcloud sql instances describe [インスタンス名] --format="value(connectionName)"
 ```
 
-萓・ `my-project:asia-northeast1:webappdb-instance`
+例: `my-project:asia-northeast1:webappdb-instance`
 
-#### 2. 迺ｰ蠅・､画焚繧定ｨｭ螳壹＠縺ｦ蜀阪ョ繝励Ο繧､
+#### 2. 環境変数を設定して再デプロイ
 
 **PowerShell (Windows):**
 ```powershell
@@ -50,14 +50,14 @@ gcloud run deploy dashboard-ui \
   --add-cloudsql-instances YOUR_PROJECT:REGION:INSTANCE
 ```
 
-#### 3. 繝・・繝ｭ繧､蠕後・遒ｺ隱・
+#### 3. デプロイ後の確認
 
-**繝倥Ν繧ｹ繝√ぉ繝・け:**
+**ヘルスチェック:**
 ```bash
 curl https://YOUR_SERVICE_URL/health
 ```
 
-豁｣蟶ｸ縺ｪ蠢懃ｭ・
+正常な応答:
 ```json
 {
   "status": "healthy",
@@ -66,38 +66,38 @@ curl https://YOUR_SERVICE_URL/health
 }
 ```
 
-**迺ｰ蠅・､画焚縺ｮ遒ｺ隱搾ｼ医ョ繝舌ャ繧ｰ逕ｨ・・**
+**環境変数の確認（デバッグ用）:**
 ```bash
 curl https://YOUR_SERVICE_URL/debug/env
 ```
 
-#### 4. 繝ｭ繧ｰ縺ｮ遒ｺ隱・
+#### 4. ログの確認
 
 ```bash
-# 譛譁ｰ50莉ｶ縺ｮ繝ｭ繧ｰ繧堤｢ｺ隱・
+# 最新50件のログを確認
 gcloud run services logs read dashboard-ui --limit=50
 
-# 繝・・繧ｿ繝吶・繧ｹ髢｢騾｣縺ｮ繧ｨ繝ｩ繝ｼ縺縺醍｢ｺ隱・
+# データベース関連のエラーだけ確認
 gcloud run services logs read dashboard-ui --limit=100 | grep -i "database\|connection\|error"
 ```
 
-#### 5. 繧医￥縺ゅｋ繧ｨ繝ｩ繝ｼ縺ｨ蟇ｾ蜃ｦ豕・
+#### 5. よくあるエラーと対処法
 
-**繧ｨ繝ｩ繝ｼ: "Database connection error"**
-- CLOUD_SQL_INSTANCE 縺梧ｭ｣縺励￥險ｭ螳壹＆繧後※縺・ｋ縺狗｢ｺ隱・
-- --add-cloudsql-instances 繝輔Λ繧ｰ繧剃ｻ倥￠縺ｦ繝・・繝ｭ繧､縺励◆縺狗｢ｺ隱・
+**エラー: "Database connection error"**
+- CLOUD_SQL_INSTANCE が正しく設定されているか確認
+- --add-cloudsql-instances フラグを付けてデプロイしたか確認
 
-**繧ｨ繝ｩ繝ｼ: "password authentication failed"**
-- DB_USER 縺ｨ DB_PASSWORD 縺梧ｭ｣縺励＞縺狗｢ｺ隱・
-- Cloud SQL縺ｮ繝ｦ繝ｼ繧ｶ繝ｼ讓ｩ髯舌ｒ遒ｺ隱・
+**エラー: "password authentication failed"**
+- DB_USER と DB_PASSWORD が正しいか確認
+- Cloud SQLのユーザー権限を確認
 
-**繧ｨ繝ｩ繝ｼ: "could not connect to server"**
-- Cloud SQL繧､繝ｳ繧ｹ繧ｿ繝ｳ繧ｹ縺瑚ｵｷ蜍輔＠縺ｦ縺・ｋ縺狗｢ｺ隱・
-- 繝阪ャ繝医Ρ繝ｼ繧ｯ險ｭ螳壹ｒ遒ｺ隱・
+**エラー: "could not connect to server"**
+- Cloud SQLインスタンスが起動しているか確認
+- ネットワーク設定を確認
 
-#### 6. 迺ｰ蠅・､画焚縺ｮ譖ｴ譁ｰ縺ｮ縺ｿ・亥・繝薙Ν繝峨↑縺暦ｼ・
+#### 6. 環境変数の更新のみ（再ビルドなし）
 
-縺吶〒縺ｫ繝・・繝ｭ繧､貂医∩縺ｧ迺ｰ蠅・､画焚縺縺大､画峩縺励◆縺・ｴ蜷・
+すでにデプロイ済みで環境変数だけ変更したい場合:
 
 ```bash
 gcloud run services update dashboard-ui \
@@ -105,21 +105,21 @@ gcloud run services update dashboard-ui \
   --update-env-vars DB_PASSWORD=NEW_PASSWORD
 ```
 
-## 邁｡譏薙ョ繝励Ο繧､繧ｹ繧ｯ繝ｪ繝励ヨ
+## 簡易デプロイスクリプト
 
-`deploy.ps1` (Windows) 縺ｾ縺溘・ `deploy.sh` (Mac/Linux) 繧堤ｷｨ髮・＠縺ｦ菴ｿ逕ｨ縺励※縺上□縺輔＞縲・
+`deploy.ps1` (Windows) または `deploy.sh` (Mac/Linux) を編集して使用してください。
 
-### 菴ｿ縺・婿
+### 使い方
 
-1. 繝輔ぃ繧､繝ｫ繧帝幕縺・
-2. PROJECT_ID縲，LOUD_SQL_INSTANCE縲√ヱ繧ｹ繝ｯ繝ｼ繝峨↑縺ｩ繧定ｨｭ螳・
-3. 螳溯｡・
+1. ファイルを開く
+2. PROJECT_ID、CLOUD_SQL_INSTANCE、パスワードなどを設定
+3. 実行:
    - Windows: `.\deploy.ps1`
    - Mac/Linux: `./deploy.sh`
 
-## 繧ｻ繧ｭ繝･繝ｪ繝・ぅ豕ｨ諢丈ｺ矩・
+## セキュリティ注意事項
 
-- JWT_SECRET 縺ｯ蠢・★螟画峩縺励※縺上□縺輔＞
-- DB_PASSWORD 縺ｯ蠑ｷ蜉帙↑繝代せ繝ｯ繝ｼ繝峨ｒ險ｭ螳壹＠縺ｦ縺上□縺輔＞
-- 譛ｬ逡ｪ迺ｰ蠅・〒縺ｯ `/debug/env` 繧ｨ繝ｳ繝峨・繧､繝ｳ繝医ｒ蜑企勁縺吶ｋ縺薙→繧呈耳螂ｨ
-- deploy.ps1 縺ｨ deploy.sh 縺ｫ縺ｯ讖溷ｯ・ュ蝣ｱ縺悟性縺ｾ繧後ｋ縺溘ａ縲・gitignore縺ｫ霑ｽ蜉貂医∩
+- JWT_SECRET は必ず変更してください
+- DB_PASSWORD は強力なパスワードを設定してください
+- 本番環境では `/debug/env` エンドポイントを削除することを推奨
+- deploy.ps1 と deploy.sh には機密情報が含まれるため、.gitignoreに追加済み

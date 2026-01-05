@@ -34,7 +34,7 @@ body {
     font-weight: 600;
 }
 
-/* 繧ｿ繝悶Γ繝九Η繝ｼ */
+/* タブメニュー */
 .tab-menu {
     display: flex;
     background: #f5f5f5;
@@ -436,7 +436,7 @@ body {
     color: #f44336;
 }
 
-/* 繝ｦ繝ｼ繧ｶ繝ｼ邂｡逅・ユ繝ｼ繝悶Ν */
+/* ユーザー管理テーブル */
 .users-table {
     width: 100%;
     border-collapse: collapse;
@@ -533,7 +533,7 @@ body {
     transform: translateY(-1px);
 }
 
-/* 菫晏ｮ育畑霆翫Μ繧ｹ繝・*/
+/* 保守用車リスト */
 .vehicles-list {
     background: #f9f9f9;
     border-radius: 8px;
@@ -595,7 +595,7 @@ body {
     color: #c62828;
 }
 
-/* 繝・・繧ｿ繝吶・繧ｹ邂｡逅・*/
+/* データベース管理 */
 .db-status-card {
     background: white;
     border-radius: 8px;
@@ -647,7 +647,7 @@ body {
     color: #e65100;
 }
 
-/* 繝代ヵ繧ｩ繝ｼ繝槭Φ繧ｹ繧ｫ繝ｼ繝・*/
+/* パフォーマンスカード */
 .performance-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -689,7 +689,7 @@ body {
     border-radius: 4px;
 }
 
-/* 繝・・繝悶Ν繧ｵ繧､繧ｺ繝ｪ繧ｹ繝・*/
+/* テーブルサイズリスト */
 .table-sizes {
     background: white;
     border-radius: 8px;
@@ -725,7 +725,7 @@ body {
     font-size: 14px;
 }
 
-/* 繝・・繝悶Ν繝・・繧ｿ邂｡逅・*/
+/* テーブルデータ管理 */
 .table-selector {
     display: flex;
     gap: 10px;
@@ -829,7 +829,7 @@ body {
     background: #da190b;
 }
 
-/* 繝舌ャ繧ｯ繧｢繝・・繝ｻ蠕ｩ蜈・さ繝ｳ繝医Ο繝ｼ繝ｫ */
+/* バックアップ・復元コントロール */
 .backup-controls,
 .import-export-controls {
     display: flex;
@@ -906,7 +906,7 @@ body {
     opacity: 0.6;
 }
 
-/* 繝｢繝ｼ繝繝ｫ */
+/* モーダル */
 .modal {
     display: none;
     position: fixed;
@@ -1017,7 +1017,7 @@ body {
     margin-top: 20px;
 }
 
-/* 諠・ｱ繝懊ャ繧ｯ繧ｹ */
+/* 情報ボックス */
 .info-box {
     margin-top: 10px;
     padding: 10px;

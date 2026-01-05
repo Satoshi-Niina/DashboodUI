@@ -1,4 +1,4 @@
-// 譛蟆城剞縺ｮ繝・せ繝医し繝ｼ繝舌・
+// 最小限のテストサーバー
 const express = require('express');
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -15,10 +15,10 @@ app.get('/', (req, res) => {
 });
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`笨・Test server listening on 0.0.0.0:${PORT}`);
+  console.log(`✅ Test server listening on 0.0.0.0:${PORT}`);
 });
 
 server.on('error', (err) => {
-  console.error('笶・Server error:', err);
+  console.error('❌ Server error:', err);
   process.exit(1);
 });
