@@ -1,5 +1,5 @@
 ﻿document.addEventListener('DOMContentLoaded', () => {
-    // 隱崎ｨｼ繝√ぉ繝・け
+    // 認証チェック
     const token = localStorage.getItem('user_token');
     console.log('[Admin] Token check:', token ? 'Token exists' : 'No token found');
     console.log('[Admin] Initializing admin page...');
@@ -10,42 +10,42 @@
         return;
     }
 
-    // 繝ｦ繝ｼ繧ｶ繝ｼ諠・ｱ縺ｮ陦ｨ遉ｺ縺ｨ繝ｭ繝ｼ繝ｫ繝√ぉ繝・け
+    // ユーザー情報の表示とロールチェック
     const userInfo = JSON.parse(localStorage.getItem('user_info') || '{}');
     console.log('[Admin] User info:', userInfo);
     console.log('[Admin] User role:', userInfo.role);
     document.getElementById('admin-user').textContent = userInfo.displayName || userInfo.username;
 
-    // 繧ｷ繧ｹ繝・Β邂｡逅・・∪縺溘・驕狗畑邂｡逅・・・縺ｿ繧｢繧ｯ繧ｻ繧ｹ蜿ｯ閭ｽ
+    // システム管理者または運用管理者のみアクセス可能
     if (userInfo.role !== 'system_admin' && userInfo.role !== 'operation_admin') {
         console.error('[Admin] Access denied - role:', userInfo.role);
-        alert('繧｢繧ｯ繧ｻ繧ｹ讓ｩ髯舌′縺ゅｊ縺ｾ縺帙ｓ縲らｮ｡逅・・ｨｩ髯舌′蠢・ｦ√〒縺吶・);
+        alert('アクセス権限がありません。管理者権限が必要です。');
         window.location.href = '/index.html';
         return;
     }
     
     console.log('[Admin] Access granted for admin user');
 
-    // 繝｡繧､繝ｳ逕ｻ髱｢縺ｫ謌ｻ繧・
+    // メイン画面に戻る
     document.getElementById('back-to-main-btn').addEventListener('click', () => {
         window.location.href = '/index.html';
     });
 
-    // 繧ｿ繝匁ｩ溯・縺ｮ蛻晄悄蛹・
+    // タブ機能の初期化
     initializeTabs();
 
-    // 蛻晄悄繝ｭ繝ｼ繝・
+    // 初期ロード
     loadUsers();
     loadOffices();
     loadBases();
     loadDatabaseStats();
 
-    // 繧､繝吶Φ繝医Μ繧ｹ繝翫・縺ｮ蛻晄悄蛹・
+    // イベントリスナーの初期化
     initializeEventListeners();
     initializeCorsSettings();
 });
 
-// 繧ｿ繝匁ｩ溯・
+// タブ機能
 function initializeTabs() {
     const tabButtons = document.querySelectorAll('.tab-button');
     const tabContents = document.querySelectorAll('.tab-content');
@@ -53,7 +53,7 @@ function initializeTabs() {
     console.log('[initializeTabs] Found tab buttons:', tabButtons.length);
     console.log('[initializeTabs] Found tab contents:', tabContents.length);
 
-    // 譛蛻昴・繧ｿ繝悶ｒ繧｢繧ｯ繝・ぅ繝悶↓縺吶ｋ
+    // 最初のタブをアクティブにする
     if (tabButtons.length > 0) {
         tabButtons[0].classList.add('active');
         const firstTabName = tabButtons[0].getAttribute('data-tab');
@@ -72,11 +72,11 @@ function initializeTabs() {
             const tabName = button.getAttribute('data-tab');
             console.log('[Tab Click] Clicked tab:', tabName);
 
-            // 縺吶∋縺ｦ縺ｮ繧ｿ繝悶・繧ｿ繝ｳ縺ｨ繧ｳ繝ｳ繝・Φ繝・ｒ髱槭い繧ｯ繝・ぅ繝悶↓縺吶ｋ
+            // すべてのタブボタンとコンテンツを非アクティブにする
             tabButtons.forEach(btn => btn.classList.remove('active'));
             tabContents.forEach(content => content.style.display = 'none');
 
-            // 繧ｯ繝ｪ繝・け縺輔ｌ縺溘ち繝悶ｒ繧｢繧ｯ繝・ぅ繝悶↓縺吶ｋ
+            // クリックされたタブをアクティブにする
             button.classList.add('active');
             const targetTab = document.getElementById(`${tabName}-tab`);
             if (targetTab) {
@@ -86,7 +86,7 @@ function initializeTabs() {
                 console.error('[Tab Click] Tab content not found:', `${tabName}-tab`);
             }
 
-            // 繧ｿ繝悶↓蠢懊§縺ｦ繝・・繧ｿ繧定ｪｭ縺ｿ霎ｼ縺ｿ
+            // タブに応じてデータを読み込み
             if (tabName === 'user-management') {
                 loadUsers();
             } else if (tabName === 'office-master') {
@@ -105,15 +105,15 @@ function initializeTabs() {
     });
 }
 
-// 繧､繝吶Φ繝医Μ繧ｹ繝翫・縺ｮ蛻晄悄蛹・
+// イベントリスナーの初期化
 function initializeEventListeners() {
-    // 繝ｦ繝ｼ繧ｶ繝ｼ霑ｽ蜉繝懊ち繝ｳ
+    // ユーザー追加ボタン
     const addUserBtn = document.getElementById('add-new-user-btn');
     if (addUserBtn) {
         addUserBtn.addEventListener('click', () => openUserModal());
     }
 
-    // 繝ｦ繝ｼ繧ｶ繝ｼ繝｢繝ｼ繝繝ｫ縺ｮ繧､繝吶Φ繝医Μ繧ｹ繝翫・
+    // ユーザーモーダルのイベントリスナー
     const userModal = document.getElementById('user-modal');
     const userCloseModal = document.getElementById('modal-close');
     const userCancelBtn = document.getElementById('cancel-user-btn');
@@ -138,25 +138,25 @@ function initializeEventListeners() {
         });
     }
 
-    // 莠区･ｭ謇霑ｽ蜉繝懊ち繝ｳ
+    // 事業所追加ボタン
     const addOfficeBtn = document.getElementById('add-new-office-btn');
     if (addOfficeBtn) {
         addOfficeBtn.addEventListener('click', () => showOfficeModal('add', null));
     }
 
-    // 菫晏ｮ亥渕蝨ｰ霑ｽ蜉繝懊ち繝ｳ
+    // 保守基地追加ボタン
     const addBaseBtn = document.getElementById('add-new-base-btn');
     if (addBaseBtn) {
         addBaseBtn.addEventListener('click', () => showBaseModal('add', null));
     }
 
-    // 讖溽ｨｮ繝槭せ繧ｿ霑ｽ蜉繝懊ち繝ｳ
+    // 機種マスタ追加ボタン
     const addMachineTypeBtn = document.getElementById('add-new-machine-type-btn');
     if (addMachineTypeBtn) {
         addMachineTypeBtn.addEventListener('click', () => openMachineTypeModal());
     }
 
-    // 讖溽ｨｮ繝槭せ繧ｿ繝｢繝ｼ繝繝ｫ縺ｮ繧､繝吶Φ繝医Μ繧ｹ繝翫・
+    // 機種マスタモーダルのイベントリスナー
     const machineTypeModal = document.getElementById('machine-type-modal');
     const machineTypeCloseModal = document.getElementById('machine-type-modal-close');
     const machineTypeCancelBtn = document.getElementById('cancel-machine-type-btn');
@@ -181,13 +181,13 @@ function initializeEventListeners() {
         });
     }
 
-    // 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ霑ｽ蜉繝懊ち繝ｳ
+    // 機械番号マスタ追加ボタン
     const addMachineBtn = document.getElementById('add-new-machine-btn');
     if (addMachineBtn) {
         addMachineBtn.addEventListener('click', () => openMachineModal());
     }
 
-    // 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ繝｢繝ｼ繝繝ｫ縺ｮ繧､繝吶Φ繝医Μ繧ｹ繝翫・
+    // 機械番号マスタモーダルのイベントリスナー
     const machineModal = document.getElementById('machine-modal');
     const machineCloseModal = document.getElementById('machine-modal-close');
     const machineCancelBtn = document.getElementById('cancel-machine-btn');
@@ -212,11 +212,11 @@ function initializeEventListeners() {
         });
     }
 
-    // 繝・・繝悶Ν縺ｮ邱ｨ髮・・蜑企勁繝懊ち繝ｳ縺ｮ繧､繝吶Φ繝亥ｧ碑ｭｲ
+    // テーブルの編集・削除ボタンのイベント委譲
     document.addEventListener('click', (e) => {
         const target = e.target;
         
-        // 讖溽ｨｮ縺ｮ邱ｨ髮・・繧ｿ繝ｳ
+        // 機種の編集ボタン
         if (target.classList.contains('btn-edit') && target.dataset.action === 'edit-type') {
             e.preventDefault();
             const typeId = target.dataset.id;
@@ -224,7 +224,7 @@ function initializeEventListeners() {
             window.editMachineType(typeId);
         }
         
-        // 讖溽ｨｮ縺ｮ蜑企勁繝懊ち繝ｳ
+        // 機種の削除ボタン
         if (target.classList.contains('btn-delete') && target.dataset.action === 'delete-type') {
             e.preventDefault();
             const typeId = target.dataset.id;
@@ -233,7 +233,7 @@ function initializeEventListeners() {
             window.deleteMachineType(typeId, typeCode);
         }
         
-        // 菫晏ｮ育畑霆翫・邱ｨ髮・・繧ｿ繝ｳ
+        // 保守用車の編集ボタン
         if (target.classList.contains('btn-edit') && target.dataset.action === 'edit-machine') {
             e.preventDefault();
             const machineId = target.dataset.id;
@@ -241,7 +241,7 @@ function initializeEventListeners() {
             window.editMachine(machineId);
         }
         
-        // 菫晏ｮ育畑霆翫・蜑企勁繝懊ち繝ｳ
+        // 保守用車の削除ボタン
         if (target.classList.contains('btn-delete') && target.dataset.action === 'delete-machine') {
             e.preventDefault();
             const machineId = target.dataset.id;
@@ -252,10 +252,10 @@ function initializeEventListeners() {
     });
 }
 
-// ========== 繝ｦ繝ｼ繧ｶ繝ｼ邂｡逅・==========
+// ========== ユーザー管理 ==========
 async function loadUsers() {
     const usersList = document.getElementById('users-list');
-    usersList.innerHTML = '<p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>';
+    usersList.innerHTML = '<p class="loading">読み込み中...</p>';
 
     try {
         const token = localStorage.getItem('user_token');
@@ -275,16 +275,16 @@ async function loadUsers() {
 
         if (data.success && data.users.length > 0) {
             usersList.innerHTML = data.users.map(user => {
-                // 蠖ｹ蜑ｲ縺ｮ陦ｨ遉ｺ蜷阪ｒ蜿門ｾ・
-                let roleDisplayName = '繝ｦ繝ｼ繧ｶ繝ｼ';
+                // 役割の表示名を取得
+                let roleDisplayName = 'ユーザー';
                 if (user.role === 'system_admin') {
-                    roleDisplayName = '繧ｷ繧ｹ繝・Β邂｡逅・・;
+                    roleDisplayName = 'システム管理者';
                 } else if (user.role === 'operation_admin') {
-                    roleDisplayName = '驕狗畑邂｡逅・・;
+                    roleDisplayName = '運用管理者';
                 } else if (user.role === 'admin') {
-                    roleDisplayName = '邂｡逅・・;
+                    roleDisplayName = '管理者';
                 } else if (user.role === 'user') {
-                    roleDisplayName = '繝ｦ繝ｼ繧ｶ繝ｼ';
+                    roleDisplayName = 'ユーザー';
                 }
                 
                 return `
@@ -295,18 +295,18 @@ async function loadUsers() {
                             <span class="role-badge role-${user.role}">${roleDisplayName}</span>
                         </div>
                         <div class="user-actions-buttons">
-                            <button class="btn-edit" onclick="editUser(${user.id})">笨擾ｸ・邱ｨ髮・/button>
-                            <button class="btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')">卵・・蜑企勁</button>
+                            <button class="btn-edit" onclick="editUser(${user.id})">✏️ 編集</button>
+                            <button class="btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')">🗑️ 削除</button>
                         </div>
                     </div>
                 `;
             }).join('');
         } else {
-            usersList.innerHTML = '<p class="loading">繝ｦ繝ｼ繧ｶ繝ｼ縺檎匳骭ｲ縺輔ｌ縺ｦ縺・∪縺帙ｓ</p>';
+            usersList.innerHTML = '<p class="loading">ユーザーが登録されていません</p>';
         }
     } catch (error) {
         console.error('[loadUsers] Error:', error);
-        usersList.innerHTML = `<p class="loading" style="color: red;">笞・・繝ｦ繝ｼ繧ｶ繝ｼ縺ｮ隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆<br>繧ｨ繝ｩ繝ｼ: ${error.message}<br>繝・・繧ｿ繝吶・繧ｹ謗･邯壹ｒ遒ｺ隱阪＠縺ｦ縺上□縺輔＞</p>`;
+        usersList.innerHTML = `<p class="loading" style="color: red;">⚠️ ユーザーの読み込みに失敗しました<br>エラー: ${error.message}<br>データベース接続を確認してください</p>`;
     }
 }
 
@@ -319,10 +319,10 @@ function openUserModal(userId = null) {
     document.getElementById('user-id').value = '';
     
     if (userId) {
-        modalTitle.textContent = '繝ｦ繝ｼ繧ｶ繝ｼ繧堤ｷｨ髮・;
+        modalTitle.textContent = 'ユーザーを編集';
         loadUserData(userId);
     } else {
-        modalTitle.textContent = '繝ｦ繝ｼ繧ｶ繝ｼ繧定ｿｽ蜉';
+        modalTitle.textContent = 'ユーザーを追加';
     }
     
     modal.style.display = 'flex';
@@ -346,7 +346,7 @@ async function loadUserData(userId) {
         }
     } catch (error) {
         console.error('Failed to load user data:', error);
-        showToast('繝ｦ繝ｼ繧ｶ繝ｼ諠・ｱ縺ｮ隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+        showToast('ユーザー情報の読み込みに失敗しました', 'error');
     }
 }
 
@@ -384,16 +384,16 @@ async function saveUser() {
         console.log('[saveUser] Response data:', data);
 
         if (data.success) {
-            showToast(userId ? '繝ｦ繝ｼ繧ｶ繝ｼ繧呈峩譁ｰ縺励∪縺励◆' : '繝ｦ繝ｼ繧ｶ繝ｼ繧定ｿｽ蜉縺励∪縺励◆', 'success');
+            showToast(userId ? 'ユーザーを更新しました' : 'ユーザーを追加しました', 'success');
             document.getElementById('user-modal').style.display = 'none';
             loadUsers();
         } else {
             console.error('[saveUser] Save failed:', data.message);
-            showToast(data.message || '菫晏ｭ倥↓螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast(data.message || '保存に失敗しました', 'error');
         }
     } catch (error) {
         console.error('[saveUser] Failed to save user:', error);
-        showToast('菫晏ｭ倅ｸｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆: ' + error.message, 'error');
+        showToast('保存中にエラーが発生しました: ' + error.message, 'error');
     }
 }
 
@@ -402,7 +402,7 @@ function editUser(userId) {
 }
 
 async function deleteUser(userId, username) {
-    if (!confirm(`繝ｦ繝ｼ繧ｶ繝ｼ縲・{username}縲阪ｒ蜑企勁縺励※繧ゅｈ繧阪＠縺・〒縺吶°・歔)) {
+    if (!confirm(`ユーザー「${username}」を削除してもよろしいですか？`)) {
         return;
     }
 
@@ -416,21 +416,21 @@ async function deleteUser(userId, username) {
         const data = await response.json();
 
         if (data.success) {
-            showToast('繝ｦ繝ｼ繧ｶ繝ｼ繧貞炎髯､縺励∪縺励◆', 'success');
+            showToast('ユーザーを削除しました', 'success');
             loadUsers();
         } else {
-            showToast(data.message || '蜑企勁縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast(data.message || '削除に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Failed to delete user:', error);
-        showToast('蜑企勁荳ｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+        showToast('削除中にエラーが発生しました', 'error');
     }
 }
 
-// ========== 讖溽ｨｮ繝槭せ繧ｿ邂｡逅・==========
+// ========== 機種マスタ管理 ==========
 async function loadMachineTypes() {
     const list = document.getElementById('machine-types-list');
-    list.innerHTML = '<p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>';
+    list.innerHTML = '<p class="loading">読み込み中...</p>';
 
     try {
         const token = localStorage.getItem('user_token');
@@ -449,11 +449,11 @@ async function loadMachineTypes() {
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>讖溽ｨｮ繧ｳ繝ｼ繝・/th>
-                            <th>讖溽ｨｮ蜷・/th>
-                            <th>繝｡繝ｼ繧ｫ繝ｼ</th>
-                            <th>繧ｫ繝・ざ繝ｪ</th>
-                            <th>謫堺ｽ・/th>
+                            <th>機種コード</th>
+                            <th>機種名</th>
+                            <th>メーカー</th>
+                            <th>カテゴリ</th>
+                            <th>操作</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -470,8 +470,8 @@ async function loadMachineTypes() {
                         <td>${escapeHtml(type.manufacturer || '-')}</td>
                         <td>${escapeHtml(type.category || '-')}</td>
                         <td>
-                            <button class="btn-sm btn-edit" data-id="${typeId}" data-action="edit-type">邱ｨ髮・/button>
-                            <button class="btn-sm btn-delete" data-id="${typeId}" data-code="${escapeHtml(typeCode)}" data-action="delete-type">蜑企勁</button>
+                            <button class="btn-sm btn-edit" data-id="${typeId}" data-action="edit-type">編集</button>
+                            <button class="btn-sm btn-delete" data-id="${typeId}" data-code="${escapeHtml(typeCode)}" data-action="delete-type">削除</button>
                         </td>
                     </tr>
                 `;
@@ -480,11 +480,11 @@ async function loadMachineTypes() {
             html += `</tbody></table>`;
             list.innerHTML = html;
         } else {
-            list.innerHTML = '<p class="loading">讖溽ｨｮ縺檎匳骭ｲ縺輔ｌ縺ｦ縺・∪縺帙ｓ</p>';
+            list.innerHTML = '<p class="loading">機種が登録されていません</p>';
         }
     } catch (error) {
         console.error('[loadMachineTypes] Error:', error);
-        list.innerHTML = `<p class="loading" style="color: red;">笞・・讖溽ｨｮ縺ｮ隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆</p>`;
+        list.innerHTML = `<p class="loading" style="color: red;">⚠️ 機種の読み込みに失敗しました</p>`;
     }
 }
 
@@ -497,10 +497,10 @@ function openMachineTypeModal(machineTypeId = null) {
     document.getElementById('machine-type-id').value = '';
     
     if (machineTypeId) {
-        modalTitle.textContent = '邱ｨ髮・;
+        modalTitle.textContent = '編集';
         loadMachineTypeData(machineTypeId);
     } else {
-        modalTitle.textContent = '譁ｰ隕剰ｿｽ蜉';
+        modalTitle.textContent = '新規追加';
     }
     
     modal.style.display = 'flex';
@@ -516,7 +516,7 @@ async function loadMachineTypeData(machineTypeId) {
         const data = await response.json();
         
         if (data.success) {
-            // ID縺ｮ蝙九ｒ譟碑ｻ溘↓豈碑ｼ・ｼ域焚蛟､縺ｨ譁・ｭ怜・縺ｮ荳｡譁ｹ縺ｫ蟇ｾ蠢懶ｼ・
+            // IDの型を柔軟に比較（数値と文字列の両方に対応）
             const machineType = data.data.find(mt => String(mt.id) === String(machineTypeId));
             console.log('[loadMachineTypeData] Found machine type:', machineType);
             if (machineType) {
@@ -527,12 +527,12 @@ async function loadMachineTypeData(machineTypeId) {
                 document.getElementById('machine-type-description').value = machineType.description || '';
             } else {
                 console.error('[loadMachineTypeData] Machine type not found:', machineTypeId);
-                showToast('讖溽ｨｮ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ', 'error');
+                showToast('機種が見つかりません', 'error');
             }
         }
     } catch (error) {
         console.error('Failed to load machine type data:', error);
-        showToast('讖溽ｨｮ諠・ｱ縺ｮ隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+        showToast('機種情報の読み込みに失敗しました', 'error');
     }
 }
 
@@ -563,15 +563,15 @@ async function saveMachineType() {
         const data = await response.json();
 
         if (data.success) {
-            showToast(machineTypeId ? '讖溽ｨｮ繧呈峩譁ｰ縺励∪縺励◆' : '讖溽ｨｮ繧定ｿｽ蜉縺励∪縺励◆', 'success');
+            showToast(machineTypeId ? '機種を更新しました' : '機種を追加しました', 'success');
             document.getElementById('machine-type-modal').style.display = 'none';
             loadMachineTypes();
         } else {
-            showToast(data.message || '菫晏ｭ倥↓螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast(data.message || '保存に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Failed to save machine type:', error);
-        showToast('菫晏ｭ倅ｸｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+        showToast('保存中にエラーが発生しました', 'error');
     }
 }
 
@@ -581,17 +581,17 @@ function editMachineType(machineTypeId) {
         openMachineTypeModal(machineTypeId);
     } catch (error) {
         console.error('[editMachineType] Error:', error);
-        alert('邱ｨ髮・Δ繝ｼ繝繝ｫ繧帝幕縺城圀縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆: ' + error.message);
+        alert('編集モーダルを開く際にエラーが発生しました: ' + error.message);
     }
 }
 
-// 繧ｰ繝ｭ繝ｼ繝舌Ν縺ｫ蜈ｬ髢・
+// グローバルに公開
 window.editMachineType = editMachineType;
 console.log('[Global] editMachineType function registered:', typeof window.editMachineType);
 
 async function deleteMachineType(machineTypeId, typeCode) {
     console.log('[deleteMachineType] Called with ID:', machineTypeId);
-    if (!confirm(`讖溽ｨｮ縲・{typeCode}縲阪ｒ蜑企勁縺励※繧ゅｈ繧阪＠縺・〒縺吶°・歔)) {
+    if (!confirm(`機種「${typeCode}」を削除してもよろしいですか？`)) {
         return;
     }
 
@@ -605,24 +605,24 @@ async function deleteMachineType(machineTypeId, typeCode) {
         const data = await response.json();
 
         if (data.success) {
-            showToast('讖溽ｨｮ繧貞炎髯､縺励∪縺励◆', 'success');
+            showToast('機種を削除しました', 'success');
             loadMachineTypes();
         } else {
-            showToast(data.message || '蜑企勁縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast(data.message || '削除に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Failed to delete machine type:', error);
-        showToast('蜑企勁荳ｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+        showToast('削除中にエラーが発生しました', 'error');
     }
 }
 
-// 繧ｰ繝ｭ繝ｼ繝舌Ν縺ｫ蜈ｬ髢・
+// グローバルに公開
 window.deleteMachineType = deleteMachineType;
 
-// ========== 讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ邂｡逅・==========
+// ========== 機械番号マスタ管理 ==========
 async function loadMachines() {
     const list = document.getElementById('machines-list');
-    list.innerHTML = '<p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>';
+    list.innerHTML = '<p class="loading">読み込み中...</p>';
 
     try {
         const token = localStorage.getItem('user_token');
@@ -641,13 +641,13 @@ async function loadMachines() {
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>讖滓｢ｰ逡ｪ蜿ｷ</th>
-                            <th>讖溽ｨｮ</th>
-                            <th>繧ｷ繝ｪ繧｢繝ｫ逡ｪ蜿ｷ</th>
-                            <th>陬ｽ騾蟷ｴ譛域律</th>
-                            <th>驟榊ｱ槫渕蝨ｰ</th>
-                            <th>繧ｹ繝・・繧ｿ繧ｹ</th>
-                            <th>謫堺ｽ・/th>
+                            <th>機械番号</th>
+                            <th>機種</th>
+                            <th>シリアル番号</th>
+                            <th>製造年月日</th>
+                            <th>配属基地</th>
+                            <th>ステータス</th>
+                            <th>操作</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -664,10 +664,10 @@ async function loadMachines() {
                         <td>${escapeHtml(machine.serial_number || '-')}</td>
                         <td>${machine.manufacture_date ? new Date(machine.manufacture_date).toLocaleDateString('ja-JP') : '-'}</td>
                         <td>${escapeHtml(machine.base_name || '-')}</td>
-                        <td>${machine.status === 'active' ? '遞ｼ蜒堺ｸｭ' : machine.status === 'maintenance' ? '謨ｴ蛯吩ｸｭ' : '蟒・ｻ・}</td>
+                        <td>${machine.status === 'active' ? '稼働中' : machine.status === 'maintenance' ? '整備中' : '廃車'}</td>
                         <td>
-                            <button class="btn-sm btn-edit" data-id="${machineId}" data-action="edit-machine">邱ｨ髮・/button>
-                            <button class="btn-sm btn-delete" data-id="${machineId}" data-number="${escapeHtml(machineNumber)}" data-action="delete-machine">蜑企勁</button>
+                            <button class="btn-sm btn-edit" data-id="${machineId}" data-action="edit-machine">編集</button>
+                            <button class="btn-sm btn-delete" data-id="${machineId}" data-number="${escapeHtml(machineNumber)}" data-action="delete-machine">削除</button>
                         </td>
                     </tr>
                 `;
@@ -676,11 +676,11 @@ async function loadMachines() {
             html += `</tbody></table>`;
             list.innerHTML = html;
         } else {
-            list.innerHTML = '<p class="loading">讖滓｢ｰ逡ｪ蜿ｷ縺檎匳骭ｲ縺輔ｌ縺ｦ縺・∪縺帙ｓ</p>';
+            list.innerHTML = '<p class="loading">機械番号が登録されていません</p>';
         }
     } catch (error) {
         console.error('[loadMachines] Error:', error);
-        list.innerHTML = `<p class="loading" style="color: red;">笞・・讖滓｢ｰ逡ｪ蜿ｷ縺ｮ隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆</p>`;
+        list.innerHTML = `<p class="loading" style="color: red;">⚠️ 機械番号の読み込みに失敗しました</p>`;
     }
 }
 
@@ -693,21 +693,21 @@ async function openMachineModal(machineId = null) {
     const token = localStorage.getItem('user_token');
     
     if (!modal) {
-        console.error('[openMachineModal] 笶・Modal element not found!');
-        alert('繧ｨ繝ｩ繝ｼ: 繝｢繝ｼ繝繝ｫ縺瑚ｦ九▽縺九ｊ縺ｾ縺帙ｓ');
+        console.error('[openMachineModal] ❌ Modal element not found!');
+        alert('エラー: モーダルが見つかりません');
         return;
     }
     
     form.reset();
     document.getElementById('machine-id').value = '';
     
-    // 繝｢繝ｼ繝繝ｫ繧貞・縺ｫ陦ｨ遉ｺ
+    // モーダルを先に表示
     modal.style.display = 'flex';
-    console.log('[openMachineModal] 笨・Modal displayed');
+    console.log('[openMachineModal] ✅ Modal displayed');
     
-    // 讖溽ｨｮ繝ｪ繧ｹ繝医ｒ隱ｭ縺ｿ霎ｼ繧
+    // 機種リストを読み込む
     try {
-        console.log('[openMachineModal] 藤 Fetching machine types from /api/machine-types...');
+        console.log('[openMachineModal] 📡 Fetching machine types from /api/machine-types...');
         const machineTypesResponse = await fetch('/api/machine-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -719,7 +719,7 @@ async function openMachineModal(machineId = null) {
         }
         
         const machineTypesData = await machineTypesResponse.json();
-        console.log('[openMachineModal] 逃 Machine types data received:', machineTypesData);
+        console.log('[openMachineModal] 📦 Machine types data received:', machineTypesData);
         console.log('[openMachineModal] Success:', machineTypesData.success);
         console.log('[openMachineModal] Data array:', machineTypesData.data);
         console.log('[openMachineModal] Data count:', machineTypesData.data ? machineTypesData.data.length : 0);
@@ -727,20 +727,20 @@ async function openMachineModal(machineId = null) {
         if (machineTypesData.success && machineTypesData.data && Array.isArray(machineTypesData.data)) {
             const machineTypeSelect = document.getElementById('machine-type-select');
             if (!machineTypeSelect) {
-                console.error('[openMachineModal] 笶・machine-type-select element not found!');
-                showToast('讖溽ｨｮ驕ｸ謚樊ｬ・′隕九▽縺九ｊ縺ｾ縺帙ｓ', 'error');
+                console.error('[openMachineModal] ❌ machine-type-select element not found!');
+                showToast('機種選択欄が見つかりません', 'error');
                 return;
             }
             
-            console.log('[openMachineModal] 笨・machine-type-select found:', machineTypeSelect);
+            console.log('[openMachineModal] ✅ machine-type-select found:', machineTypeSelect);
             
-            const options = ['<option value="">-- 讖溽ｨｮ繧帝∈謚・--</option>'];
+            const options = ['<option value="">-- 機種を選択 --</option>'];
             console.log('[openMachineModal] Processing machine types...');
             
             machineTypesData.data.forEach((type, index) => {
                 const typeId = type.id;
                 const typeCode = type.type_code || '';
-                const typeName = type.type_name || '蜷榊燕縺ｪ縺・;
+                const typeName = type.type_name || '名前なし';
                 options.push(`<option value="${typeId}">${escapeHtml(typeCode)} - ${escapeHtml(typeName)}</option>`);
                 console.log(`[openMachineModal] Type ${index + 1}/${machineTypesData.data.length}:`, { 
                     id: typeId, 
@@ -750,21 +750,21 @@ async function openMachineModal(machineId = null) {
             });
             
             machineTypeSelect.innerHTML = options.join('');
-            console.log('[openMachineModal] 笨・Machine types loaded:', machineTypesData.data.length, 'items');
+            console.log('[openMachineModal] ✅ Machine types loaded:', machineTypesData.data.length, 'items');
             console.log('[openMachineModal] Select HTML length:', machineTypeSelect.innerHTML.length);
             console.log('[openMachineModal] Option elements:', machineTypeSelect.children.length);
         } else {
-            console.error('[openMachineModal] 笶・Invalid machine types response:', {
+            console.error('[openMachineModal] ❌ Invalid machine types response:', {
                 success: machineTypesData.success,
                 hasData: !!machineTypesData.data,
                 isArray: Array.isArray(machineTypesData.data),
                 message: machineTypesData.message
             });
-            showToast('讖溽ｨｮ繝・・繧ｿ縺ｮ隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast('機種データの読み込みに失敗しました', 'error');
         }
 
-        // 邂｡逅・ｺ区･ｭ謇繧定ｪｭ縺ｿ霎ｼ繧
-        console.log('[openMachineModal] 藤 Fetching offices from /api/offices...');
+        // 管理事業所を読み込む
+        console.log('[openMachineModal] 📡 Fetching offices from /api/offices...');
         const officesResponse = await fetch('/api/offices', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -776,7 +776,7 @@ async function openMachineModal(machineId = null) {
         }
         
         const officesData = await officesResponse.json();
-        console.log('[openMachineModal] 逃 Offices data received:', officesData);
+        console.log('[openMachineModal] 📦 Offices data received:', officesData);
         console.log('[openMachineModal] Success:', officesData.success);
         console.log('[openMachineModal] Offices array:', officesData.offices);
         console.log('[openMachineModal] Offices count:', officesData.offices ? officesData.offices.length : 0);
@@ -784,19 +784,19 @@ async function openMachineModal(machineId = null) {
         if (officesData.success && officesData.offices && Array.isArray(officesData.offices)) {
             const officeSelect = document.getElementById('machine-office-select');
             if (!officeSelect) {
-                console.error('[openMachineModal] 笶・machine-office-select element not found!');
-                showToast('莠区･ｭ謇驕ｸ謚樊ｬ・′隕九▽縺九ｊ縺ｾ縺帙ｓ', 'error');
+                console.error('[openMachineModal] ❌ machine-office-select element not found!');
+                showToast('事業所選択欄が見つかりません', 'error');
                 return;
             }
             
-            console.log('[openMachineModal] 笨・machine-office-select found:', officeSelect);
+            console.log('[openMachineModal] ✅ machine-office-select found:', officeSelect);
             
-            const options = ['<option value="">-- 莠区･ｭ謇繧帝∈謚・--</option>'];
+            const options = ['<option value="">-- 事業所を選択 --</option>'];
             console.log('[openMachineModal] Processing offices...');
             
             officesData.offices.forEach((office, index) => {
                 const officeId = office.office_id;
-                const officeName = office.office_name || '蜷榊燕縺ｪ縺・;
+                const officeName = office.office_name || '名前なし';
                 options.push(`<option value="${officeId}">${escapeHtml(officeName)}</option>`);
                 console.log(`[openMachineModal] Office ${index + 1}/${officesData.offices.length}:`, { 
                     id: officeId, 
@@ -805,31 +805,31 @@ async function openMachineModal(machineId = null) {
             });
             
             officeSelect.innerHTML = options.join('');
-            console.log('[openMachineModal] 笨・Offices loaded:', officesData.offices.length, 'items');
+            console.log('[openMachineModal] ✅ Offices loaded:', officesData.offices.length, 'items');
             console.log('[openMachineModal] Select HTML length:', officeSelect.innerHTML.length);
             console.log('[openMachineModal] Option elements:', officeSelect.children.length);
         } else {
-            console.error('[openMachineModal] 笶・Invalid offices response:', {
+            console.error('[openMachineModal] ❌ Invalid offices response:', {
                 success: officesData.success,
                 hasOffices: !!officesData.offices,
                 isArray: Array.isArray(officesData.offices),
                 message: officesData.message
             });
-            showToast('莠区･ｭ謇繝・・繧ｿ縺ｮ隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast('事業所データの読み込みに失敗しました', 'error');
         }
         
-        console.log('[openMachineModal] 笨・All data loaded successfully');
+        console.log('[openMachineModal] ✅ All data loaded successfully');
     } catch (error) {
-        console.error('[openMachineModal] 笶・CRITICAL ERROR:', error);
+        console.error('[openMachineModal] ❌ CRITICAL ERROR:', error);
         console.error('[openMachineModal] Error stack:', error.stack);
-        showToast('繝・・繧ｿ縺ｮ隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆: ' + error.message, 'error');
+        showToast('データの読み込み中にエラーが発生しました: ' + error.message, 'error');
     }
     
     if (machineId) {
-        modalTitle.textContent = '邱ｨ髮・;
+        modalTitle.textContent = '編集';
         await loadMachineData(machineId);
     } else {
-        modalTitle.textContent = '譁ｰ隕剰ｿｽ蜉';
+        modalTitle.textContent = '新規追加';
     }
     
     console.log('[openMachineModal] ===== END =====');
@@ -845,7 +845,7 @@ async function loadMachineData(machineId) {
         const data = await response.json();
         
         if (data.success) {
-            // ID縺ｮ蝙九ｒ譟碑ｻ溘↓豈碑ｼ・ｼ域焚蛟､縺ｨ譁・ｭ怜・縺ｮ荳｡譁ｹ縺ｫ蟇ｾ蠢懶ｼ・
+            // IDの型を柔軟に比較（数値と文字列の両方に対応）
             const machine = data.data.find(m => {
                 const mId = m.machine_id || m.id;
                 return String(mId) === String(machineId);
@@ -863,12 +863,12 @@ async function loadMachineData(machineId) {
                 document.getElementById('machine-notes').value = machine.notes || '';
             } else {
                 console.error('[loadMachineData] Machine not found:', machineId);
-                showToast('菫晏ｮ育畑霆翫′隕九▽縺九ｊ縺ｾ縺帙ｓ', 'error');
+                showToast('保守用車が見つかりません', 'error');
             }
         }
     } catch (error) {
         console.error('Failed to load machine data:', error);
-        showToast('菫晏ｮ育畑霆頑ュ蝣ｱ縺ｮ隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+        showToast('保守用車情報の読み込みに失敗しました', 'error');
     }
 }
 
@@ -903,15 +903,15 @@ async function saveMachine() {
         const data = await response.json();
 
         if (data.success) {
-            showToast(machineId ? '菫晏ｮ育畑霆翫ｒ譖ｴ譁ｰ縺励∪縺励◆' : '菫晏ｮ育畑霆翫ｒ霑ｽ蜉縺励∪縺励◆', 'success');
+            showToast(machineId ? '保守用車を更新しました' : '保守用車を追加しました', 'success');
             document.getElementById('machine-modal').style.display = 'none';
             loadMachines();
         } else {
-            showToast(data.message || '菫晏ｭ倥↓螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast(data.message || '保存に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Failed to save machine:', error);
-        showToast('菫晏ｭ倅ｸｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+        showToast('保存中にエラーが発生しました', 'error');
     }
 }
 
@@ -921,17 +921,17 @@ function editMachine(machineId) {
         openMachineModal(machineId);
     } catch (error) {
         console.error('[editMachine] Error:', error);
-        alert('邱ｨ髮・Δ繝ｼ繝繝ｫ繧帝幕縺城圀縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆: ' + error.message);
+        alert('編集モーダルを開く際にエラーが発生しました: ' + error.message);
     }
 }
 
-// 繧ｰ繝ｭ繝ｼ繝舌Ν縺ｫ蜈ｬ髢・
+// グローバルに公開
 window.editMachine = editMachine;
 console.log('[Global] editMachine function registered:', typeof window.editMachine);
 
 async function deleteMachine(machineId, machineNumber) {
     console.log('[deleteMachine] Called with ID:', machineId);
-    if (!confirm(`菫晏ｮ育畑霆翫・{machineNumber}縲阪ｒ蜑企勁縺励※繧ゅｈ繧阪＠縺・〒縺吶°・歔)) {
+    if (!confirm(`保守用車「${machineNumber}」を削除してもよろしいですか？`)) {
         return;
     }
 
@@ -945,24 +945,24 @@ async function deleteMachine(machineId, machineNumber) {
         const data = await response.json();
 
         if (data.success) {
-            showToast('菫晏ｮ育畑霆翫ｒ蜑企勁縺励∪縺励◆', 'success');
+            showToast('保守用車を削除しました', 'success');
             loadMachines();
         } else {
-            showToast(data.message || '蜑企勁縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast(data.message || '削除に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Failed to delete machine:', error);
-        showToast('蜑企勁荳ｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+        showToast('削除中にエラーが発生しました', 'error');
     }
 }
 
-// 繧ｰ繝ｭ繝ｼ繝舌Ν縺ｫ蜈ｬ髢・
+// グローバルに公開
 window.deleteMachine = deleteMachine;
 
-// ========== 莠区･ｭ謇繝槭せ繧ｿ ==========
+// ========== 事業所マスタ ==========
 async function loadOffices() {
     const officesList = document.getElementById('offices-list');
-    officesList.innerHTML = '<p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>';
+    officesList.innerHTML = '<p class="loading">読み込み中...</p>';
 
     try {
         const token = localStorage.getItem('user_token');
@@ -984,31 +984,31 @@ async function loadOffices() {
             officesList.innerHTML = data.offices.map(office => `
                 <div class="vehicle-item">
                     <div class="vehicle-info">
-                        <div class="vehicle-type">召 ${escapeHtml(office.office_name)}</div>
-                        <div class="vehicle-number">繧ｳ繝ｼ繝・ ${escapeHtml(office.office_code)} | ${escapeHtml(office.office_type || '-')}</div>
+                        <div class="vehicle-type">🏢 ${escapeHtml(office.office_name)}</div>
+                        <div class="vehicle-number">コード: ${escapeHtml(office.office_code)} | ${escapeHtml(office.office_type || '-')}</div>
                         <div class="vehicle-number" style="font-size: 12px; color: #666;">
-                            ${escapeHtml(office.address || '-')} | 雋ｬ莉ｻ閠・ ${escapeHtml(office.manager_name || '-')}
+                            ${escapeHtml(office.address || '-')} | 責任者: ${escapeHtml(office.manager_name || '-')}
                         </div>
                     </div>
                     <div class="user-actions-buttons">
-                        <button class="btn-edit" onclick="editOffice(${office.office_id})">笨擾ｸ・邱ｨ髮・/button>
-                        <button class="btn-delete" onclick="deleteOffice(${office.office_id}, '${escapeHtml(office.office_name)}')">卵・・蜑企勁</button>
+                        <button class="btn-edit" onclick="editOffice(${office.office_id})">✏️ 編集</button>
+                        <button class="btn-delete" onclick="deleteOffice(${office.office_id}, '${escapeHtml(office.office_name)}')">🗑️ 削除</button>
                     </div>
                 </div>
             `).join('');
         } else {
-            officesList.innerHTML = '<p class="loading">莠区･ｭ謇縺檎匳骭ｲ縺輔ｌ縺ｦ縺・∪縺帙ｓ</p>';
+            officesList.innerHTML = '<p class="loading">事業所が登録されていません</p>';
         }
     } catch (error) {
         console.error('[loadOffices] Error:', error);
-        officesList.innerHTML = `<p class="loading" style="color: red;">笞・・莠区･ｭ謇縺ｮ隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆<br>繧ｨ繝ｩ繝ｼ: ${error.message}<br>繝・・繧ｿ繝吶・繧ｹ謗･邯壹ｒ遒ｺ隱阪＠縺ｦ縺上□縺輔＞</p>`;
+        officesList.innerHTML = `<p class="loading" style="color: red;">⚠️ 事業所の読み込みに失敗しました<br>エラー: ${error.message}<br>データベース接続を確認してください</p>`;
     }
 }
 
 function showOfficeModal(mode, officeId) {
     const offices = [];
     if (mode === 'edit') {
-        // 譌｢蟄倥ョ繝ｼ繧ｿ繧貞叙蠕・
+        // 既存データを取得
         fetch(`/api/offices`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
         })
@@ -1029,43 +1029,43 @@ function createOfficeModal(mode, office) {
         <div id="office-modal" class="modal" style="display: block;">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>${mode === 'add' ? '譁ｰ隕丈ｺ区･ｭ謇霑ｽ蜉' : '莠区･ｭ謇邱ｨ髮・}</h2>
+                    <h2>${mode === 'add' ? '新規事業所追加' : '事業所編集'}</h2>
                     <button class="modal-close" onclick="closeOfficeModal()">&times;</button>
                 </div>
                 <form id="office-form" class="modal-form">
                     <div class="form-group">
-                        <label for="office_code">莠区･ｭ謇繧ｳ繝ｼ繝・/label>
-                        <input type="text" id="office_code" name="office_code" value="${office ? escapeHtml(office.office_code) : ''}" ${mode === 'edit' ? 'readonly' : ''} placeholder="遨ｺ谺・・蝣ｴ蜷医・閾ｪ蜍墓治逡ｪ縺輔ｌ縺ｾ縺・>
-                        ${mode === 'add' ? '<small>遨ｺ谺・・蝣ｴ蜷医・閾ｪ蜍慕噪縺ｫ謗｡逡ｪ縺輔ｌ縺ｾ縺・/small>' : ''}
+                        <label for="office_code">事業所コード</label>
+                        <input type="text" id="office_code" name="office_code" value="${office ? escapeHtml(office.office_code) : ''}" ${mode === 'edit' ? 'readonly' : ''} placeholder="空欄の場合は自動採番されます">
+                        ${mode === 'add' ? '<small>空欄の場合は自動的に採番されます</small>' : ''}
                     </div>
                     <div class="form-group">
-                        <label for="office_name">莠区･ｭ謇蜷・*</label>
+                        <label for="office_name">事業所名 *</label>
                         <input type="text" id="office_name" name="office_name" value="${office ? escapeHtml(office.office_name) : ''}" required>
                     </div>
                     <div class="form-group">
-                        <label for="office_type">莠区･ｭ謇蛹ｺ蛻・/label>
+                        <label for="office_type">事業所区分</label>
                         <select id="office_type" name="office_type">
-                            <option value="">-- 驕ｸ謚・--</option>
-                            <option value="譛ｬ遉ｾ" ${office && office.office_type === '譛ｬ遉ｾ' ? 'selected' : ''}>譛ｬ遉ｾ</option>
-                            <option value="謾ｯ蠎・ ${office && office.office_type === '謾ｯ蠎・ ? 'selected' : ''}>謾ｯ蠎・/option>
-                            <option value="蝟ｶ讌ｭ謇" ${office && office.office_type === '蝟ｶ讌ｭ謇' ? 'selected' : ''}>蝟ｶ讌ｭ謇</option>
+                            <option value="">-- 選択 --</option>
+                            <option value="本社" ${office && office.office_type === '本社' ? 'selected' : ''}>本社</option>
+                            <option value="支店" ${office && office.office_type === '支店' ? 'selected' : ''}>支店</option>
+                            <option value="営業所" ${office && office.office_type === '営業所' ? 'selected' : ''}>営業所</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="address">菴乗園</label>
+                        <label for="address">住所</label>
                         <input type="text" id="address" name="address" value="${office ? escapeHtml(office.address || '') : ''}">
                     </div>
                     <div class="form-group">
-                        <label for="postal_code">驛ｵ萓ｿ逡ｪ蜿ｷ</label>
+                        <label for="postal_code">郵便番号</label>
                         <input type="text" id="postal_code" name="postal_code" value="${office ? escapeHtml(office.postal_code || '') : ''}">
                     </div>
                     <div class="form-group">
-                        <label for="phone_number">髮ｻ隧ｱ逡ｪ蜿ｷ</label>
+                        <label for="phone_number">電話番号</label>
                         <input type="text" id="phone_number" name="phone_number" value="${office ? escapeHtml(office.phone_number || '') : ''}">
                     </div>
                     <div class="modal-actions">
-                        <button type="button" class="btn-secondary" onclick="closeOfficeModal()">繧ｭ繝｣繝ｳ繧ｻ繝ｫ</button>
-                        <button type="submit" class="btn-primary">菫晏ｭ・/button>
+                        <button type="button" class="btn-secondary" onclick="closeOfficeModal()">キャンセル</button>
+                        <button type="submit" class="btn-primary">保存</button>
                     </div>
                 </form>
             </div>
@@ -1101,15 +1101,15 @@ async function saveOffice(mode, officeId) {
         const result = await response.json();
 
         if (result.success) {
-            showToast(mode === 'add' ? '莠区･ｭ謇繧定ｿｽ蜉縺励∪縺励◆' : '莠区･ｭ謇繧呈峩譁ｰ縺励∪縺励◆', 'success');
+            showToast(mode === 'add' ? '事業所を追加しました' : '事業所を更新しました', 'success');
             closeOfficeModal();
             loadOffices();
         } else {
-            showToast(result.message || '菫晏ｭ倥↓螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast(result.message || '保存に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Save office error:', error);
-        showToast('菫晏ｭ倅ｸｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+        showToast('保存中にエラーが発生しました', 'error');
     }
 }
 
@@ -1118,7 +1118,7 @@ window.editOffice = function(officeId) {
 }
 
 window.deleteOffice = async function(officeId, officeName) {
-    if (!confirm(`莠区･ｭ謇縲・{officeName}縲阪ｒ蜑企勁縺励※繧ゅｈ繧阪＠縺・〒縺吶°・歔)) {
+    if (!confirm(`事業所「${officeName}」を削除してもよろしいですか？`)) {
         return;
     }
 
@@ -1132,14 +1132,14 @@ window.deleteOffice = async function(officeId, officeName) {
         const data = await response.json();
 
         if (data.success) {
-            showToast('莠区･ｭ謇繧貞炎髯､縺励∪縺励◆', 'success');
+            showToast('事業所を削除しました', 'success');
             loadOffices();
         } else {
-            showToast(data.message || '蜑企勁縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast(data.message || '削除に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Failed to delete office:', error);
-        showToast('蜑企勁荳ｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+        showToast('削除中にエラーが発生しました', 'error');
     }
 }
 
@@ -1148,10 +1148,10 @@ window.closeOfficeModal = function() {
     if (modal) modal.remove();
 }
 
-// ========== 菫晏ｮ亥渕蝨ｰ繝槭せ繧ｿ ==========
+// ========== 保守基地マスタ ==========
 async function loadBases() {
     const basesList = document.getElementById('bases-list');
-    basesList.innerHTML = '<p class="loading">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>';
+    basesList.innerHTML = '<p class="loading">読み込み中...</p>';
 
     try {
         const token = localStorage.getItem('user_token');
@@ -1173,29 +1173,29 @@ async function loadBases() {
             basesList.innerHTML = data.bases.map(base => `
                 <div class="vehicle-item">
                     <div class="vehicle-info">
-                        <div class="vehicle-type">女・・${escapeHtml(base.base_name)}</div>
-                        <div class="vehicle-number">繧ｳ繝ｼ繝・ ${escapeHtml(base.base_code)} | 莠区･ｭ謇: ${escapeHtml(base.office_name || '-')}</div>
+                        <div class="vehicle-type">🏗️ ${escapeHtml(base.base_name)}</div>
+                        <div class="vehicle-number">コード: ${escapeHtml(base.base_code)} | 事業所: ${escapeHtml(base.office_name || '-')}</div>
                         <div class="vehicle-number" style="font-size: 12px; color: #666;">
-                            ${escapeHtml(base.location || '-')} | 蜿主ｮｹ謨ｰ: ${base.capacity || '-'} | 雋ｬ莉ｻ閠・ ${escapeHtml(base.manager_name || '-')}
+                            ${escapeHtml(base.location || '-')} | 収容数: ${base.capacity || '-'} | 責任者: ${escapeHtml(base.manager_name || '-')}
                         </div>
                     </div>
                     <div class="user-actions-buttons">
-                        <button class="btn-edit" onclick="editBase(${base.base_id})">笨擾ｸ・邱ｨ髮・/button>
-                        <button class="btn-delete" onclick="deleteBase(${base.base_id}, '${escapeHtml(base.base_name)}')">卵・・蜑企勁</button>
+                        <button class="btn-edit" onclick="editBase(${base.base_id})">✏️ 編集</button>
+                        <button class="btn-delete" onclick="deleteBase(${base.base_id}, '${escapeHtml(base.base_name)}')">🗑️ 削除</button>
                     </div>
                 </div>
             `).join('');
         } else {
-            basesList.innerHTML = '<p class="loading">菫晏ｮ亥渕蝨ｰ縺檎匳骭ｲ縺輔ｌ縺ｦ縺・∪縺帙ｓ</p>';
+            basesList.innerHTML = '<p class="loading">保守基地が登録されていません</p>';
         }
     } catch (error) {
         console.error('[loadBases] Error:', error);
-        basesList.innerHTML = `<p class="loading" style="color: red;">笞・・菫晏ｮ亥渕蝨ｰ縺ｮ隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆<br>繧ｨ繝ｩ繝ｼ: ${error.message}<br>繝・・繧ｿ繝吶・繧ｹ謗･邯壹ｒ遒ｺ隱阪＠縺ｦ縺上□縺輔＞</p>`;
+        basesList.innerHTML = `<p class="loading" style="color: red;">⚠️ 保守基地の読み込みに失敗しました<br>エラー: ${error.message}<br>データベース接続を確認してください</p>`;
     }
 }
 
 async function showBaseModal(mode, baseId) {
-    // 莠区･ｭ謇繝ｪ繧ｹ繝医ｒ蜿門ｾ・
+    // 事業所リストを取得
     const token = localStorage.getItem('user_token');
     const officesRes = await fetch('/api/offices', {
         headers: { 'Authorization': `Bearer ${token}` }
@@ -1226,33 +1226,33 @@ function createBaseModal(mode, base, offices) {
         <div id="base-modal" class="modal" style="display: block;">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>${mode === 'add' ? '譁ｰ隕丈ｿ晏ｮ亥渕蝨ｰ霑ｽ蜉' : '菫晏ｮ亥渕蝨ｰ邱ｨ髮・}</h2>
+                    <h2>${mode === 'add' ? '新規保守基地追加' : '保守基地編集'}</h2>
                     <button class="modal-close" onclick="closeBaseModal()">&times;</button>
                 </div>
                 <form id="base-form" class="modal-form">
                     <div class="form-group">
-                        <label for="base_code">蝓ｺ蝨ｰ繧ｳ繝ｼ繝・/label>
-                        <input type="text" id="base_code" name="base_code" value="${base ? escapeHtml(base.base_code) : ''}" ${mode === 'edit' ? 'readonly' : ''} placeholder="遨ｺ谺・・蝣ｴ蜷医・閾ｪ蜍墓治逡ｪ縺輔ｌ縺ｾ縺・>
-                        ${mode === 'add' ? '<small>遨ｺ谺・・蝣ｴ蜷医・閾ｪ蜍慕噪縺ｫ謗｡逡ｪ縺輔ｌ縺ｾ縺・/small>' : ''}
+                        <label for="base_code">基地コード</label>
+                        <input type="text" id="base_code" name="base_code" value="${base ? escapeHtml(base.base_code) : ''}" ${mode === 'edit' ? 'readonly' : ''} placeholder="空欄の場合は自動採番されます">
+                        ${mode === 'add' ? '<small>空欄の場合は自動的に採番されます</small>' : ''}
                     </div>
                     <div class="form-group">
-                        <label for="base_name">蝓ｺ蝨ｰ蜷・*</label>
+                        <label for="base_name">基地名 *</label>
                         <input type="text" id="base_name" name="base_name" value="${base ? escapeHtml(base.base_name) : ''}" required>
                     </div>
                     <div class="form-group">
-                        <label for="office_id">謇螻樔ｺ区･ｭ謇</label>
+                        <label for="office_id">所属事業所</label>
                         <select id="office_id" name="office_id">
-                            <option value="">-- 驕ｸ謚・--</option>
+                            <option value="">-- 選択 --</option>
                             ${officeOptions}
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="location">謇蝨ｨ蝨ｰ</label>
+                        <label for="location">所在地</label>
                         <input type="text" id="location" name="location" value="${base ? escapeHtml(base.location || '') : ''}">
                     </div>
                     <div class="modal-actions">
-                        <button type="button" class="btn-secondary" onclick="closeBaseModal()">繧ｭ繝｣繝ｳ繧ｻ繝ｫ</button>
-                        <button type="submit" class="btn-primary">菫晏ｭ・/button>
+                        <button type="button" class="btn-secondary" onclick="closeBaseModal()">キャンセル</button>
+                        <button type="submit" class="btn-primary">保存</button>
                     </div>
                 </form>
             </div>
@@ -1288,15 +1288,15 @@ async function saveBase(mode, baseId) {
         const result = await response.json();
 
         if (result.success) {
-            showToast(mode === 'add' ? '菫晏ｮ亥渕蝨ｰ繧定ｿｽ蜉縺励∪縺励◆' : '菫晏ｮ亥渕蝨ｰ繧呈峩譁ｰ縺励∪縺励◆', 'success');
+            showToast(mode === 'add' ? '保守基地を追加しました' : '保守基地を更新しました', 'success');
             closeBaseModal();
             loadBases();
         } else {
-            showToast(result.message || '菫晏ｭ倥↓螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast(result.message || '保存に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Save base error:', error);
-        showToast('菫晏ｭ倅ｸｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+        showToast('保存中にエラーが発生しました', 'error');
     }
 }
 
@@ -1305,7 +1305,7 @@ window.editBase = function(baseId) {
 }
 
 window.deleteBase = async function(baseId, baseName) {
-    if (!confirm(`菫晏ｮ亥渕蝨ｰ縲・{baseName}縲阪ｒ蜑企勁縺励※繧ゅｈ繧阪＠縺・〒縺吶°・歔)) {
+    if (!confirm(`保守基地「${baseName}」を削除してもよろしいですか？`)) {
         return;
     }
 
@@ -1319,14 +1319,14 @@ window.deleteBase = async function(baseId, baseName) {
         const data = await response.json();
 
         if (data.success) {
-            showToast('菫晏ｮ亥渕蝨ｰ繧貞炎髯､縺励∪縺励◆', 'success');
+            showToast('保守基地を削除しました', 'success');
             loadBases();
         } else {
-            showToast(data.message || '蜑企勁縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast(data.message || '削除に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Failed to delete base:', error);
-        showToast('蜑企勁荳ｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+        showToast('削除中にエラーが発生しました', 'error');
     }
 }
 
@@ -1337,14 +1337,14 @@ window.closeBaseModal = function() {
 
 function getStatusLabel(status) {
     const labels = {
-        'active': '遞ｼ蜒堺ｸｭ',
-        'maintenance': '謨ｴ蛯吩ｸｭ',
-        'inactive': '蛛懈ｭ｢荳ｭ'
+        'active': '稼働中',
+        'maintenance': '整備中',
+        'inactive': '停止中'
     };
     return labels[status] || status;
 }
 
-// ========== 繝・・繧ｿ繝吶・繧ｹ邂｡逅・==========
+// ========== データベース管理 ==========
 async function loadDatabaseStats() {
     try {
         const token = localStorage.getItem('user_token');
@@ -1363,34 +1363,34 @@ async function loadDatabaseStats() {
         console.log('[loadDatabaseStats] Data received:', data);
 
         if (data.success) {
-            // 謗･邯夂憾諷・
+            // 接続状態
             const statusBadge = document.getElementById('db-connection-status');
             if (data.stats.connected) {
-                statusBadge.innerHTML = '<span class="status-badge status-connected">笨・謗･邯壻ｸｭ</span>';
+                statusBadge.innerHTML = '<span class="status-badge status-connected">✓ 接続中</span>';
             } else {
-                statusBadge.innerHTML = '<span class="status-badge status-error">笨・繧ｨ繝ｩ繝ｼ</span>';
+                statusBadge.innerHTML = '<span class="status-badge status-error">✕ エラー</span>';
             }
 
-            // 繝舌・繧ｸ繝ｧ繝ｳ
+            // バージョン
             document.getElementById('db-version').textContent = data.stats.version || '--';
 
-            // 謗･邯壽焚
+            // 接続数
             const connections = data.stats.connections || '--';
             document.getElementById('db-connections').textContent = connections;
             document.getElementById('connection-count').textContent = connections;
 
-            // 繝・ぅ繧ｹ繧ｯ菴ｿ逕ｨ邇・
+            // ディスク使用率
             const diskUsage = data.stats.disk_usage || 0;
             document.getElementById('disk-usage').textContent = diskUsage + '%';
             document.getElementById('disk-progress').style.width = diskUsage + '%';
 
-            // 繝・・繧ｿ繝吶・繧ｹ繧ｵ繧､繧ｺ
+            // データベースサイズ
             document.getElementById('db-size').textContent = data.stats.database_size || '--';
 
-            // 遞ｼ蜒肴凾髢・
+            // 稼働時間
             document.getElementById('uptime').textContent = data.stats.uptime || '--';
 
-            // 繝・・繝悶Ν繧ｵ繧､繧ｺ
+            // テーブルサイズ
             const tableSizes = document.getElementById('table-sizes');
             if (data.stats.table_sizes && data.stats.table_sizes.length > 0) {
                 tableSizes.innerHTML = data.stats.table_sizes.map(table => `
@@ -1400,7 +1400,7 @@ async function loadDatabaseStats() {
                     </div>
                 `).join('');
             } else {
-                tableSizes.innerHTML = '<p class="loading">繝・・繝悶Ν諠・ｱ縺後≠繧翫∪縺帙ｓ</p>';
+                tableSizes.innerHTML = '<p class="loading">テーブル情報がありません</p>';
             }
         } else {
             console.error('[loadDatabaseStats] Response not successful:', data);
@@ -1409,16 +1409,16 @@ async function loadDatabaseStats() {
         console.error('[loadDatabaseStats] Error:', error);
         const statusBadge = document.getElementById('db-connection-status');
         if (statusBadge) {
-            statusBadge.innerHTML = `<span class="status-badge status-error">笨・繧ｨ繝ｩ繝ｼ: ${error.message}</span>`;
+            statusBadge.innerHTML = `<span class="status-badge status-error">✕ エラー: ${error.message}</span>`;
         }
-        showToast('繝・・繧ｿ繝吶・繧ｹ諠・ｱ縺ｮ蜿門ｾ励↓螟ｱ謨励＠縺ｾ縺励◆', 'error');
+        showToast('データベース情報の取得に失敗しました', 'error');
     }
 
-    // 繝・・繝悶Ν邂｡逅・ｩ溯・縺ｮ蛻晄悄蛹・
+    // テーブル管理機能の初期化
     initializeTableManagement();
 }
 
-// 繝・・繝悶Ν邂｡逅・ｩ溯・
+// テーブル管理機能
 let currentTable = '';
 let currentTableData = [];
 let currentTableColumns = [];
@@ -1434,11 +1434,11 @@ function initializeTableManagement() {
     const restoreDbBtn = document.getElementById('restore-db-btn');
     const restoreFileInput = document.getElementById('restore-file-input');
 
-    // 繝・・繝悶Ν隱ｭ縺ｿ霎ｼ縺ｿ
+    // テーブル読み込み
     loadTableBtn.addEventListener('click', async () => {
         const selectedTable = tableSelect.value;
         if (!selectedTable) {
-            showToast('繝・・繝悶Ν繧帝∈謚槭＠縺ｦ縺上□縺輔＞', 'error');
+            showToast('テーブルを選択してください', 'error');
             return;
         }
         currentTable = selectedTable;
@@ -1447,16 +1447,16 @@ function initializeTableManagement() {
         importCsvBtn.disabled = false;
     });
 
-    // 譁ｰ隕上Ξ繧ｳ繝ｼ繝芽ｿｽ蜉
+    // 新規レコード追加
     addRecordBtn.addEventListener('click', () => {
         if (!currentTable) {
-            showToast('蜈医↓繝・・繝悶Ν繧帝∈謚槭＠縺ｦ縺上□縺輔＞', 'error');
+            showToast('先にテーブルを選択してください', 'error');
             return;
         }
         showRecordModal('add', null);
     });
 
-    // CSV繧ｨ繧ｯ繧ｹ繝昴・繝・
+    // CSVエクスポート
     exportCsvBtn.addEventListener('click', async () => {
         if (!currentTable) return;
         
@@ -1476,17 +1476,17 @@ function initializeTableManagement() {
                 a.click();
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
-                showToast('CSV繧ｨ繧ｯ繧ｹ繝昴・繝域・蜉・, 'success');
+                showToast('CSVエクスポート成功', 'success');
             } else {
-                showToast('繧ｨ繧ｯ繧ｹ繝昴・繝医↓螟ｱ謨励＠縺ｾ縺励◆', 'error');
+                showToast('エクスポートに失敗しました', 'error');
             }
         } catch (error) {
             console.error('Export error:', error);
-            showToast('繧ｨ繧ｯ繧ｹ繝昴・繝井ｸｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+            showToast('エクスポート中にエラーが発生しました', 'error');
         }
     });
 
-    // CSV繧､繝ｳ繝昴・繝・
+    // CSVインポート
     importCsvBtn.addEventListener('click', () => {
         importCsvFile.click();
     });
@@ -1515,20 +1515,20 @@ function initializeTableManagement() {
                     showToast(data.message, 'success');
                     await loadTableData(currentTable);
                 } else {
-                    showToast(data.message || '繧､繝ｳ繝昴・繝医↓螟ｱ謨励＠縺ｾ縺励◆', 'error');
+                    showToast(data.message || 'インポートに失敗しました', 'error');
                 }
             } catch (error) {
                 console.error('Import error:', error);
-                showToast('繧､繝ｳ繝昴・繝井ｸｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+                showToast('インポート中にエラーが発生しました', 'error');
             }
         };
         reader.readAsText(file);
-        e.target.value = ''; // 繝ｪ繧ｻ繝・ヨ
+        e.target.value = ''; // リセット
     });
 
-    // 繝・・繧ｿ繝吶・繧ｹ繝舌ャ繧ｯ繧｢繝・・
+    // データベースバックアップ
     backupDbBtn.addEventListener('click', async () => {
-        if (!confirm('繝・・繧ｿ繝吶・繧ｹ蜈ｨ菴薙・繝舌ャ繧ｯ繧｢繝・・繧剃ｽ懈・縺励∪縺吶°・・)) return;
+        if (!confirm('データベース全体のバックアップを作成しますか？')) return;
 
         try {
             const token = localStorage.getItem('user_token');
@@ -1548,19 +1548,19 @@ function initializeTableManagement() {
                 a.click();
                 window.URL.revokeObjectURL(url);
                 document.body.removeChild(a);
-                showToast('繝舌ャ繧ｯ繧｢繝・・謌仙粥', 'success');
+                showToast('バックアップ成功', 'success');
             } else {
-                showToast('繝舌ャ繧ｯ繧｢繝・・縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+                showToast('バックアップに失敗しました', 'error');
             }
         } catch (error) {
             console.error('Backup error:', error);
-            showToast('繝舌ャ繧ｯ繧｢繝・・荳ｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+            showToast('バックアップ中にエラーが発生しました', 'error');
         }
     });
 
-    // 繝・・繧ｿ繝吶・繧ｹ蠕ｩ蜈・
+    // データベース復元
     restoreDbBtn.addEventListener('click', () => {
-        if (!confirm('笞・・隴ｦ蜻・ 迴ｾ蝨ｨ縺ｮ繝・・繧ｿ繝吶・繧ｹ縺御ｸ頑嶌縺阪＆繧後∪縺吶よ悽蠖薙↓蠕ｩ蜈・＠縺ｾ縺吶°・・)) return;
+        if (!confirm('⚠️ 警告: 現在のデータベースが上書きされます。本当に復元しますか？')) return;
         restoreFileInput.click();
     });
 
@@ -1568,14 +1568,14 @@ function initializeTableManagement() {
         const file = e.target.files[0];
         if (!file) return;
 
-        showToast('蠕ｩ蜈・ｩ溯・縺ｯ謇句虚縺ｧ螳溯｡後＠縺ｦ縺上□縺輔＞・・sql 繧ｳ繝槭Φ繝我ｽｿ逕ｨ・・, 'error');
+        showToast('復元機能は手動で実行してください（psql コマンド使用）', 'error');
         e.target.value = '';
     });
 }
 
 async function loadTableData(schemaTable) {
     const container = document.getElementById('table-data-container');
-    container.innerHTML = '<p class="info-text">隱ｭ縺ｿ霎ｼ縺ｿ荳ｭ...</p>';
+    container.innerHTML = '<p class="info-text">読み込み中...</p>';
 
     try {
         const token = localStorage.getItem('user_token');
@@ -1590,13 +1590,13 @@ async function loadTableData(schemaTable) {
             currentTableColumns = result.columns;
 
             const columns = Object.keys(result.data[0]);
-            const primaryKey = columns[0]; // 莉ｮ縺ｫ譛蛻昴・繧ｫ繝ｩ繝繧剃ｸｻ繧ｭ繝ｼ縺ｨ縺吶ｋ
+            const primaryKey = columns[0]; // 仮に最初のカラムを主キーとする
 
             let tableHtml = '<table class="data-table"><thead><tr>';
             columns.forEach(col => {
                 tableHtml += `<th>${escapeHtml(col)}</th>`;
             });
-            tableHtml += '<th>謫堺ｽ・/th></tr></thead><tbody>';
+            tableHtml += '<th>操作</th></tr></thead><tbody>';
 
             result.data.forEach(row => {
                 tableHtml += '<tr>';
@@ -1605,36 +1605,36 @@ async function loadTableData(schemaTable) {
                     tableHtml += `<td>${escapeHtml(String(value !== null ? value : ''))}</td>`;
                 });
                 tableHtml += `<td class="action-buttons">
-                    <button class="btn-edit" onclick="editRecord('${escapeHtml(row[primaryKey])}')">笨擾ｸ・/button>
-                    <button class="btn-delete" onclick="deleteRecord('${escapeHtml(row[primaryKey])}')">卵・・/button>
+                    <button class="btn-edit" onclick="editRecord('${escapeHtml(row[primaryKey])}')">✏️</button>
+                    <button class="btn-delete" onclick="deleteRecord('${escapeHtml(row[primaryKey])}')">🗑️</button>
                 </td></tr>`;
             });
 
             tableHtml += '</tbody></table>';
             container.innerHTML = tableHtml;
         } else {
-            container.innerHTML = '<p class="info-text">繝・・繧ｿ縺後≠繧翫∪縺帙ｓ</p>';
+            container.innerHTML = '<p class="info-text">データがありません</p>';
         }
     } catch (error) {
         console.error('Load table data error:', error);
-        container.innerHTML = '<p class="info-text">繝・・繧ｿ縺ｮ隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆</p>';
+        container.innerHTML = '<p class="info-text">データの読み込みに失敗しました</p>';
     }
 }
 
 function showRecordModal(mode, recordId) {
-    // 繝｢繝ｼ繝繝ｫHTML逕滓・
+    // モーダルHTML生成
     const modalHtml = `
         <div id="record-modal" class="modal" style="display: block;">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h2>${mode === 'add' ? '譁ｰ隕上Ξ繧ｳ繝ｼ繝芽ｿｽ蜉' : '繝ｬ繧ｳ繝ｼ繝臥ｷｨ髮・}</h2>
+                    <h2>${mode === 'add' ? '新規レコード追加' : 'レコード編集'}</h2>
                     <button class="modal-close" onclick="closeRecordModal()">&times;</button>
                 </div>
                 <form id="record-form" class="modal-form">
                     ${generateFormFields(mode, recordId)}
                     <div class="modal-actions">
-                        <button type="button" class="btn-secondary" onclick="closeRecordModal()">繧ｭ繝｣繝ｳ繧ｻ繝ｫ</button>
-                        <button type="submit" class="btn-primary">菫晏ｭ・/button>
+                        <button type="button" class="btn-secondary" onclick="closeRecordModal()">キャンセル</button>
+                        <button type="submit" class="btn-primary">保存</button>
                     </div>
                 </form>
             </div>
@@ -1643,7 +1643,7 @@ function showRecordModal(mode, recordId) {
 
     document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-    // 繝輔か繝ｼ繝騾∽ｿ｡
+    // フォーム送信
     document.getElementById('record-form').addEventListener('submit', async (e) => {
         e.preventDefault();
         await saveRecord(mode, recordId);
@@ -1705,15 +1705,15 @@ async function saveRecord(mode, recordId) {
         const result = await response.json();
 
         if (result.success) {
-            showToast(mode === 'add' ? '霑ｽ蜉縺励∪縺励◆' : '譖ｴ譁ｰ縺励∪縺励◆', 'success');
+            showToast(mode === 'add' ? '追加しました' : '更新しました', 'success');
             closeRecordModal();
             await loadTableData(currentTable);
         } else {
-            showToast(result.message || '菫晏ｭ倥↓螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast(result.message || '保存に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Save record error:', error);
-        showToast('菫晏ｭ倅ｸｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+        showToast('保存中にエラーが発生しました', 'error');
     }
 }
 
@@ -1722,7 +1722,7 @@ async function editRecord(recordId) {
 }
 
 async function deleteRecord(recordId) {
-    if (!confirm('縺薙・繝ｬ繧ｳ繝ｼ繝峨ｒ蜑企勁縺励※繧ゅｈ繧阪＠縺・〒縺吶°・・)) return;
+    if (!confirm('このレコードを削除してもよろしいですか？')) return;
 
     try {
         const token = localStorage.getItem('user_token');
@@ -1734,14 +1734,14 @@ async function deleteRecord(recordId) {
         const result = await response.json();
 
         if (result.success) {
-            showToast('蜑企勁縺励∪縺励◆', 'success');
+            showToast('削除しました', 'success');
             await loadTableData(currentTable);
         } else {
-            showToast(result.message || '蜑企勁縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+            showToast(result.message || '削除に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Delete record error:', error);
-        showToast('蜑企勁荳ｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+        showToast('削除中にエラーが発生しました', 'error');
     }
 }
 
@@ -1753,7 +1753,7 @@ window.closeRecordModal = function() {
 window.editRecord = editRecord;
 window.deleteRecord = deleteRecord;
 
-// ========== CORS險ｭ螳夂ｮ｡逅・==========
+// ========== CORS設定管理 ==========
 async function loadCorsSettings() {
     try {
         const token = localStorage.getItem('user_token');
@@ -1779,11 +1779,11 @@ async function loadCorsSettings() {
         }
     } catch (error) {
         console.error('[loadCorsSettings] Error:', error);
-        showToast('CORS險ｭ螳壹・隱ｭ縺ｿ霎ｼ縺ｿ縺ｫ螟ｱ謨励＠縺ｾ縺励◆', 'error');
+        showToast('CORS設定の読み込みに失敗しました', 'error');
     }
 }
 
-// CORS險ｭ螳壹・蛻晄悄蛹・
+// CORS設定の初期化
 function initializeCorsSettings() {
     const saveCorsBtn = document.getElementById('save-cors-btn');
     if (saveCorsBtn) {
@@ -1791,7 +1791,7 @@ function initializeCorsSettings() {
             const corsOrigin = document.getElementById('cors_origin').value.trim();
             
             if (!corsOrigin) {
-                showToast('CORS險ｭ螳壹ｒ蜈･蜉帙＠縺ｦ縺上□縺輔＞', 'error');
+                showToast('CORS設定を入力してください', 'error');
                 return;
             }
 
@@ -1809,37 +1809,37 @@ function initializeCorsSettings() {
                 const data = await response.json();
 
                 if (data.success) {
-                    showToast('CORS險ｭ螳壹ｒ菫晏ｭ倥＠縺ｾ縺励◆', 'success');
+                    showToast('CORS設定を保存しました', 'success');
                 } else {
-                    showToast(data.message || '菫晏ｭ倥↓螟ｱ謨励＠縺ｾ縺励◆', 'error');
+                    showToast(data.message || '保存に失敗しました', 'error');
                 }
             } catch (error) {
                 console.error('Failed to save CORS settings:', error);
-                showToast('菫晏ｭ倅ｸｭ縺ｫ繧ｨ繝ｩ繝ｼ縺檎匱逕溘＠縺ｾ縺励◆', 'error');
+                showToast('保存中にエラーが発生しました', 'error');
             }
         });
     }
 }
 
 // ========================================
-// 讖溽ｨｮ繝ｻ讖滓｢ｰ逡ｪ蜿ｷ繝槭せ繧ｿ邂｡逅・
+// 機種・機械番号マスタ管理
 // ========================================
 
-// 讖溽ｨｮ繝槭せ繧ｿ縺ｮ繧､繝吶Φ繝医Μ繧ｹ繝翫・蛻晄悄蛹・
+// 機種マスタのイベントリスナー初期化
 function initializeMachineEventListeners() {
-    // 讖溽ｨｮ霑ｽ蜉繝懊ち繝ｳ
+    // 機種追加ボタン
     const addMachineTypeBtn = document.getElementById('add-new-machine-type-btn');
     if (addMachineTypeBtn) {
         addMachineTypeBtn.addEventListener('click', () => openMachineTypeModal());
     }
 
-    // 讖滓｢ｰ霑ｽ蜉繝懊ち繝ｳ
+    // 機械追加ボタン
     const addMachineBtn = document.getElementById('add-new-machine-btn');
     if (addMachineBtn) {
         addMachineBtn.addEventListener('click', () => openMachineModal());
     }
 
-    // 讖溽ｨｮ繝｢繝ｼ繝繝ｫ縺ｮ繧､繝吶Φ繝・
+    // 機種モーダルのイベント
     const machineTypeModal = document.getElementById('machine-type-modal');
     const machineTypeCloseModal = document.getElementById('machine-type-modal-close');
     const machineTypeCancelBtn = document.getElementById('cancel-machine-type-btn');
@@ -1861,7 +1861,7 @@ function initializeMachineEventListeners() {
         machineTypeForm.addEventListener('submit', handleMachineTypeSubmit);
     }
 
-    // 讖滓｢ｰ繝｢繝ｼ繝繝ｫ縺ｮ繧､繝吶Φ繝・
+    // 機械モーダルのイベント
     const machineModal = document.getElementById('machine-modal');
     const machineCloseModal = document.getElementById('machine-modal-close');
     const machineCancelBtn = document.getElementById('cancel-machine-btn');
@@ -1883,25 +1883,4 @@ function initializeMachineEventListeners() {
         machineForm.addEventListener('submit', handleMachineSubmit);
     }
 }
-
-// ========== ユーティリティ関数 ==========
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function showToast(message, type = 'success') {
-    const toast = document.getElementById('toast');
-    if (!toast) {
-        console.error('Toast element not found');
-        return;
-    }
-    toast.textContent = message;
-    toast.className = `toast show ${type}`;
-
-    setTimeout(() => {
-        toast.className = 'toast';
-    }, 3000);
-}
+
