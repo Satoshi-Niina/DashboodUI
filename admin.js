@@ -421,6 +421,9 @@ async function loadMachineTypes() {
             `;
 
             data.data.forEach(type => {
+                const typeId = String(type.id);
+                const typeCode = escapeHtml(type.type_code || '-');
+                console.log('[loadMachineTypes] Rendering type:', { id: typeId, code: typeCode });
                 html += `
                     <tr>
                         <td>${escapeHtml(type.type_code || '-')}</td>
@@ -428,8 +431,8 @@ async function loadMachineTypes() {
                         <td>${escapeHtml(type.manufacturer || '-')}</td>
                         <td>${escapeHtml(type.category || '-')}</td>
                         <td>
-                            <button class="btn-sm btn-edit" onclick="editMachineType('${type.id}')">編集</button>
-                            <button class="btn-sm btn-delete" onclick="deleteMachineType('${type.id}', '${escapeHtml(type.type_code)}')">削除</button>
+                            <button class="btn-sm btn-edit" onclick="window.editMachineType('${typeId}')">編集</button>
+                            <button class="btn-sm btn-delete" onclick="window.deleteMachineType('${typeId}', '${typeCode}')">削除</button>
                         </td>
                     </tr>
                 `;
@@ -612,8 +615,9 @@ async function loadMachines() {
             `;
 
             data.data.forEach(machine => {
-                const machineId = machine.machine_id || machine.id;
-                console.log('[loadMachines] Machine ID:', machineId, 'Type:', typeof machineId);
+                const machineId = String(machine.machine_id || machine.id);
+                const machineNumber = escapeHtml(machine.machine_number || '-');
+                console.log('[loadMachines] Rendering machine:', { id: machineId, number: machineNumber });
                 html += `
                     <tr>
                         <td>${escapeHtml(machine.machine_number || '-')}</td>
@@ -623,8 +627,11 @@ async function loadMachines() {
                         <td>${escapeHtml(machine.base_name || '-')}</td>
                         <td>${machine.status === 'active' ? '稼働中' : machine.status === 'maintenance' ? '整備中' : '廃車'}</td>
                         <td>
-                            <button class="btn-sm btn-edit" onclick="editMachine('${machineId}')">編集</button>
-                            <button class="btn-sm btn-delete" onclick="deleteMachine('${machineId}', '${escapeHtml(machine.machine_number)}')">削除</button>
+                            <button class="btn-sm btn-edit" onclick="window.editMachine('${machineId}')">編集</button>
+                            <button class="btn-sm btn-delete" onclick="window.deleteMachine('${machineId}', '${machineNumber}')">削除</button>
+                        </td>
+                    </tr>
+                `;
                         </td>
                     </tr>
                 `;
