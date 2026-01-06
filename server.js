@@ -225,15 +225,15 @@ async function resolveTablePath(logicalName) {
 
   try {
     // app_resource_routingテーブルから物理パスを取得
-    // 実際のテーブル構造: app_id, logical_resource_name, physical_schema, physical_table
+    // app_id = 'dashboard-ui' の場合は小文字、'master_data' の場合は大文字
     const query = `
       SELECT physical_schema, physical_table
       FROM public.app_resource_routing
-      WHERE logical_resource_name = $1
+      WHERE app_id = $1 AND logical_resource_name = $2
       LIMIT 1
     `;
-    console.log(`[Gateway] Querying routing for: ${logicalName}`);
-    const result = await pool.query(query, [logicalName.toUpperCase()]);
+    console.log(`[Gateway] Querying routing for: ${APP_ID}:${logicalName}`);
+    const result = await pool.query(query, [APP_ID, logicalName]);
 
     if (result.rows.length > 0) {
       const { physical_schema, physical_table } = result.rows[0];
