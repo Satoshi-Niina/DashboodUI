@@ -65,7 +65,7 @@ jobs:
             echo "Service doesn't exist yet, proceeding with new deployment"
           fi
       
-      - name: Build and Deploy to Cloud Run
+      - name: Build and Deploy to Cloud Run (Clean Build)
         id: deploy
         run: |
           gcloud run deploy ${{ env.SERVICE_NAME }} \
@@ -89,7 +89,8 @@ jobs:
             --cpu=2 \
             --timeout=3600 \
             --cpu-boost \
-            --no-cpu-throttling
+            --no-cpu-throttling \
+            --no-cache
       
       - name: Show logs on deployment failure
         if: failure() && steps.deploy.outcome == 'failure'
