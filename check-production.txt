@@ -1,0 +1,8 @@
+# 本番環境のログを確認
+https://console.cloud.google.com/run/detail/asia-northeast2/dashboodui/logs
+
+# 特に以下のログを探す：
+# [Gateway] Querying routing for: dashboard-ui:machines
+# [Gateway] ✅ Resolved: machines → master_data."machines"
+# または
+# [Gateway] ❌ Error resolving machines:

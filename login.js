@@ -53,17 +53,24 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             const data = await response.json();
+            console.log('[Login] Response data:', data);
 
             if (data.success) {
                 // 認証成功
-                // 本来はトークンを保存するが、今回はデモとしてダッシュボードへ直接遷移
+                console.log('[Login] Token:', data.token ? 'exists' : 'missing');
+                console.log('[Login] User data:', data.user);
+                
                 localStorage.setItem('user_token', data.token);
                 localStorage.setItem('user_info', JSON.stringify(data.user));
+                
+                console.log('[Login] Saved to localStorage');
+                console.log('[Login] Token check:', localStorage.getItem('user_token') ? 'OK' : 'FAILED');
+                console.log('[Login] User info check:', localStorage.getItem('user_info'));
 
                 // 成功アニメーションを表示してから遷移
                 btnText.textContent = 'リダイレクト中...';
                 setTimeout(() => {
-                    window.location.href = '/dashboard';
+                    window.location.href = '/index.html';
                 }, 800);
             } else {
                 // 認証失敗
