@@ -211,6 +211,45 @@ function initializeEventListeners() {
             await saveMachine();
         });
     }
+
+    // テーブルの編集・削除ボタンのイベント委譲
+    document.addEventListener('click', (e) => {
+        const target = e.target;
+        
+        // 機種の編集ボタン
+        if (target.classList.contains('btn-edit') && target.dataset.action === 'edit-type') {
+            e.preventDefault();
+            const typeId = target.dataset.id;
+            console.log('[Event] Edit machine type clicked:', typeId);
+            window.editMachineType(typeId);
+        }
+        
+        // 機種の削除ボタン
+        if (target.classList.contains('btn-delete') && target.dataset.action === 'delete-type') {
+            e.preventDefault();
+            const typeId = target.dataset.id;
+            const typeCode = target.dataset.code;
+            console.log('[Event] Delete machine type clicked:', { id: typeId, code: typeCode });
+            window.deleteMachineType(typeId, typeCode);
+        }
+        
+        // 保守用車の編集ボタン
+        if (target.classList.contains('btn-edit') && target.dataset.action === 'edit-machine') {
+            e.preventDefault();
+            const machineId = target.dataset.id;
+            console.log('[Event] Edit machine clicked:', machineId);
+            window.editMachine(machineId);
+        }
+        
+        // 保守用車の削除ボタン
+        if (target.classList.contains('btn-delete') && target.dataset.action === 'delete-machine') {
+            e.preventDefault();
+            const machineId = target.dataset.id;
+            const machineNumber = target.dataset.number;
+            console.log('[Event] Delete machine clicked:', { id: machineId, number: machineNumber });
+            window.deleteMachine(machineId, machineNumber);
+        }
+    });
 }
 
 // ========== ユーザー管理 ==========
@@ -422,7 +461,7 @@ async function loadMachineTypes() {
 
             data.data.forEach(type => {
                 const typeId = String(type.id);
-                const typeCode = escapeHtml(type.type_code || '-');
+                const typeCode = type.type_code || '-';
                 console.log('[loadMachineTypes] Rendering type:', { id: typeId, code: typeCode });
                 html += `
                     <tr>
@@ -431,8 +470,8 @@ async function loadMachineTypes() {
                         <td>${escapeHtml(type.manufacturer || '-')}</td>
                         <td>${escapeHtml(type.category || '-')}</td>
                         <td>
-                            <button class="btn-sm btn-edit" onclick="window.editMachineType('${typeId}')">編集</button>
-                            <button class="btn-sm btn-delete" onclick="window.deleteMachineType('${typeId}', '${typeCode}')">削除</button>
+                            <button class="btn-sm btn-edit" data-id="${typeId}" data-action="edit-type">編集</button>
+                            <button class="btn-sm btn-delete" data-id="${typeId}" data-code="${escapeHtml(typeCode)}" data-action="delete-type">削除</button>
                         </td>
                     </tr>
                 `;
@@ -616,7 +655,7 @@ async function loadMachines() {
 
             data.data.forEach(machine => {
                 const machineId = String(machine.machine_id || machine.id);
-                const machineNumber = escapeHtml(machine.machine_number || '-');
+                const machineNumber = machine.machine_number || '-';
                 console.log('[loadMachines] Rendering machine:', { id: machineId, number: machineNumber });
                 html += `
                     <tr>
@@ -627,8 +666,8 @@ async function loadMachines() {
                         <td>${escapeHtml(machine.base_name || '-')}</td>
                         <td>${machine.status === 'active' ? '稼働中' : machine.status === 'maintenance' ? '整備中' : '廃車'}</td>
                         <td>
-                            <button class="btn-sm btn-edit" onclick="window.editMachine('${machineId}')">編集</button>
-                            <button class="btn-sm btn-delete" onclick="window.deleteMachine('${machineId}', '${machineNumber}')">削除</button>
+                            <button class="btn-sm btn-edit" data-id="${machineId}" data-action="edit-machine">編集</button>
+                            <button class="btn-sm btn-delete" data-id="${machineId}" data-number="${escapeHtml(machineNumber)}" data-action="delete-machine">削除</button>
                         </td>
                     </tr>
                 `;
@@ -677,21 +716,24 @@ async function openMachineModal(machineId = null) {
         const machineTypesData = await machineTypesResponse.json();
         console.log('[openMachineModal] Machine types data:', machineTypesData);
 
-        if (machineTypesData.success && machineTypesData.data) {
+        if (machineTypesData.success && machineTypesData.data && Array.isArray(machineTypesData.data)) {
             const machineTypeSelect = document.getElementById('machine-type-select');
             if (!machineTypeSelect) {
                 console.error('[openMachineModal] machine-type-select element not found!');
+                showToast('機種選択欄が見つかりません', 'error');
             } else {
-                machineTypeSelect.innerHTML = '<option value="">-- 機種を選択 --</option>';
-                console.log('[openMachineModal] Adding machine type options:', machineTypesData.data);
+                const options = ['<option value="">-- 機種を選択 --</option>'];
+                console.log('[openMachineModal] Processing machine types:', machineTypesData.data);
                 machineTypesData.data.forEach((type, index) => {
-                    const optionHtml = `<option value="${type.id}">${type.type_code} - ${type.type_name}</option>`;
-                    console.log(`[openMachineModal] Option ${index + 1}:`, optionHtml);
-                    machineTypeSelect.innerHTML += optionHtml;
+                    const typeId = type.id;
+                    const typeCode = type.type_code || '';
+                    const typeName = type.type_name || '名前なし';
+                    options.push(`<option value="${typeId}">${typeCode} - ${typeName}</option>`);
+                    console.log(`[openMachineModal] Type ${index + 1}:`, { id: typeId, code: typeCode, name: typeName });
                 });
+                machineTypeSelect.innerHTML = options.join('');
                 console.log('[openMachineModal] Machine types loaded:', machineTypesData.data.length, 'options added');
-                console.log('[openMachineModal] Final select HTML:', machineTypeSelect.innerHTML);
-                console.log('[openMachineModal] Select element children count:', machineTypeSelect.children.length);
+                console.log('[openMachineModal] Select children:', machineTypeSelect.children.length);
             }
         } else {
             console.error('[openMachineModal] Machine types failed:', machineTypesData.message);
@@ -711,21 +753,23 @@ async function openMachineModal(machineId = null) {
         const officesData = await officesResponse.json();
         console.log('[openMachineModal] Offices data:', officesData);
 
-        if (officesData.success && officesData.offices) {
+        if (officesData.success && officesData.offices && Array.isArray(officesData.offices)) {
             const officeSelect = document.getElementById('machine-office-select');
             if (!officeSelect) {
                 console.error('[openMachineModal] machine-office-select element not found!');
+                showToast('事業所選択欄が見つかりません', 'error');
             } else {
-                officeSelect.innerHTML = '<option value="">-- 事業所を選択 --</option>';
-                console.log('[openMachineModal] Adding office options:', officesData.offices);
+                const options = ['<option value="">-- 事業所を選択 --</option>'];
+                console.log('[openMachineModal] Processing offices:', officesData.offices);
                 officesData.offices.forEach((office, index) => {
-                    const optionHtml = `<option value="${office.office_id}">${office.office_name}</option>`;
-                    console.log(`[openMachineModal] Office option ${index + 1}:`, optionHtml);
-                    officeSelect.innerHTML += optionHtml;
+                    const officeId = office.office_id;
+                    const officeName = office.office_name || '名前なし';
+                    options.push(`<option value="${officeId}">${officeName}</option>`);
+                    console.log(`[openMachineModal] Office ${index + 1}:`, { id: officeId, name: officeName });
                 });
+                officeSelect.innerHTML = options.join('');
                 console.log('[openMachineModal] Offices loaded:', officesData.offices.length, 'options added');
-                console.log('[openMachineModal] Final office select HTML:', officeSelect.innerHTML);
-                console.log('[openMachineModal] Office select element children count:', officeSelect.children.length);
+                console.log('[openMachineModal] Office select children:', officeSelect.children.length);
             }
         } else {
             console.error('[openMachineModal] Offices failed:', officesData.message);
