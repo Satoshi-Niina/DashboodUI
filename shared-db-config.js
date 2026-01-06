@@ -30,4 +30,26 @@ pool.on('error', (err) => {
   process.exit(-1);
 });
 
+// 接続確立時にsearch_pathを設定（本番環境対応）
+pool.on('connect', (client) => {
+  client.query('SET search_path TO master_data, public', (err) => {
+    if (err) {
+      console.error('Failed to set search_path:', err);
+    } else {
+      console.log('✅ search_path set to: master_data, public');
+    }
+  });
+});
+
+console.log('📊 Database Pool Configuration:');
+console.log('  - Environment:', isProduction ? 'PRODUCTION' : 'LOCAL');
+console.log('  - Connection:', isProduction ? 'Cloud SQL Unix Socket' : 'TCP Connection');
+if (isProduction) {
+  console.log('  - Socket Path:', `/cloudsql/${process.env.CLOUD_SQL_INSTANCE}`);
+  console.log('  - Database:', process.env.DB_NAME || 'webappdb');
+  console.log('  - User:', process.env.DB_USER);
+} else {
+  console.log('  - Connection String:', dbConfig.connectionString ? 'Configured' : 'Not Set');
+}
+
 module.exports = pool;

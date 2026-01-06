@@ -8,12 +8,15 @@ require('dotenv').config();
 
 console.log('🚀 Starting server...');
 console.log('Node version:', process.version);
-console.log('Environment:', process.env.NODE_ENV);
+console.log('Environment:', process.env.NODE_ENV || 'development');
 console.log('PORT from env:', process.env.PORT);
-console.log('Cloud SQL Instance:', process.env.CLOUD_SQL_INSTANCE);
-console.log('DB Name:', process.env.DB_NAME);
-console.log('DB User:', process.env.DB_USER);
+console.log('Cloud SQL Instance:', process.env.CLOUD_SQL_INSTANCE || 'NOT SET');
+console.log('DB Name:', process.env.DB_NAME || 'NOT SET');
+console.log('DB User:', process.env.DB_USER || 'NOT SET');
 console.log('JWT_SECRET set:', !!process.env.JWT_SECRET);
+console.log('CORS_ORIGIN:', process.env.CORS_ORIGIN || '*');
+console.log('APP_ID:', process.env.APP_ID || 'dashboard-ui');
+console.log('DATABASE_URL set:', !!process.env.DATABASE_URL);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -203,7 +206,7 @@ pool.on('error', (err) => {
 
 const APP_ID = process.env.APP_ID || 'dashboard-ui';
 const routingCache = new Map(); // { key: { fullPath, schema, table, timestamp } }
-const CACHE_TTL = 5 * 60 * 1000; // 5分
+const CACHE_TTL = 60 * 1000; // 1分（本番での即座な反映を重視）
 
 /**
  * 論理テーブル名から物理パスを解決
@@ -256,6 +259,9 @@ async function resolveTablePath(logicalName) {
   } catch (err) {
     console.error(`[Gateway] ❌ Error resolving ${logicalName}:`, err.message);
     console.error(`[Gateway] Error code:`, err.code);
+    console.error(`[Gateway] Error detail:`, err.detail || 'N/A');
+    console.error(`[Gateway] Query that failed:`, 'SELECT FROM public.app_resource_routing');
+    console.error(`[Gateway] Parameters:`, { APP_ID, logicalName });
     console.error(`[Gateway] Error stack:`, err.stack);
     // エラー時もmaster_dataスキーマにフォールバック
     const fallback = { 
@@ -301,11 +307,17 @@ async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'],
     
     console.log(`[DynamicDB] SELECT from ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
+    console.log(`[DynamicDB] Params:`, params);
     const result = await pool.query(query, params);
+    console.log(`[DynamicDB] ✅ SELECT success: ${result.rows.length} rows`);
     return result.rows;
   } catch (err) {
     console.error(`[DynamicDB] ❌ SELECT error for table ${logicalTableName}:`, err.message);
     console.error(`[DynamicDB] Error code:`, err.code);
+    console.error(`[DynamicDB] Error detail:`, err.detail || 'N/A');
+    console.error(`[DynamicDB] Executed Query:`, query);
+    console.error(`[DynamicDB] Query Parameters:`, params);
+    console.error(`[DynamicDB] Resolved Path:`, route.fullPath);
     console.error(`[DynamicDB] Error stack:`, err.stack);
     throw err;
   }
@@ -334,11 +346,17 @@ async function dynamicInsert(logicalTableName, data, returning = true) {
     
     console.log(`[DynamicDB] INSERT into ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
+    console.log(`[DynamicDB] Values:`, values);
     const result = await pool.query(query, values);
+    console.log(`[DynamicDB] ✅ INSERT success:`, result.rows[0]);
     return result.rows;
   } catch (err) {
     console.error(`[DynamicDB] ❌ INSERT error for table ${logicalTableName}:`, err.message);
     console.error(`[DynamicDB] Error code:`, err.code);
+    console.error(`[DynamicDB] Error detail:`, err.detail || 'N/A');
+    console.error(`[DynamicDB] Executed Query:`, query);
+    console.error(`[DynamicDB] Query Values:`, values);
+    console.error(`[DynamicDB] Resolved Path:`, route.fullPath);
     console.error(`[DynamicDB] Error stack:`, err.stack);
     throw err;
   }
@@ -376,11 +394,17 @@ async function dynamicUpdate(logicalTableName, data, conditions, returning = tru
     
     console.log(`[DynamicDB] UPDATE ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
+    console.log(`[DynamicDB] Params:`, [...setValues, ...conditionValues]);
     const result = await pool.query(query, [...setValues, ...conditionValues]);
+    console.log(`[DynamicDB] ✅ UPDATE success: ${result.rows.length} rows`);
     return result.rows;
   } catch (err) {
     console.error(`[DynamicDB] ❌ UPDATE error for table ${logicalTableName}:`, err.message);
     console.error(`[DynamicDB] Error code:`, err.code);
+    console.error(`[DynamicDB] Error detail:`, err.detail || 'N/A');
+    console.error(`[DynamicDB] Executed Query:`, query);
+    console.error(`[DynamicDB] Query Parameters:`, [...setValues, ...conditionValues]);
+    console.error(`[DynamicDB] Resolved Path:`, route.fullPath);
     console.error(`[DynamicDB] Error stack:`, err.stack);
     throw err;
   }
@@ -418,6 +442,10 @@ async function dynamicDelete(logicalTableName, conditions, returning = false) {
   } catch (err) {
     console.error(`[DynamicDB] ❌ DELETE error for table ${logicalTableName}:`, err.message);
     console.error(`[DynamicDB] Error code:`, err.code);
+    console.error(`[DynamicDB] Error detail:`, err.detail || 'N/A');
+    console.error(`[DynamicDB] Executed Query:`, query);
+    console.error(`[DynamicDB] Query Parameters:`, conditionValues);
+    console.error(`[DynamicDB] Resolved Path:`, route.fullPath);
     console.error(`[DynamicDB] Error stack:`, err.stack);
     throw err;
   }
@@ -440,6 +468,131 @@ function clearRoutingCache(logicalName = null) {
 
 // ========================================
 // ゲートウェイ機能ここまで
+// ========================================
+
+// ========================================
+// デバッグ用エンドポイント
+// 注意：接続確認優先のため、一時的に認証なしで公開
+// 本番環境で接続確認が完了したら認証を強化すること
+// ========================================
+
+// ルーティング情報確認エンドポイント（認証なし）
+app.get('/api/debug/routing', async (req, res) => {
+  try {
+    console.log('[DEBUG] Fetching routing table...');
+    const query = `
+      SELECT 
+        routing_id,
+        app_id,
+        logical_resource_name,
+        physical_schema,
+        physical_table,
+        is_active
+      FROM public.app_resource_routing 
+      WHERE is_active = true
+      ORDER BY app_id, logical_resource_name
+    `;
+    const result = await pool.query(query);
+    
+    res.json({ 
+      success: true, 
+      count: result.rows.length,
+      routing: result.rows,
+      cache_size: routingCache.size
+    });
+  } catch (err) {
+    console.error('[DEBUG] Routing fetch error:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'ルーティング情報の取得に失敗しました',
+      error: err.message 
+    });
+  }
+});
+
+// スキーマ存在チェックエンドポイント（認証なし）
+app.get('/api/debug/schema-check', async (req, res) => {
+  const { table, schema = 'master_data' } = req.query;
+  
+  if (!table) {
+    return res.status(400).json({ 
+      success: false, 
+      message: 'tableパラメータが必要です' 
+    });
+  }
+  
+  try {
+    console.log(`[DEBUG] Checking table: ${schema}.${table}`);
+    
+    // to_regclassを使用してテーブル存在確認
+    const existsQuery = `SELECT to_regclass($1) IS NOT NULL as exists`;
+    const existsResult = await pool.query(existsQuery, [`${schema}.${table}`]);
+    const exists = existsResult.rows[0].exists;
+    
+    if (!exists) {
+      return res.json({
+        success: true,
+        exists: false,
+        message: `テーブル ${schema}.${table} は存在しません`
+      });
+    }
+    
+    // カラム情報を取得
+    const columnsQuery = `
+      SELECT 
+        column_name,
+        data_type,
+        is_nullable,
+        column_default
+      FROM information_schema.columns
+      WHERE table_schema = $1 AND table_name = $2
+      ORDER BY ordinal_position
+    `;
+    const columnsResult = await pool.query(columnsQuery, [schema, table]);
+    
+    // レコード数を取得
+    const countQuery = `SELECT COUNT(*) as count FROM ${schema}."${table}"`;
+    const countResult = await pool.query(countQuery);
+    
+    res.json({
+      success: true,
+      exists: true,
+      schema: schema,
+      table: table,
+      columns: columnsResult.rows,
+      record_count: parseInt(countResult.rows[0].count)
+    });
+  } catch (err) {
+    console.error('[DEBUG] Schema check error:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'スキーマチェックに失敗しました',
+      error: err.message,
+      code: err.code
+    });
+  }
+});
+
+// 環境変数確認エンドポイント（認証なし - 接続確認優先）
+app.get('/api/debug/env', async (req, res) => {
+  res.json({
+    success: true,
+    environment: {
+      NODE_ENV: process.env.NODE_ENV || 'development',
+      PORT: process.env.PORT || '3000',
+      CLOUD_SQL_INSTANCE: process.env.CLOUD_SQL_INSTANCE || 'NOT SET',
+      DB_NAME: process.env.DB_NAME || 'NOT SET',
+      DB_USER: process.env.DB_USER || 'NOT SET',
+      DATABASE_URL: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
+      JWT_SECRET: process.env.JWT_SECRET ? 'SET' : 'NOT SET',
+      CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
+      APP_ID: process.env.APP_ID || 'dashboard-ui'
+    }
+  });
+});
+
+// ========================================
+// デバッグ用エンドポイントここまで
 // ========================================
 
 // Test DB Connection (非同期で実行、サーバー起動をブロックしない)
