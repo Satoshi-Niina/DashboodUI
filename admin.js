@@ -466,6 +466,7 @@ function openMachineTypeModal(machineTypeId = null) {
 
 async function loadMachineTypeData(machineTypeId) {
     try {
+        console.log('[loadMachineTypeData] Loading machine type:', machineTypeId, 'Type:', typeof machineTypeId);
         const token = localStorage.getItem('user_token');
         const response = await fetch('/api/machine-types', {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -473,13 +474,18 @@ async function loadMachineTypeData(machineTypeId) {
         const data = await response.json();
         
         if (data.success) {
-            const machineType = data.data.find(mt => mt.id === machineTypeId);
+            // IDの型を柔軟に比較（数値と文字列の両方に対応）
+            const machineType = data.data.find(mt => String(mt.id) === String(machineTypeId));
+            console.log('[loadMachineTypeData] Found machine type:', machineType);
             if (machineType) {
                 document.getElementById('machine-type-id').value = machineType.id;
                 document.getElementById('machine-type-name').value = machineType.type_name || '';
                 document.getElementById('machine-type-manufacturer').value = machineType.manufacturer || '';
                 document.getElementById('machine-type-category').value = machineType.category || '';
                 document.getElementById('machine-type-description').value = machineType.description || '';
+            } else {
+                console.error('[loadMachineTypeData] Machine type not found:', machineTypeId);
+                showToast('機種が見つかりません', 'error');
             }
         }
     } catch (error) {
@@ -592,6 +598,8 @@ async function loadMachines() {
             `;
 
             data.data.forEach(machine => {
+                const machineId = machine.machine_id || machine.id;
+                console.log('[loadMachines] Machine ID:', machineId, 'Type:', typeof machineId);
                 html += `
                     <tr>
                         <td>${escapeHtml(machine.machine_number || '-')}</td>
@@ -601,8 +609,8 @@ async function loadMachines() {
                         <td>${escapeHtml(machine.base_name || '-')}</td>
                         <td>${machine.status === 'active' ? '稼働中' : machine.status === 'maintenance' ? '整備中' : '廃車'}</td>
                         <td>
-                            <button class="btn-sm btn-edit" onclick="editMachine(${machine.machine_id})">編集</button>
-                            <button class="btn-sm btn-delete" onclick="deleteMachine(${machine.machine_id}, '${escapeHtml(machine.machine_number)}')">削除</button>
+                            <button class="btn-sm btn-edit" onclick="editMachine('${machineId}')">編集</button>
+                            <button class="btn-sm btn-delete" onclick="deleteMachine('${machineId}', '${escapeHtml(machine.machine_number)}')">削除</button>
                         </td>
                     </tr>
                 `;
@@ -672,6 +680,7 @@ async function openMachineModal(machineId = null) {
 
 async function loadMachineData(machineId) {
     try {
+        console.log('[loadMachineData] Loading machine:', machineId, 'Type:', typeof machineId);
         const token = localStorage.getItem('user_token');
         const response = await fetch('/api/machines', {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -679,9 +688,14 @@ async function loadMachineData(machineId) {
         const data = await response.json();
         
         if (data.success) {
-            const machine = data.data.find(m => m.machine_id === machineId);
+            // IDの型を柔軟に比較（数値と文字列の両方に対応）
+            const machine = data.data.find(m => {
+                const mId = m.machine_id || m.id;
+                return String(mId) === String(machineId);
+            });
+            console.log('[loadMachineData] Found machine:', machine);
             if (machine) {
-                document.getElementById('machine-id').value = machine.machine_id;
+                document.getElementById('machine-id').value = machine.machine_id || machine.id;
                 document.getElementById('machine-office-select').value = machine.office_id || '';
                 document.getElementById('machine-type-select').value = machine.machine_type_id || '';
                 document.getElementById('machine-number').value = machine.machine_number || '';
@@ -690,6 +704,9 @@ async function loadMachineData(machineId) {
                 document.getElementById('machine-manufacture-date').value = machine.manufacture_date || '';
                 document.getElementById('machine-purchase-date').value = machine.purchase_date || '';
                 document.getElementById('machine-notes').value = machine.notes || '';
+            } else {
+                console.error('[loadMachineData] Machine not found:', machineId);
+                showToast('保守用車が見つかりません', 'error');
             }
         }
     } catch (error) {
