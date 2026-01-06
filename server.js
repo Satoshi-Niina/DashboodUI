@@ -130,8 +130,9 @@ app.get('/', (req, res) => {
 
 // 静的ファイル配信（JSとCSSはキャッシュ無効化）
 app.use(express.static(path.join(__dirname), {
-  setHeaders: (res, path) => {
-    if (path.endsWith('.js') || path.endsWith('.css')) {
+  setHeaders: (res, filePath) => {
+    // JS、CSS、HTMLファイルはキャッシュ無効化
+    if (filePath.endsWith('.js') || filePath.endsWith('.css') || filePath.endsWith('.html')) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.setHeader('Pragma', 'no-cache');
       res.setHeader('Expires', '0');
