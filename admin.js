@@ -875,9 +875,11 @@ async function openVehicleModal(vehicleId = null) {
     form.reset();
     document.getElementById('vehicle-id').value = '';
     
-    // 新規登録フィールドを非表示にする
-    document.getElementById('new-machine-type-fields').style.display = 'none';
-    document.getElementById('new-machine-fields').style.display = 'none';
+    // 新規登録フィールドを非表示にする（存在する場合のみ）
+    const newMachineTypeFields = document.getElementById('new-machine-type-fields');
+    if (newMachineTypeFields) newMachineTypeFields.style.display = 'none';
+    const newMachineFields = document.getElementById('new-machine-fields');
+    if (newMachineFields) newMachineFields.style.display = 'none';
     
     // 機種マスタを読み込む
     try {
