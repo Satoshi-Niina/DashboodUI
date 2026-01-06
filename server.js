@@ -1222,186 +1222,6 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 
 
 
-// ========== 保守用車マスタ API ==========
-
-// 保守用車一覧取得エンドポイント（機種・機械番号・管理事業所を結合）
-app.get('/api/vehicles', requireAdmin, async (req, res) => {
-  try {
-    console.log('[GET /api/vehicles] Fetching vehicles...');
-    const vehiclesRoute = await resolveTablePath('vehicles');
-    const machinesRoute = await resolveTablePath('machines');
-    const machineTypesRoute = await resolveTablePath('machine_types');
-    const officesRoute = await resolveTablePath('managements_offices');
-    
-    console.log('[GET /api/vehicles] Routes resolved:', {
-      vehicles: vehiclesRoute.fullPath,
-      machines: machinesRoute.fullPath,
-      machineTypes: machineTypesRoute.fullPath,
-      offices: officesRoute.fullPath
-    });
-    
-    const query = `
-      SELECT 
-        v.vehicle_id,
-        v.vehicle_number,
-        v.model,
-        v.registration_number,
-        v.type_certification,
-        v.acquisition_date,
-        v.status,
-        m.id as machine_id,
-        m.machine_number,
-        mt.id as machine_type_id,
-        mt.type_code as machine_type_code,
-        mt.type_name as machine_type_name,
-        v.office_id,
-        o.office_name,
-        v.notes,
-        v.created_at,
-        v.updated_at
-      FROM ${vehiclesRoute.fullPath} v
-      LEFT JOIN ${machinesRoute.fullPath} m ON v.machine_id = m.id
-      LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id = mt.id
-      LEFT JOIN ${officesRoute.fullPath} o ON v.office_id = o.office_id
-      ORDER BY v.vehicle_id DESC
-    `;
-    console.log('[GET /api/vehicles] Executing query...');
-    const result = await pool.query(query);
-    console.log('[GET /api/vehicles] Query successful, rows:', result.rows.length);
-    res.json({ success: true, vehicles: result.rows });
-  } catch (err) {
-    console.error('[GET /api/vehicles] Vehicles get error:', err);
-    console.error('[GET /api/vehicles] Error stack:', err.stack);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
-  }
-});
-
-// 保守用車詳細取得エンドポイント
-app.get('/api/vehicles/:id', requireAdmin, async (req, res) => {
-  const vehicleId = req.params.id;
-
-  try {
-    const route = await resolveTablePath('vehicles');
-    const query = `
-      SELECT 
-        v.vehicle_id,
-        v.vehicle_number,
-        v.model,
-        v.registration_number,
-        v.machine_id,
-        v.office_id,
-        v.notes
-      FROM ${route.fullPath} v
-      WHERE v.vehicle_id = $1
-    `;
-    const result = await pool.query(query, [vehicleId]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: '車両が見つかりません' });
-    }
-
-    res.json({ success: true, vehicle: result.rows[0] });
-  } catch (err) {
-    console.error('Vehicle get error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
-  }
-});
-
-// 保守用車追加エンドポイント
-app.post('/api/vehicles', requireAdmin, async (req, res) => {
-  const username = req.user.username;
-  const { vehicle_number, machine_id, office_id, model, registration_number, type_certification, acquisition_date, notes } = req.body;
-
-  try {
-    // バリデーション
-    if (!machine_id) {
-      return res.status(400).json({ success: false, message: '機械番号は必須です' });
-    }
-
-    if (!office_id) {
-      return res.status(400).json({ success: false, message: '管理事業所は必須です' });
-    }
-
-    // 車両を追加（ゲートウェイ方式）
-    const vehicles = await dynamicInsert('vehicles', {
-      machine_id,
-      office_id,
-      registration_number: registration_number || null,
-      notes: notes || null
-    });
-
-    res.json({ success: true, vehicle: vehicles[0], message: '車両を追加しました' });
-  } catch (err) {
-    console.error('Vehicle create error:', err);
-    console.error('Error details:', err.message, err.stack);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
-  }
-});
-
-// 保守用車更新エンドポイント
-app.put('/api/vehicles/:id', requireAdmin, async (req, res) => {
-  const vehicleId = req.params.id;
-  const username = req.user.username;
-  
-  try {
-    const { vehicle_number, machine_id, office_id, model, registration_number, type_certification, acquisition_date, notes } = req.body;
-
-    // バリデーション
-    if (!machine_id) {
-      return res.status(400).json({ success: false, message: '機械番号は必須です' });
-    }
-
-    if (!office_id) {
-      return res.status(400).json({ success: false, message: '管理事業所は必須です' });
-    }
-
-    // 車両を更新（ゲートウェイ方式）
-    const vehicles = await dynamicUpdate('vehicles', 
-      {
-        vehicle_number: vehicle_number || null,
-        machine_id,
-        office_id,
-        model: model || null,
-        registration_number: registration_number || null,
-        type_certification: type_certification || null,
-        acquisition_date: acquisition_date || null,
-        notes: notes || null,
-        updated_at: new Date()
-      },
-      { vehicle_id: vehicleId }
-    );
-
-    if (vehicles.length === 0) {
-      return res.status(404).json({ success: false, message: '車両が見つかりません' });
-    }
-
-    res.json({ success: true, vehicle: vehicles[0], message: '車両を更新しました' });
-  } catch (err) {
-    console.error('Vehicle update error:', err);
-    console.error('Error details:', err.message, err.stack);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
-  }
-});
-
-// 保守用車削除エンドポイント
-app.delete('/api/vehicles/:id', requireAdmin, async (req, res) => {
-  const vehicleId = req.params.id;
-  
-  try {
-    // 車両を削除（ゲートウェイ方式）
-    const vehicles = await dynamicDelete('vehicles', { vehicle_id: vehicleId }, true);
-
-    if (vehicles.length === 0) {
-      return res.status(404).json({ success: false, message: '車両が見つかりません' });
-    }
-
-    res.json({ success: true, message: '車両を削除しました' });
-  } catch (err) {
-    console.error('Vehicle delete error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
-  }
-});
-
 // ========================================
 // 事業所マスタ API
 // ========================================
@@ -2369,7 +2189,7 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
 // 機械番号マスタ追加
 app.post('/api/machines', requireAdmin, async (req, res) => {
   try {
-    const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, notes, type_certification } = req.body;
+    const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, notes, type_certification, office_id } = req.body;
     
     if (!machine_number || !machine_type_id) {
       return res.status(400).json({ success: false, message: '機械番号と機種は必須です' });
@@ -2382,7 +2202,8 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
       manufacture_date,
       purchase_date,
       notes,
-      type_certification: type_certification || null
+      type_certification: type_certification || null,
+      office_id: office_id || null
     });
     res.json({ success: true, data: machines[0], message: '機械を追加しました' });
   } catch (err) {

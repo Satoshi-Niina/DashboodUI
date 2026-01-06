@@ -38,7 +38,6 @@ document.addEventListener('DOMContentLoaded', () => {
     loadUsers();
     loadOffices();
     loadBases();
-    loadVehicles();
     loadDatabaseStats();
 
     // イベントリスナーの初期化
@@ -97,7 +96,6 @@ function initializeTabs() {
             } else if (tabName === 'vehicle-master') {
                 loadMachineTypes();
                 loadMachines();
-                loadVehicles();
             } else if (tabName === 'database-management') {
                 loadDatabaseStats();
             } else if (tabName === 'cors-settings') {
@@ -211,37 +209,6 @@ function initializeEventListeners() {
         machineForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             await saveMachine();
-        });
-    }
-
-    // 保守用車追加ボタン
-    const addVehicleBtn = document.getElementById('add-new-vehicle-btn');
-    if (addVehicleBtn) {
-        addVehicleBtn.addEventListener('click', () => openVehicleModal());
-    }
-
-    // 保守用車モーダルのイベントリスナー
-    const vehicleModal = document.getElementById('vehicle-modal');
-    const vehicleCloseModal = document.getElementById('vehicle-modal-close');
-    const vehicleCancelBtn = document.getElementById('cancel-vehicle-btn');
-    const vehicleForm = document.getElementById('vehicle-form');
-
-    if (vehicleCloseModal) {
-        vehicleCloseModal.addEventListener('click', () => {
-            vehicleModal.style.display = 'none';
-        });
-    }
-
-    if (vehicleCancelBtn) {
-        vehicleCancelBtn.addEventListener('click', () => {
-            vehicleModal.style.display = 'none';
-        });
-    }
-
-    if (vehicleForm) {
-        vehicleForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            await saveVehicle();
         });
     }
 }
@@ -461,8 +428,8 @@ async function loadMachineTypes() {
                         <td>${escapeHtml(type.manufacturer || '-')}</td>
                         <td>${escapeHtml(type.category || '-')}</td>
                         <td>
-                            <button class="btn-sm btn-edit" onclick="editMachineType(${type.id})">編集</button>
-                            <button class="btn-sm btn-delete" onclick="deleteMachineType(${type.id}, '${escapeHtml(type.type_code)}')">削除</button>
+                            <button class="btn-sm btn-edit" onclick="editMachineType('${type.id}')">編集</button>
+                            <button class="btn-sm btn-delete" onclick="deleteMachineType('${type.id}', '${escapeHtml(type.type_code)}')">削除</button>
                         </td>
                     </tr>
                 `;
@@ -676,17 +643,17 @@ async function openMachineModal(machineId = null) {
             });
         }
 
-        // 配属基地を読み込む
-        const basesResponse = await fetch('/api/bases', {
+        // 管理事業所を読み込む
+        const officesResponse = await fetch('/api/offices', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        const basesData = await basesResponse.json();
+        const officesData = await officesResponse.json();
 
-        if (basesData.success) {
-            const baseSelect = document.getElementById('machine-assigned-base');
-            baseSelect.innerHTML = '<option value="">-- 配属基地を選択 --</option>';
-            basesData.bases.forEach(base => {
-                baseSelect.innerHTML += `<option value="${base.base_id}">${base.base_name}</option>`;
+        if (officesData.success) {
+            const officeSelect = document.getElementById('machine-office-select');
+            officeSelect.innerHTML = '<option value="">-- 事業所を選択 --</option>';
+            officesData.offices.forEach(office => {
+                officeSelect.innerHTML += `<option value="${office.office_id}">${office.office_name}</option>`;
             });
         }
     } catch (error) {
@@ -694,10 +661,10 @@ async function openMachineModal(machineId = null) {
     }
     
     if (machineId) {
-        modalTitle.textContent = '機械番号を編集';
+        modalTitle.textContent = '保守用車を編集';
         await loadMachineData(machineId);
     } else {
-        modalTitle.textContent = '機械番号を追加';
+        modalTitle.textContent = '保守用車を追加';
     }
     
     modal.style.display = 'flex';
@@ -715,6 +682,7 @@ async function loadMachineData(machineId) {
             const machine = data.data.find(m => m.machine_id === machineId);
             if (machine) {
                 document.getElementById('machine-id').value = machine.machine_id;
+                document.getElementById('machine-office-select').value = machine.office_id || '';
                 document.getElementById('machine-type-select').value = machine.machine_type_id || '';
                 document.getElementById('machine-number').value = machine.machine_number || '';
                 document.getElementById('machine-serial-number').value = machine.serial_number || '';
@@ -725,7 +693,7 @@ async function loadMachineData(machineId) {
         }
     } catch (error) {
         console.error('Failed to load machine data:', error);
-        showToast('機械番号情報の読み込みに失敗しました', 'error');
+        showToast('保守用車情報の読み込みに失敗しました', 'error');
     }
 }
 
@@ -734,6 +702,7 @@ async function saveMachine() {
     const token = localStorage.getItem('user_token');
     
     const machineData = {
+        office_id: document.getElementById('machine-office-select').value,
         machine_type_id: document.getElementById('machine-type-select').value,
         machine_number: document.getElementById('machine-number').value,
         serial_number: document.getElementById('machine-serial-number').value,
@@ -758,7 +727,7 @@ async function saveMachine() {
         const data = await response.json();
 
         if (data.success) {
-            showToast(machineId ? '機械番号を更新しました' : '機械番号を追加しました', 'success');
+            showToast(machineId ? '保守用車を更新しました' : '保守用車を追加しました', 'success');
             document.getElementById('machine-modal').style.display = 'none';
             loadMachines();
         } else {
@@ -775,7 +744,7 @@ function editMachine(machineId) {
 }
 
 async function deleteMachine(machineId, machineNumber) {
-    if (!confirm(`機械番号「${machineNumber}」を削除してもよろしいですか？`)) {
+    if (!confirm(`保守用車「${machineNumber}」を削除してもよろしいですか？`)) {
         return;
     }
 
@@ -789,7 +758,7 @@ async function deleteMachine(machineId, machineNumber) {
         const data = await response.json();
 
         if (data.success) {
-            showToast('機械番号を削除しました', 'success');
+            showToast('保守用車を削除しました', 'success');
             loadMachines();
         } else {
             showToast(data.message || '削除に失敗しました', 'error');
@@ -798,316 +767,6 @@ async function deleteMachine(machineId, machineNumber) {
         console.error('Failed to delete machine:', error);
         showToast('削除中にエラーが発生しました', 'error');
     }
-}
-
-// ========== 保守用車マスタ ==========
-async function loadVehicles() {
-    const vehiclesList = document.getElementById('vehicles-list');
-    vehiclesList.innerHTML = '<p class="loading">読み込み中...</p>';
-
-    try {
-        const token = localStorage.getItem('user_token');
-        console.log('[loadVehicles] Fetching vehicles...');
-        const response = await fetch('/api/vehicles', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        console.log('[loadVehicles] Response status:', response.status);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('[loadVehicles] Data received:', data);
-
-        if (data.success && data.vehicles.length > 0) {
-            let html = `
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>車両番号</th>
-                            <th>機種</th>
-                            <th>機械番号</th>
-                            <th>管理事業所</th>
-                            <th>型式認定</th>
-                            <th>取得年月日</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            `;
-
-            data.vehicles.forEach(vehicle => {
-                html += `
-                    <tr>
-                        <td>${escapeHtml(vehicle.vehicle_number || '-')}</td>
-                        <td>${escapeHtml(vehicle.machine_type_name || '-')}</td>
-                        <td>${escapeHtml(vehicle.machine_number || '-')}</td>
-                        <td>${escapeHtml(vehicle.office_name || '-')}</td>
-                        <td>${escapeHtml(vehicle.type_certification || '-')}</td>
-                        <td>${vehicle.acquisition_date ? new Date(vehicle.acquisition_date).toLocaleDateString('ja-JP') : '-'}</td>
-                        <td>
-                            <button class="btn-sm btn-edit" onclick="editVehicle(${vehicle.vehicle_id})">編集</button>
-                            <button class="btn-sm btn-delete" onclick="deleteVehicle(${vehicle.vehicle_id}, '${escapeHtml(vehicle.vehicle_number || vehicle.machine_number)}')">削除</button>
-                        </td>
-                    </tr>
-                `;
-            });
-
-            html += `</tbody></table>`;
-            vehiclesList.innerHTML = html;
-        } else {
-            vehiclesList.innerHTML = '<p class="loading">保守用車が登録されていません</p>';
-        }
-    } catch (error) {
-        console.error('[loadVehicles] Error:', error);
-        vehiclesList.innerHTML = `<p class="loading" style="color: red;">⚠️ 保守用車の読み込みに失敗しました<br>エラー: ${error.message}<br>データベース接続を確認してください</p>`;
-    }
-}
-
-async function openVehicleModal(vehicleId = null) {
-    const modal = document.getElementById('vehicle-modal');
-    const modalTitle = document.getElementById('vehicle-modal-title');
-    const form = document.getElementById('vehicle-form');
-    const token = localStorage.getItem('user_token');
-    
-    form.reset();
-    document.getElementById('vehicle-id').value = '';
-    
-    // 新規登録フィールドを非表示にする（存在する場合のみ）
-    const newMachineTypeFields = document.getElementById('new-machine-type-fields');
-    if (newMachineTypeFields) newMachineTypeFields.style.display = 'none';
-    const newMachineFields = document.getElementById('new-machine-fields');
-    if (newMachineFields) newMachineFields.style.display = 'none';
-    
-    // 機種マスタを読み込む
-    try {
-        const machineTypesResponse = await fetch('/api/machine-types', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const machineTypesData = await machineTypesResponse.json();
-
-        if (machineTypesData.success) {
-            const machineTypeSelect = document.getElementById('vehicle-machine-type');
-            machineTypeSelect.innerHTML = '<option value="">-- 機種を選択 --</option>';
-            machineTypeSelect.innerHTML += '<option value="__new__">➕ 新しい機種を登録</option>';
-            machineTypesData.data.forEach(type => {
-                machineTypeSelect.innerHTML += `<option value="${type.id}">${type.type_code} - ${type.type_name}</option>`;
-            });
-
-            // 機種選択時のイベント
-            machineTypeSelect.onchange = async () => {
-                const typeId = machineTypeSelect.value;
-                if (typeId === '__new__') {
-                    document.getElementById('new-machine-type-fields').style.display = 'block';
-                    // 新規機種の場合、機械番号も新規にする
-                    document.getElementById('vehicle-machine').value = '__new__';
-                    document.getElementById('new-machine-fields').style.display = 'block';
-                } else {
-                    document.getElementById('new-machine-type-fields').style.display = 'none';
-                    await loadMachinesForType(typeId);
-                }
-            };
-        }
-
-        // 全機械番号を読み込む
-        await loadMachinesForType(null);
-
-        // 機械番号選択時のイベント
-        const machineSelect = document.getElementById('vehicle-machine');
-        machineSelect.onchange = () => {
-            const machineId = machineSelect.value;
-            if (machineId === '__new__') {
-                document.getElementById('new-machine-fields').style.display = 'block';
-            } else {
-                document.getElementById('new-machine-fields').style.display = 'none';
-            }
-        };
-
-        // 配属基地を読み込む（新規機械用）
-        const basesResponse = await fetch('/api/bases', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const basesData = await basesResponse.json();
-
-        if (basesData.success) {
-            const newBaseSelect = document.getElementById('new-assigned-base');
-            newBaseSelect.innerHTML = '<option value="">-- 配属基地を選択 --</option>';
-            basesData.bases.forEach(base => {
-                newBaseSelect.innerHTML += `<option value="${base.base_id}">${base.base_name}</option>`;
-            });
-        }
-
-        // 事業所を読み込む
-        const officesResponse = await fetch('/api/offices', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const officesData = await officesResponse.json();
-
-        if (officesData.success) {
-            const officeSelect = document.getElementById('vehicle-office');
-            officeSelect.innerHTML = '<option value="">-- 事業所を選択 --</option>';
-            officesData.offices.forEach(office => {
-                officeSelect.innerHTML += `<option value="${office.office_id}">${office.office_name}</option>`;
-            });
-        }
-    } catch (error) {
-        console.error('Failed to load options:', error);
-    }
-    
-    if (vehicleId) {
-        modalTitle.textContent = '保守用車を編集';
-        await loadVehicleData(vehicleId);
-    } else {
-        modalTitle.textContent = '保守用車を追加';
-    }
-    
-    modal.style.display = 'flex';
-}
-
-async function loadMachinesForType(typeId) {
-    const token = localStorage.getItem('user_token');
-    const machineSelect = document.getElementById('vehicle-machine');
-    
-    try {
-        const response = await fetch('/api/machines', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await response.json();
-
-        if (data.success) {
-            machineSelect.innerHTML = '<option value="">-- 機械番号を選択 --</option>';
-            machineSelect.innerHTML += '<option value="__new__">➕ 新しい機械番号を登録</option>';
-            const filteredMachines = typeId 
-                ? data.data.filter(m => m.machine_type_id == typeId)
-                : data.data;
-                
-            filteredMachines.forEach(machine => {
-                machineSelect.innerHTML += `<option value="${machine.machine_id}">${machine.machine_number} (${machine.type_name || '機種未設定'})</option>`;
-            });
-        }
-    } catch (error) {
-        console.error('Failed to load machines:', error);
-    }
-}
-
-async function loadVehicleData(vehicleId) {
-    try {
-        const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/vehicles/${vehicleId}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const data = await response.json();
-        
-        if (data.success) {
-            const vehicle = data.vehicle;
-            document.getElementById('vehicle-id').value = vehicle.vehicle_id;
-            document.getElementById('vehicle-machine').value = vehicle.machine_id || '';
-            document.getElementById('vehicle-number').value = vehicle.vehicle_number || '';
-            document.getElementById('vehicle-type-text').value = vehicle.vehicle_type || '';
-            document.getElementById('vehicle-registration').value = vehicle.registration_number || '';
-            document.getElementById('vehicle-office').value = vehicle.office_id || '';
-            document.getElementById('vehicle-notes').value = vehicle.notes || '';
-        }
-    } catch (error) {
-        console.error('Failed to load vehicle data:', error);
-        showToast('保守用車情報の読み込みに失敗しました', 'error');
-    }
-}
-
-async function saveVehicle() {
-    const vehicleId = document.getElementById('vehicle-id').value;
-    const token = localStorage.getItem('user_token');
-    const machineId = document.getElementById('vehicle-machine').value;
-    const officeId = document.getElementById('vehicle-office').value;
-    
-    if (!machineId) {
-        showToast('機械番号を選択してください', 'error');
-        return;
-    }
-
-    if (!officeId) {
-        showToast('管理事業所を選択してください', 'error');
-        return;
-    }
-
-    try {
-        // 保守用車データを保存
-        const vehicleData = {
-            machine_id: machineId,
-            vehicle_number: document.getElementById('vehicle-number').value,
-            model: document.getElementById('vehicle-type-text').value,
-            type_certification: document.getElementById('vehicle-type-certification').value,
-            acquisition_date: document.getElementById('vehicle-acquisition-date').value,
-            office_id: officeId,
-            notes: document.getElementById('vehicle-notes').value
-        };
-
-        const url = vehicleId ? `/api/vehicles/${vehicleId}` : '/api/vehicles';
-        const method = vehicleId ? 'PUT' : 'POST';
-
-        const response = await fetch(url, {
-            method: method,
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify(vehicleData)
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            showToast(vehicleId ? '保守用車を更新しました' : '保守用車を追加しました', 'success');
-            document.getElementById('vehicle-modal').style.display = 'none';
-            loadVehicles();
-        } else {
-            showToast(data.message || '保存に失敗しました', 'error');
-        }
-    } catch (error) {
-        console.error('Failed to save vehicle:', error);
-        showToast('保存中にエラーが発生しました', 'error');
-    }
-}
-
-function editVehicle(vehicleId) {
-    openVehicleModal(vehicleId);
-}
-
-async function deleteVehicle(vehicleId, vehicleNumber) {
-    if (!confirm(`保守用車「${vehicleNumber}」を削除してもよろしいですか？`)) {
-        return;
-    }
-
-    try {
-        const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/vehicles/${vehicleId}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-            showToast('保守用車を削除しました', 'success');
-            loadVehicles();
-        } else {
-            showToast(data.message || '削除に失敗しました', 'error');
-        }
-    } catch (error) {
-        console.error('Failed to delete vehicle:', error);
-        showToast('削除中にエラーが発生しました', 'error');
-    }
-}
-
-function getStatusLabel(status) {
-    const labels = {
-        'active': '稼働中',
-        'maintenance': '整備中',
-        'inactive': '停止中'
-    };
-    return labels[status] || status;
 }
 
 // ========== 事業所マスタ ==========

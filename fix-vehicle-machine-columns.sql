@@ -1,4 +1,4 @@
--- 保守用車マスタと機種マスタのカラム再編成（完全版）
+-- 保守用車マスタと機種マスタのカラム再編成（最終版）
 -- 実行日: 2026-01-06
 
 -- ========================================
@@ -21,33 +21,16 @@ DROP COLUMN IF EXISTS serial_number CASCADE;
 ALTER TABLE master_data.machines 
 ADD COLUMN IF NOT EXISTS type_certification VARCHAR(100);
 
+-- office_id (管理事業所) カラムを追加
+ALTER TABLE master_data.machines 
+ADD COLUMN IF NOT EXISTS office_id INTEGER;
+
 -- ========================================
--- 3. vehicles テーブルからカラム削除
+-- 3. vehicles テーブルを完全削除
 -- ========================================
 
--- vehicle_number カラムを削除
-ALTER TABLE master_data.vehicles 
-DROP COLUMN IF EXISTS vehicle_number CASCADE;
-
--- model (型式) カラムを削除
-ALTER TABLE master_data.vehicles 
-DROP COLUMN IF EXISTS model CASCADE;
-
--- vehicle_type カラムを削除
-ALTER TABLE master_data.vehicles 
-DROP COLUMN IF EXISTS vehicle_type CASCADE;
-
--- manufacture_date (製造年月日) カラムを削除
-ALTER TABLE master_data.vehicles 
-DROP COLUMN IF EXISTS manufacture_date CASCADE;
-
--- acquisition_date (取得年月日) カラムを削除
-ALTER TABLE master_data.vehicles 
-DROP COLUMN IF EXISTS acquisition_date CASCADE;
-
--- type_certification (型式認定) カラムを削除（machinesに移動）
-ALTER TABLE master_data.vehicles 
-DROP COLUMN IF EXISTS type_certification CASCADE;
+-- vehiclesテーブルを削除（保守用車マスタは機械番号マスタに統合）
+DROP TABLE IF EXISTS master_data.vehicles CASCADE;
 
 -- ========================================
 -- 確認クエリ
@@ -63,10 +46,4 @@ ORDER BY ordinal_position;
 SELECT 'machines' as table_name, column_name, data_type
 FROM information_schema.columns
 WHERE table_schema = 'master_data' AND table_name = 'machines'
-ORDER BY ordinal_position;
-
--- vehicles の全カラム確認
-SELECT 'vehicles' as table_name, column_name, data_type
-FROM information_schema.columns
-WHERE table_schema = 'master_data' AND table_name = 'vehicles'
 ORDER BY ordinal_position;

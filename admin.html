@@ -84,12 +84,12 @@
                     </div>
                 </section>
 
-                <!-- 機械番号マスタ管理 -->
+                <!-- 保守用車管理マスタ -->
                 <section class="config-section">
-                    <h3>🔢 機械番号マスタ</h3>
+                    <h3>🚛 保守用車管理マスタ</h3>
                     <div class="user-actions">
                         <button type="button" id="add-new-machine-btn" class="btn-primary">
-                            ➕ 新規機械番号追加
+                            ➕ 新規保守用車追加
                         </button>
                     </div>
 
@@ -98,19 +98,6 @@
                     </div>
                 </section>
 
-                <!-- 保守用車登録 -->
-                <section class="config-section">
-                    <h3>🚛 保守用車登録</h3>
-                    <div class="user-actions">
-                        <button type="button" id="add-new-vehicle-btn" class="btn-primary">
-                            ➕ 新規車両追加
-                        </button>
-                    </div>
-
-                    <div id="vehicles-list" class="vehicles-list">
-                        <p class="loading">読み込み中...</p>
-                    </div>
-                </section>
             </div>
 
             <!-- 事業所マスタタブ -->
@@ -435,57 +422,6 @@
         </div>
     </div>
 
-    <!-- 保守用車追加・編集モーダル -->
-    <div id="vehicle-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="vehicle-modal-title">保守用車を追加</h3>
-                <button class="modal-close" id="vehicle-modal-close">&times;</button>
-            </div>
-            <form id="vehicle-form">
-                <input type="hidden" id="vehicle-id" name="vehicle_id">
-                
-                <!-- 機種の選択 -->
-                <div class="form-group">
-                    <label for="vehicle-machine-type">機種 *</label>
-                    <select id="vehicle-machine-type" name="machine_type_id" required>
-                        <option value="">-- 機種を選択 --</option>
-                    </select>
-                </div>
-
-                <!-- 機械番号の選択 -->
-                <div class="form-group">
-                    <label for="vehicle-machine">機械番号 *</label>
-                    <select id="vehicle-machine" name="machine_id" required>
-                        <option value="">-- 先に機種を選択してください --</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="vehicle-office">管理事業所 *</label>
-                    <select id="vehicle-office" name="office_id" required>
-                        <option value="">-- 事業所を選択 --</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="vehicle-registration-number">登録番号</label>
-                    <input type="text" id="vehicle-registration-number" name="registration_number" placeholder="例: 品川300あ1234">
-                </div>
-
-                <div class="form-group">
-                    <label for="vehicle-notes">備考</label>
-                    <textarea id="vehicle-notes" name="notes" rows="3" placeholder="その他メモ"></textarea>
-                </div>
-
-                <div class="form-actions">
-                    <button type="submit" class="btn-primary" id="submit-vehicle-btn">保存</button>
-                    <button type="button" class="btn-secondary" id="cancel-vehicle-btn">キャンセル</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
     <!-- 機種マスタ追加・編集モーダル -->
     <div id="machine-type-modal" class="modal">
         <div class="modal-content">
@@ -529,16 +465,23 @@
         </div>
     </div>
 
-    <!-- 機械番号マスタ追加・編集モーダル -->
+    <!-- 保守用車管理マスタ追加・編集モーダル -->
     <div id="machine-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 id="machine-modal-title">機械番号を追加</h3>
+                <h3 id="machine-modal-title">保守用車を追加</h3>
                 <button class="modal-close" id="machine-modal-close">&times;</button>
             </div>
             <form id="machine-form">
                 <input type="hidden" id="machine-id" name="machine_id">
                 
+                <div class="form-group">
+                    <label for="machine-office-select">管理事業所 *</label>
+                    <select id="machine-office-select" name="office_id" required>
+                        <option value="">-- 事業所を選択 --</option>
+                    </select>
+                </div>
+
                 <div class="form-group">
                     <label for="machine-type-select">機種 *</label>
                     <select id="machine-type-select" name="machine_type_id" required>
