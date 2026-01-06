@@ -68,8 +68,18 @@ jobs:
       - name: Build and Deploy to Cloud Run (Clean Build)
         id: deploy
         run: |
+          # タイムスタンプでイメージタグを生成（キャッシュ無効化）
+          IMAGE_TAG="gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:$(date +%s)"
+          
+          # Dockerイメージをビルド（キャッシュ無効化）
+          docker build --no-cache --build-arg CACHEBUST=$(date +%s) -t $IMAGE_TAG .
+          
+          # GCRにプッシュ
+          docker push $IMAGE_TAG
+          
+          # Cloud Runにデプロイ
           gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --source . \
+            --image=$IMAGE_TAG \
             --project=${{ env.PROJECT_ID }} \
             --region=${{ env.REGION }} \
             --platform=managed \
