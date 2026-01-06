@@ -686,6 +686,7 @@ async function loadMachineData(machineId) {
                 document.getElementById('machine-type-select').value = machine.machine_type_id || '';
                 document.getElementById('machine-number').value = machine.machine_number || '';
                 document.getElementById('machine-serial-number').value = machine.serial_number || '';
+                document.getElementById('machine-type-certification').value = machine.type_certification || '';
                 document.getElementById('machine-manufacture-date').value = machine.manufacture_date || '';
                 document.getElementById('machine-purchase-date').value = machine.purchase_date || '';
                 document.getElementById('machine-notes').value = machine.notes || '';
@@ -706,6 +707,7 @@ async function saveMachine() {
         machine_type_id: document.getElementById('machine-type-select').value,
         machine_number: document.getElementById('machine-number').value,
         serial_number: document.getElementById('machine-serial-number').value,
+        type_certification: document.getElementById('machine-type-certification').value,
         manufacture_date: document.getElementById('machine-manufacture-date').value,
         purchase_date: document.getElementById('machine-purchase-date').value,
         notes: document.getElementById('machine-notes').value
