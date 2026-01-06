@@ -534,10 +534,15 @@ async function saveMachineType() {
 }
 
 function editMachineType(machineTypeId) {
+    console.log('[editMachineType] Called with ID:', machineTypeId);
     openMachineTypeModal(machineTypeId);
 }
 
+// グローバルに公開
+window.editMachineType = editMachineType;
+
 async function deleteMachineType(machineTypeId, typeCode) {
+    console.log('[deleteMachineType] Called with ID:', machineTypeId);
     if (!confirm(`機種「${typeCode}」を削除してもよろしいですか？`)) {
         return;
     }
@@ -562,6 +567,9 @@ async function deleteMachineType(machineTypeId, typeCode) {
         showToast('削除中にエラーが発生しました', 'error');
     }
 }
+
+// グローバルに公開
+window.deleteMachineType = deleteMachineType;
 
 // ========== 機械番号マスタ管理 ==========
 async function loadMachines() {
@@ -665,10 +673,15 @@ async function openMachineModal(machineId = null) {
                 console.error('[openMachineModal] machine-type-select element not found!');
             } else {
                 machineTypeSelect.innerHTML = '<option value="">-- 機種を選択 --</option>';
-                machineTypesData.data.forEach(type => {
-                    machineTypeSelect.innerHTML += `<option value="${type.id}">${type.type_code} - ${type.type_name}</option>`;
+                console.log('[openMachineModal] Adding machine type options:', machineTypesData.data);
+                machineTypesData.data.forEach((type, index) => {
+                    const optionHtml = `<option value="${type.id}">${type.type_code} - ${type.type_name}</option>`;
+                    console.log(`[openMachineModal] Option ${index + 1}:`, optionHtml);
+                    machineTypeSelect.innerHTML += optionHtml;
                 });
                 console.log('[openMachineModal] Machine types loaded:', machineTypesData.data.length, 'options added');
+                console.log('[openMachineModal] Final select HTML:', machineTypeSelect.innerHTML);
+                console.log('[openMachineModal] Select element children count:', machineTypeSelect.children.length);
             }
         } else {
             console.error('[openMachineModal] Machine types failed:', machineTypesData.message);
@@ -694,10 +707,15 @@ async function openMachineModal(machineId = null) {
                 console.error('[openMachineModal] machine-office-select element not found!');
             } else {
                 officeSelect.innerHTML = '<option value="">-- 事業所を選択 --</option>';
-                officesData.offices.forEach(office => {
-                    officeSelect.innerHTML += `<option value="${office.office_id}">${office.office_name}</option>`;
+                console.log('[openMachineModal] Adding office options:', officesData.offices);
+                officesData.offices.forEach((office, index) => {
+                    const optionHtml = `<option value="${office.office_id}">${office.office_name}</option>`;
+                    console.log(`[openMachineModal] Office option ${index + 1}:`, optionHtml);
+                    officeSelect.innerHTML += optionHtml;
                 });
                 console.log('[openMachineModal] Offices loaded:', officesData.offices.length, 'options added');
+                console.log('[openMachineModal] Final office select HTML:', officeSelect.innerHTML);
+                console.log('[openMachineModal] Office select element children count:', officeSelect.children.length);
             }
         } else {
             console.error('[openMachineModal] Offices failed:', officesData.message);
@@ -797,10 +815,15 @@ async function saveMachine() {
 }
 
 function editMachine(machineId) {
+    console.log('[editMachine] Called with ID:', machineId);
     openMachineModal(machineId);
 }
 
+// グローバルに公開
+window.editMachine = editMachine;
+
 async function deleteMachine(machineId, machineNumber) {
+    console.log('[deleteMachine] Called with ID:', machineId);
     if (!confirm(`保守用車「${machineNumber}」を削除してもよろしいですか？`)) {
         return;
     }
@@ -825,6 +848,9 @@ async function deleteMachine(machineId, machineNumber) {
         showToast('削除中にエラーが発生しました', 'error');
     }
 }
+
+// グローバルに公開
+window.deleteMachine = deleteMachine;
 
 // ========== 事業所マスタ ==========
 async function loadOffices() {

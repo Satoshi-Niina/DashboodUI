@@ -194,6 +194,17 @@ body {
     padding: 10px;
 }
 
+/* 機械番号入力欄に青い太線 */
+#machine-number {
+    border: 3px solid #4169E1 !important;
+    border-radius: 8px;
+}
+
+#machine-number:focus {
+    border-color: #1E3A8A !important;
+    box-shadow: 0 0 0 3px rgba(65, 105, 225, 0.2) !important;
+}
+
 .form-actions {
     display: flex;
     gap: 15px;
