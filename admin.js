@@ -2154,13 +2154,35 @@ async function openMachineTypeModal(typeId = null) {
     const modal = document.getElementById('machine-type-modal');
     const modalTitle = document.getElementById('machine-type-modal-title');
     const form = document.getElementById('machine-type-form');
+    const token = localStorage.getItem('user_token');
 
     form.reset();
     document.getElementById('machine-type-id').value = '';
 
     if (typeId) {
         modalTitle.textContent = '機種を編集';
-        // TODO: 機種データの読み込み
+        
+        // 機種データを読み込む
+        try {
+            const response = await fetch(`/api/machine-types/${typeId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            const data = await response.json();
+            
+            if (data.success && data.data) {
+                const type = data.data;
+                document.getElementById('machine-type-id').value = type.id;
+                document.getElementById('machine-type-name').value = type.type_name || '';
+                document.getElementById('machine-type-serial-number').value = type.serial_number || '';
+                document.getElementById('machine-type-model-name').value = type.model_name || '';
+                document.getElementById('machine-type-manufacturer').value = type.manufacturer || '';
+                document.getElementById('machine-type-category').value = type.category || '';
+                document.getElementById('machine-type-description').value = type.description || '';
+            }
+        } catch (error) {
+            console.error('Failed to load machine type:', error);
+            alert('機種データの読み込みに失敗しました');
+        }
     } else {
         modalTitle.textContent = '機種を追加';
     }

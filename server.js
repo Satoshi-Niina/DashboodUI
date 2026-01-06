@@ -1324,10 +1324,8 @@ app.post('/api/vehicles', requireAdmin, async (req, res) => {
 
     // 車両を追加（ゲートウェイ方式）
     const vehicles = await dynamicInsert('vehicles', {
-      vehicle_number: vehicle_number || null,
       machine_id,
       office_id,
-      model: model || null,
       registration_number: registration_number || null,
       type_certification: type_certification || null,
       acquisition_date: acquisition_date || null,
@@ -2265,7 +2263,7 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
 // 機種マスタ追加
 app.post('/api/machine-types', requireAdmin, async (req, res) => {
   try {
-    const { type_name, manufacturer, category, description } = req.body;
+    const { type_name, manufacturer, category, description, serial_number, model_name } = req.body;
     
     if (!type_name) {
       return res.status(400).json({ success: false, message: '機種名は必須です' });
@@ -2283,7 +2281,9 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
       type_name,
       manufacturer,
       category,
-      description
+      description,
+      serial_number: serial_number || null,
+      model_name: model_name || null
     });
     res.json({ success: true, data: types[0], message: '機種を追加しました' });
   } catch (err) {
@@ -2293,6 +2293,23 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
     } else {
       res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
     }
+  }
+});
+
+// 機種マスタ個別取得
+app.get('/api/machine-types/:id', requireAdmin, async (req, res) => {
+  try {
+    const machineTypeId = req.params.id;
+    const types = await dynamicSelect('machine_types', { id: machineTypeId });
+    
+    if (types.length === 0) {
+      return res.status(404).json({ success: false, message: '機種が見つかりません' });
+    }
+    
+    res.json({ success: true, data: types[0] });
+  } catch (err) {
+    console.error('Machine type get error:', err);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
   }
 });
 
