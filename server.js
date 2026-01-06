@@ -2278,6 +2278,7 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
     const type_code = `MT${String(nextNumber).padStart(4, '0')}`; // MT0001, MT0002, ...
     
     const types = await dynamicInsert('machine_types', {
+      id: type_code,  // idもtype_codeと同じ値を使用
       type_code,
       type_name,
       manufacturer,
