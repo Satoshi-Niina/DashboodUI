@@ -38,6 +38,27 @@ jobs:
         run: |
           gcloud auth configure-docker gcr.io --quiet
       
+      - name: Clear Docker Cache
+        run: |
+          echo "🧹 Clearing Docker build cache..."
+          docker system prune -af --volumes || true
+          docker builder prune -af || true
+          echo "✅ Docker cache cleared"
+      
+      - name: Delete old container images
+        run: |
+          echo "🗑️ Deleting old container images from GCR..."
+          gcloud container images list --repository=gcr.io/${{ env.PROJECT_ID }} --format="value(name)" | while read IMAGE_NAME; do
+            echo "Processing $IMAGE_NAME..."
+            gcloud container images list-tags "$IMAGE_NAME" --format="get(digest)" --limit=999 | while read DIGEST; do
+              if [ ! -z "$DIGEST" ]; then
+                echo "Deleting $IMAGE_NAME@$DIGEST"
+                gcloud container images delete "${IMAGE_NAME}@${DIGEST}" --quiet --force-delete-tags || true
+              fi
+            done
+          done
+          echo "✅ Old images deleted"
+      
       - name: Verify Cloud SQL Instance Name
         run: |
           INSTANCE="${{ secrets.CLOUD_SQL_INSTANCE }}"
@@ -73,15 +94,30 @@ jobs:
         id: deploy
         run: |
           # タイムスタンプでイメージタグを生成（キャッシュ無効化）
-          IMAGE_TAG="gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:$(date +%s)"
+          TIMESTAMP=$(date +%s)
+          IMAGE_TAG="gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${TIMESTAMP}"
           
-          # Dockerイメージをビルド（キャッシュ無効化）
-          docker build --no-cache --build-arg CACHEBUST=$(date +%s) -t $IMAGE_TAG .
+          echo "🔨 Building Docker image with timestamp: $TIMESTAMP"
+          echo "🚫 Cache disabled: --no-cache"
+          echo "📦 Image tag: $IMAGE_TAG"
+          
+          # Dockerイメージをビルド（完全にキャッシュ無効化）
+          docker build \
+            --no-cache \
+            --pull \
+            --build-arg CACHEBUST=$TIMESTAMP \
+            --build-arg BUILDTIME=$(date -Iseconds) \
+            -t $IMAGE_TAG .
+          
+          echo "✅ Build completed"
           
           # GCRにプッシュ
+          echo "📤 Pushing to GCR..."
           docker push $IMAGE_TAG
+          echo "✅ Push completed"
           
           # Cloud Runにデプロイ
+          echo "🚀 Deploying to Cloud Run..."
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image=$IMAGE_TAG \
             --project=${{ env.PROJECT_ID }} \
@@ -97,13 +133,37 @@ jobs:
             --set-env-vars="DB_NAME=${{ secrets.DB_NAME }}" \
             --set-env-vars="JWT_SECRET=${{ secrets.JWT_SECRET }}" \
             --set-env-vars="CORS_ORIGIN=*" \
-            --min-instances=1 \
-            --max-instances=10 \
-            --memory=2Gi \
-            --cpu=2 \
-            --timeout=3600 \
-            --cpu-boost \
-            --no-cpu-throttling
+            --set-env-vars="BUILD_TIMESTAMP=$TIMESTAMP" \
+            --no-traffic \
+            --tag="build-${TIMESTAMP}"
+          
+          echo "⏳ Waiting for new revision to be ready..."
+          sleep 10
+          
+          # 新しいリビジョンに100%トラフィックを割り当て
+          echo "🔄 Routing 100% traffic to new revision..."
+          gcloud run services update-traffic ${{ env.SERVICE_NAME }} \
+            --to-latest \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }}
+          
+          echo "✅ Deployment completed with timestamp: $TIMESTAMP"
+      
+      - name: Clear CDN/Edge Cache
+        run: |
+          echo "🧹 Forcing cache invalidation..."
+          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region=${{ env.REGION }} \
+            --format='value(status.url)')
+          
+          # Cloud RunのCDNキャッシュをクリア（複数リクエスト）
+          for endpoint in / /admin.html /admin.js /admin.css /index.html /app.js /login.js; do
+            echo "Clearing cache for: $endpoint"
+            curl -X PURGE "${SERVICE_URL}${endpoint}" || true
+            curl -H "Cache-Control: no-cache" "${SERVICE_URL}${endpoint}" > /dev/null 2>&1 || true
+          done
+          
+          echo "✅ Cache invalidation completed"
       
       - name: Show logs on deployment failure
         if: failure() && steps.deploy.outcome == 'failure'
@@ -145,6 +205,24 @@ jobs:
               --format=json \
               --project=${{ env.PROJECT_ID }} || true
           fi
+      
+      - name: Verify deployed files
+        run: |
+          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region=${{ env.REGION }} \
+            --format='value(status.url)')
+          
+          echo "🔍 Verifying deployed admin.js contains data-action..."
+          RESULT=$(curl -s "${SERVICE_URL}/admin.js" | grep -c "data-action" || echo "0")
+          echo "data-action count in deployed file: $RESULT"
+          
+          if [ "$RESULT" -lt "3" ]; then
+            echo "❌ ERROR: admin.js does not contain enough data-action attributes!"
+            echo "Expected at least 3, got: $RESULT"
+            exit 1
+          fi
+          
+          echo "✅ Verification passed: admin.js contains $RESULT data-action attributes"
       
       - name: Show Deployment Info
         run: |
