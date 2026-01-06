@@ -179,6 +179,21 @@ body {
     margin-top: 5px;
 }
 
+/* 管理事業所と機種のドロップダウン拡大 */
+#machine-office-select,
+#machine-type-select {
+    font-size: 21px !important;
+    padding: 18px 22px !important;
+    height: auto !important;
+    line-height: 1.5 !important;
+}
+
+#machine-office-select option,
+#machine-type-select option {
+    font-size: 21px;
+    padding: 10px;
+}
+
 .form-actions {
     display: flex;
     gap: 15px;

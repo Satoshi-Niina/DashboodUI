@@ -628,13 +628,22 @@ async function loadMachines() {
 }
 
 async function openMachineModal(machineId = null) {
+    console.log('[openMachineModal] Opening modal, machineId:', machineId);
     const modal = document.getElementById('machine-modal');
     const modalTitle = document.getElementById('machine-modal-title');
     const form = document.getElementById('machine-form');
     const token = localStorage.getItem('user_token');
     
+    if (!modal) {
+        console.error('[openMachineModal] Modal element not found!');
+        return;
+    }
+    
     form.reset();
     document.getElementById('machine-id').value = '';
+    
+    // モーダルを先に表示
+    modal.style.display = 'flex';
     
     // 機種リストを読み込む
     try {
@@ -642,18 +651,28 @@ async function openMachineModal(machineId = null) {
         const machineTypesResponse = await fetch('/api/machine-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
+        
+        if (!machineTypesResponse.ok) {
+            throw new Error(`HTTP ${machineTypesResponse.status}: ${machineTypesResponse.statusText}`);
+        }
+        
         const machineTypesData = await machineTypesResponse.json();
         console.log('[openMachineModal] Machine types data:', machineTypesData);
 
-        if (machineTypesData.success) {
+        if (machineTypesData.success && machineTypesData.data) {
             const machineTypeSelect = document.getElementById('machine-type-select');
-            machineTypeSelect.innerHTML = '<option value="">-- 機種を選択 --</option>';
-            machineTypesData.data.forEach(type => {
-                machineTypeSelect.innerHTML += `<option value="${type.id}">${type.type_code} - ${type.type_name}</option>`;
-            });
-            console.log('[openMachineModal] Machine types loaded:', machineTypesData.data.length);
+            if (!machineTypeSelect) {
+                console.error('[openMachineModal] machine-type-select element not found!');
+            } else {
+                machineTypeSelect.innerHTML = '<option value="">-- 機種を選択 --</option>';
+                machineTypesData.data.forEach(type => {
+                    machineTypeSelect.innerHTML += `<option value="${type.id}">${type.type_code} - ${type.type_name}</option>`;
+                });
+                console.log('[openMachineModal] Machine types loaded:', machineTypesData.data.length, 'options added');
+            }
         } else {
             console.error('[openMachineModal] Machine types failed:', machineTypesData.message);
+            showToast('機種データの読み込みに失敗しました', 'error');
         }
 
         // 管理事業所を読み込む
@@ -661,21 +680,32 @@ async function openMachineModal(machineId = null) {
         const officesResponse = await fetch('/api/offices', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
+        
+        if (!officesResponse.ok) {
+            throw new Error(`HTTP ${officesResponse.status}: ${officesResponse.statusText}`);
+        }
+        
         const officesData = await officesResponse.json();
         console.log('[openMachineModal] Offices data:', officesData);
 
-        if (officesData.success) {
+        if (officesData.success && officesData.offices) {
             const officeSelect = document.getElementById('machine-office-select');
-            officeSelect.innerHTML = '<option value="">-- 事業所を選択 --</option>';
-            officesData.offices.forEach(office => {
-                officeSelect.innerHTML += `<option value="${office.office_id}">${office.office_name}</option>`;
-            });
-            console.log('[openMachineModal] Offices loaded:', officesData.offices.length);
+            if (!officeSelect) {
+                console.error('[openMachineModal] machine-office-select element not found!');
+            } else {
+                officeSelect.innerHTML = '<option value="">-- 事業所を選択 --</option>';
+                officesData.offices.forEach(office => {
+                    officeSelect.innerHTML += `<option value="${office.office_id}">${office.office_name}</option>`;
+                });
+                console.log('[openMachineModal] Offices loaded:', officesData.offices.length, 'options added');
+            }
         } else {
             console.error('[openMachineModal] Offices failed:', officesData.message);
+            showToast('事業所データの読み込みに失敗しました', 'error');
         }
     } catch (error) {
         console.error('[openMachineModal] Failed to load options:', error);
+        showToast('データの読み込み中にエラーが発生しました: ' + error.message, 'error');
     }
     
     if (machineId) {
@@ -684,8 +714,6 @@ async function openMachineModal(machineId = null) {
     } else {
         modalTitle.textContent = '保守用車を追加';
     }
-    
-    modal.style.display = 'flex';
 }
 
 async function loadMachineData(machineId) {
