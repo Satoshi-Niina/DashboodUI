@@ -89,8 +89,7 @@ jobs:
             --cpu=2 \
             --timeout=3600 \
             --cpu-boost \
-            --no-cpu-throttling \
-            --no-cache
+            --no-cpu-throttling
       
       - name: Show logs on deployment failure
         if: failure() && steps.deploy.outcome == 'failure'
