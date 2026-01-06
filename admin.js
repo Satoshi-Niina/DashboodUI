@@ -458,7 +458,7 @@ function openMachineTypeModal(machineTypeId = null) {
         modalTitle.textContent = '機種を編集';
         loadMachineTypeData(machineTypeId);
     } else {
-        modalTitle.textContent = '機種を追加';
+        modalTitle.textContent = '機種の新規編集';
     }
     
     modal.style.display = 'flex';
@@ -730,7 +730,7 @@ async function openMachineModal(machineId = null) {
         modalTitle.textContent = '保守用車を編集';
         await loadMachineData(machineId);
     } else {
-        modalTitle.textContent = '保守用車を追加';
+        modalTitle.textContent = '保守用車の新規編集';
     }
 }
 
