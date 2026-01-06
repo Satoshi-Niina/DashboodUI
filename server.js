@@ -128,7 +128,16 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'login.html'));
 });
 
-app.use(express.static(path.join(__dirname)));
+// 静的ファイル配信（JSとCSSはキャッシュ無効化）
+app.use(express.static(path.join(__dirname), {
+  setHeaders: (res, path) => {
+    if (path.endsWith('.js') || path.endsWith('.css')) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+  }
+}));
 
 // ヘルスチェックエンドポイント（最優先）
 app.get('/health', (req, res) => {
