@@ -73,23 +73,6 @@ jobs:
             exit 1
           fi
       
-      - name: Delete existing Cloud Run service (clean deploy)
-        run: |
-          echo "Checking if service exists..."
-          if gcloud run services describe ${{ env.SERVICE_NAME }} \
-              --region=${{ env.REGION }} \
-              --project=${{ env.PROJECT_ID }} \
-              --format='value(metadata.name)' 2>/dev/null; then
-            echo "Deleting existing service for clean deployment..."
-            gcloud run services delete ${{ env.SERVICE_NAME }} \
-              --region=${{ env.REGION }} \
-              --project=${{ env.PROJECT_ID }} \
-              --quiet
-            echo "✅ Service deleted successfully"
-          else
-            echo "Service doesn't exist yet, proceeding with new deployment"
-          fi
-      
       - name: Build and Deploy to Cloud Run (Clean Build)
         id: deploy
         run: |
@@ -134,18 +117,11 @@ jobs:
             --set-env-vars="JWT_SECRET=${{ secrets.JWT_SECRET }}" \
             --set-env-vars="CORS_ORIGIN=*" \
             --set-env-vars="BUILD_TIMESTAMP=$TIMESTAMP" \
-            --no-traffic \
-            --tag="build-${TIMESTAMP}"
-          
-          echo "⏳ Waiting for new revision to be ready..."
-          sleep 10
-          
-          # 新しいリビジョンに100%トラフィックを割り当て
-          echo "🔄 Routing 100% traffic to new revision..."
-          gcloud run services update-traffic ${{ env.SERVICE_NAME }} \
-            --to-latest \
-            --region=${{ env.REGION }} \
-            --project=${{ env.PROJECT_ID }}
+            --min-instances=0 \
+            --max-instances=10 \
+            --memory=2Gi \
+            --cpu=2 \
+            --timeout=3600
           
           echo "✅ Deployment completed with timestamp: $TIMESTAMP"
       

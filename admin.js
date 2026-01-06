@@ -685,6 +685,7 @@ async function loadMachines() {
 }
 
 async function openMachineModal(machineId = null) {
+    console.log('[openMachineModal] ===== START =====');
     console.log('[openMachineModal] Opening modal, machineId:', machineId);
     const modal = document.getElementById('machine-modal');
     const modalTitle = document.getElementById('machine-modal-title');
@@ -692,7 +693,8 @@ async function openMachineModal(machineId = null) {
     const token = localStorage.getItem('user_token');
     
     if (!modal) {
-        console.error('[openMachineModal] Modal element not found!');
+        console.error('[openMachineModal] ❌ Modal element not found!');
+        alert('エラー: モーダルが見つかりません');
         return;
     }
     
@@ -701,82 +703,125 @@ async function openMachineModal(machineId = null) {
     
     // モーダルを先に表示
     modal.style.display = 'flex';
+    console.log('[openMachineModal] ✅ Modal displayed');
     
     // 機種リストを読み込む
     try {
-        console.log('[openMachineModal] Fetching machine types...');
+        console.log('[openMachineModal] 📡 Fetching machine types from /api/machine-types...');
         const machineTypesResponse = await fetch('/api/machine-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
+        
+        console.log('[openMachineModal] Machine types response status:', machineTypesResponse.status);
         
         if (!machineTypesResponse.ok) {
             throw new Error(`HTTP ${machineTypesResponse.status}: ${machineTypesResponse.statusText}`);
         }
         
         const machineTypesData = await machineTypesResponse.json();
-        console.log('[openMachineModal] Machine types data:', machineTypesData);
+        console.log('[openMachineModal] 📦 Machine types data received:', machineTypesData);
+        console.log('[openMachineModal] Success:', machineTypesData.success);
+        console.log('[openMachineModal] Data array:', machineTypesData.data);
+        console.log('[openMachineModal] Data count:', machineTypesData.data ? machineTypesData.data.length : 0);
 
         if (machineTypesData.success && machineTypesData.data && Array.isArray(machineTypesData.data)) {
             const machineTypeSelect = document.getElementById('machine-type-select');
             if (!machineTypeSelect) {
-                console.error('[openMachineModal] machine-type-select element not found!');
+                console.error('[openMachineModal] ❌ machine-type-select element not found!');
                 showToast('機種選択欄が見つかりません', 'error');
-            } else {
-                const options = ['<option value="">-- 機種を選択 --</option>'];
-                console.log('[openMachineModal] Processing machine types:', machineTypesData.data);
-                machineTypesData.data.forEach((type, index) => {
-                    const typeId = type.id;
-                    const typeCode = type.type_code || '';
-                    const typeName = type.type_name || '名前なし';
-                    options.push(`<option value="${typeId}">${typeCode} - ${typeName}</option>`);
-                    console.log(`[openMachineModal] Type ${index + 1}:`, { id: typeId, code: typeCode, name: typeName });
-                });
-                machineTypeSelect.innerHTML = options.join('');
-                console.log('[openMachineModal] Machine types loaded:', machineTypesData.data.length, 'options added');
-                console.log('[openMachineModal] Select children:', machineTypeSelect.children.length);
+                return;
             }
+            
+            console.log('[openMachineModal] ✅ machine-type-select found:', machineTypeSelect);
+            
+            const options = ['<option value="">-- 機種を選択 --</option>'];
+            console.log('[openMachineModal] Processing machine types...');
+            
+            machineTypesData.data.forEach((type, index) => {
+                const typeId = type.id;
+                const typeCode = type.type_code || '';
+                const typeName = type.type_name || '名前なし';
+                options.push(`<option value="${typeId}">${escapeHtml(typeCode)} - ${escapeHtml(typeName)}</option>`);
+                console.log(`[openMachineModal] Type ${index + 1}/${machineTypesData.data.length}:`, { 
+                    id: typeId, 
+                    code: typeCode, 
+                    name: typeName 
+                });
+            });
+            
+            machineTypeSelect.innerHTML = options.join('');
+            console.log('[openMachineModal] ✅ Machine types loaded:', machineTypesData.data.length, 'items');
+            console.log('[openMachineModal] Select HTML length:', machineTypeSelect.innerHTML.length);
+            console.log('[openMachineModal] Option elements:', machineTypeSelect.children.length);
         } else {
-            console.error('[openMachineModal] Machine types failed:', machineTypesData.message);
+            console.error('[openMachineModal] ❌ Invalid machine types response:', {
+                success: machineTypesData.success,
+                hasData: !!machineTypesData.data,
+                isArray: Array.isArray(machineTypesData.data),
+                message: machineTypesData.message
+            });
             showToast('機種データの読み込みに失敗しました', 'error');
         }
 
         // 管理事業所を読み込む
-        console.log('[openMachineModal] Fetching offices...');
+        console.log('[openMachineModal] 📡 Fetching offices from /api/offices...');
         const officesResponse = await fetch('/api/offices', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
+        
+        console.log('[openMachineModal] Offices response status:', officesResponse.status);
         
         if (!officesResponse.ok) {
             throw new Error(`HTTP ${officesResponse.status}: ${officesResponse.statusText}`);
         }
         
         const officesData = await officesResponse.json();
-        console.log('[openMachineModal] Offices data:', officesData);
+        console.log('[openMachineModal] 📦 Offices data received:', officesData);
+        console.log('[openMachineModal] Success:', officesData.success);
+        console.log('[openMachineModal] Offices array:', officesData.offices);
+        console.log('[openMachineModal] Offices count:', officesData.offices ? officesData.offices.length : 0);
 
         if (officesData.success && officesData.offices && Array.isArray(officesData.offices)) {
             const officeSelect = document.getElementById('machine-office-select');
             if (!officeSelect) {
-                console.error('[openMachineModal] machine-office-select element not found!');
+                console.error('[openMachineModal] ❌ machine-office-select element not found!');
                 showToast('事業所選択欄が見つかりません', 'error');
-            } else {
-                const options = ['<option value="">-- 事業所を選択 --</option>'];
-                console.log('[openMachineModal] Processing offices:', officesData.offices);
-                officesData.offices.forEach((office, index) => {
-                    const officeId = office.office_id;
-                    const officeName = office.office_name || '名前なし';
-                    options.push(`<option value="${officeId}">${officeName}</option>`);
-                    console.log(`[openMachineModal] Office ${index + 1}:`, { id: officeId, name: officeName });
-                });
-                officeSelect.innerHTML = options.join('');
-                console.log('[openMachineModal] Offices loaded:', officesData.offices.length, 'options added');
-                console.log('[openMachineModal] Office select children:', officeSelect.children.length);
+                return;
             }
+            
+            console.log('[openMachineModal] ✅ machine-office-select found:', officeSelect);
+            
+            const options = ['<option value="">-- 事業所を選択 --</option>'];
+            console.log('[openMachineModal] Processing offices...');
+            
+            officesData.offices.forEach((office, index) => {
+                const officeId = office.office_id;
+                const officeName = office.office_name || '名前なし';
+                options.push(`<option value="${officeId}">${escapeHtml(officeName)}</option>`);
+                console.log(`[openMachineModal] Office ${index + 1}/${officesData.offices.length}:`, { 
+                    id: officeId, 
+                    name: officeName 
+                });
+            });
+            
+            officeSelect.innerHTML = options.join('');
+            console.log('[openMachineModal] ✅ Offices loaded:', officesData.offices.length, 'items');
+            console.log('[openMachineModal] Select HTML length:', officeSelect.innerHTML.length);
+            console.log('[openMachineModal] Option elements:', officeSelect.children.length);
         } else {
-            console.error('[openMachineModal] Offices failed:', officesData.message);
+            console.error('[openMachineModal] ❌ Invalid offices response:', {
+                success: officesData.success,
+                hasOffices: !!officesData.offices,
+                isArray: Array.isArray(officesData.offices),
+                message: officesData.message
+            });
             showToast('事業所データの読み込みに失敗しました', 'error');
         }
+        
+        console.log('[openMachineModal] ✅ All data loaded successfully');
     } catch (error) {
-        console.error('[openMachineModal] Failed to load options:', error);
+        console.error('[openMachineModal] ❌ CRITICAL ERROR:', error);
+        console.error('[openMachineModal] Error stack:', error.stack);
         showToast('データの読み込み中にエラーが発生しました: ' + error.message, 'error');
     }
     
@@ -786,6 +831,8 @@ async function openMachineModal(machineId = null) {
     } else {
         modalTitle.textContent = '新規追加';
     }
+    
+    console.log('[openMachineModal] ===== END =====');
 }
 
 async function loadMachineData(machineId) {
