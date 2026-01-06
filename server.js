@@ -1327,8 +1327,6 @@ app.post('/api/vehicles', requireAdmin, async (req, res) => {
       machine_id,
       office_id,
       registration_number: registration_number || null,
-      type_certification: type_certification || null,
-      acquisition_date: acquisition_date || null,
       notes: notes || null
     });
 
@@ -2263,7 +2261,7 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
 // 機種マスタ追加
 app.post('/api/machine-types', requireAdmin, async (req, res) => {
   try {
-    const { type_name, manufacturer, category, description, serial_number, model_name } = req.body;
+    const { type_name, manufacturer, category, description, model_name } = req.body;
     
     if (!type_name) {
       return res.status(400).json({ success: false, message: '機種名は必須です' });
@@ -2282,7 +2280,6 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
       manufacturer,
       category,
       description,
-      serial_number: serial_number || null,
       model_name: model_name || null
     });
     res.json({ success: true, data: types[0], message: '機種を追加しました' });
@@ -2372,7 +2369,7 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
 // 機械番号マスタ追加
 app.post('/api/machines', requireAdmin, async (req, res) => {
   try {
-    const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, notes } = req.body;
+    const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, notes, type_certification } = req.body;
     
     if (!machine_number || !machine_type_id) {
       return res.status(400).json({ success: false, message: '機械番号と機種は必須です' });
@@ -2384,7 +2381,8 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
       serial_number,
       manufacture_date,
       purchase_date,
-      notes
+      notes,
+      type_certification: type_certification || null
     });
     res.json({ success: true, data: machines[0], message: '機械を追加しました' });
   } catch (err) {

@@ -2173,7 +2173,6 @@ async function openMachineTypeModal(typeId = null) {
                 const type = data.data;
                 document.getElementById('machine-type-id').value = type.id;
                 document.getElementById('machine-type-name').value = type.type_name || '';
-                document.getElementById('machine-type-serial-number').value = type.serial_number || '';
                 document.getElementById('machine-type-model-name').value = type.model_name || '';
                 document.getElementById('machine-type-manufacturer').value = type.manufacturer || '';
                 document.getElementById('machine-type-category').value = type.category || '';
