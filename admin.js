@@ -1883,4 +1883,26 @@ function initializeMachineEventListeners() {
         machineForm.addEventListener('submit', handleMachineSubmit);
     }
 }
-
+
+// ========== ユーティリティ関数 ==========
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function showToast(message, type = 'success') {
+    const toast = document.getElementById('toast');
+    if (!toast) {
+        console.error('Toast element not found');
+        return;
+    }
+    toast.textContent = message;
+    toast.className = `toast show ${type}`;
+
+    setTimeout(() => {
+        toast.className = 'toast';
+    }, 3000);
+}
+
