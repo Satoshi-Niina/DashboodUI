@@ -638,10 +638,12 @@ async function openMachineModal(machineId = null) {
     
     // 機種リストを読み込む
     try {
+        console.log('[openMachineModal] Fetching machine types...');
         const machineTypesResponse = await fetch('/api/machine-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const machineTypesData = await machineTypesResponse.json();
+        console.log('[openMachineModal] Machine types data:', machineTypesData);
 
         if (machineTypesData.success) {
             const machineTypeSelect = document.getElementById('machine-type-select');
@@ -649,13 +651,18 @@ async function openMachineModal(machineId = null) {
             machineTypesData.data.forEach(type => {
                 machineTypeSelect.innerHTML += `<option value="${type.id}">${type.type_code} - ${type.type_name}</option>`;
             });
+            console.log('[openMachineModal] Machine types loaded:', machineTypesData.data.length);
+        } else {
+            console.error('[openMachineModal] Machine types failed:', machineTypesData.message);
         }
 
         // 管理事業所を読み込む
+        console.log('[openMachineModal] Fetching offices...');
         const officesResponse = await fetch('/api/offices', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const officesData = await officesResponse.json();
+        console.log('[openMachineModal] Offices data:', officesData);
 
         if (officesData.success) {
             const officeSelect = document.getElementById('machine-office-select');
@@ -663,9 +670,12 @@ async function openMachineModal(machineId = null) {
             officesData.offices.forEach(office => {
                 officeSelect.innerHTML += `<option value="${office.office_id}">${office.office_name}</option>`;
             });
+            console.log('[openMachineModal] Offices loaded:', officesData.offices.length);
+        } else {
+            console.error('[openMachineModal] Offices failed:', officesData.message);
         }
     } catch (error) {
-        console.error('Failed to load options:', error);
+        console.error('[openMachineModal] Failed to load options:', error);
     }
     
     if (machineId) {
