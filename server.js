@@ -2141,6 +2141,39 @@ app.get('/api/machine-types/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// 機種マスタ更新
+app.put('/api/machine-types/:id', requireAdmin, async (req, res) => {
+  try {
+    const machineTypeId = req.params.id;
+    const { type_name, manufacturer, category, description, model_name } = req.body;
+    
+    if (!type_name) {
+      return res.status(400).json({ success: false, message: '機種名は必須です' });
+    }
+    
+    const types = await dynamicUpdate('machine_types', 
+      { id: machineTypeId },
+      {
+        type_name,
+        manufacturer,
+        category,
+        description,
+        model_name: model_name || null
+      },
+      true
+    );
+    
+    if (types.length === 0) {
+      return res.status(404).json({ success: false, message: '機種が見つかりません' });
+    }
+    
+    res.json({ success: true, data: types[0], message: '機種を更新しました' });
+  } catch (err) {
+    console.error('Machine type update error:', err);
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+  }
+});
+
 // 機種マスタ削除
 app.delete('/api/machine-types/:id', requireAdmin, async (req, res) => {
   try {

@@ -409,6 +409,32 @@ body {
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 }
 
+/* 保守用車モーダルのサイズ拡大 */
+#machine-modal .modal-content {
+    max-width: 600px;
+    font-size: 1.2em;
+}
+
+#machine-modal .modal-header h3 {
+    font-size: 24px;
+}
+
+#machine-modal .form-group label {
+    font-size: 1.2em;
+}
+
+#machine-modal .form-group input,
+#machine-modal .form-group select,
+#machine-modal .form-group textarea {
+    font-size: 1.2em;
+    padding: 12px;
+}
+
+#machine-modal .modal-actions button {
+    font-size: 1.2em;
+    padding: 12px 24px;
+}
+
 .modal-header {
     padding: 20px 25px;
     border-bottom: 1px solid #e0e0e0;
