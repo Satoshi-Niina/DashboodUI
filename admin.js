@@ -455,10 +455,10 @@ function openMachineTypeModal(machineTypeId = null) {
     document.getElementById('machine-type-id').value = '';
     
     if (machineTypeId) {
-        modalTitle.textContent = '機種を編集';
+        modalTitle.textContent = '編集';
         loadMachineTypeData(machineTypeId);
     } else {
-        modalTitle.textContent = '機種の新規編集';
+        modalTitle.textContent = '新規追加';
     }
     
     modal.style.display = 'flex';
@@ -535,11 +535,17 @@ async function saveMachineType() {
 
 function editMachineType(machineTypeId) {
     console.log('[editMachineType] Called with ID:', machineTypeId);
-    openMachineTypeModal(machineTypeId);
+    try {
+        openMachineTypeModal(machineTypeId);
+    } catch (error) {
+        console.error('[editMachineType] Error:', error);
+        alert('編集モーダルを開く際にエラーが発生しました: ' + error.message);
+    }
 }
 
 // グローバルに公開
 window.editMachineType = editMachineType;
+console.log('[Global] editMachineType function registered:', typeof window.editMachineType);
 
 async function deleteMachineType(machineTypeId, typeCode) {
     console.log('[deleteMachineType] Called with ID:', machineTypeId);
@@ -727,10 +733,10 @@ async function openMachineModal(machineId = null) {
     }
     
     if (machineId) {
-        modalTitle.textContent = '保守用車を編集';
+        modalTitle.textContent = '編集';
         await loadMachineData(machineId);
     } else {
-        modalTitle.textContent = '保守用車の新規編集';
+        modalTitle.textContent = '新規追加';
     }
 }
 
@@ -816,11 +822,17 @@ async function saveMachine() {
 
 function editMachine(machineId) {
     console.log('[editMachine] Called with ID:', machineId);
-    openMachineModal(machineId);
+    try {
+        openMachineModal(machineId);
+    } catch (error) {
+        console.error('[editMachine] Error:', error);
+        alert('編集モーダルを開く際にエラーが発生しました: ' + error.message);
+    }
 }
 
 // グローバルに公開
 window.editMachine = editMachine;
+console.log('[Global] editMachine function registered:', typeof window.editMachine);
 
 async function deleteMachine(machineId, machineNumber) {
     console.log('[deleteMachine] Called with ID:', machineId);
