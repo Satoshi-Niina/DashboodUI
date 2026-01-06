@@ -11,6 +11,8 @@ COPY package*.json ./
 RUN npm ci --only=production
 
 # アプリケーションファイルをコピー
+# キャッシュバスティング: ビルド時に必ず最新ファイルを使用
+ARG CACHEBUST=1
 COPY . .
 
 # 非rootユーザーで実行 (セキュリティのため)
