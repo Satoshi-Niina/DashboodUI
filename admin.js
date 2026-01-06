@@ -632,9 +632,6 @@ async function loadMachines() {
                         </td>
                     </tr>
                 `;
-                        </td>
-                    </tr>
-                `;
             });
 
             html += `</tbody></table>`;
