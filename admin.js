@@ -741,7 +741,7 @@ async function openMachineModal(machineId = null) {
                 const typeId = type.id;
                 const typeCode = type.type_code || '';
                 const typeName = type.type_name || '名前なし';
-                options.push(`<option value="${typeId}">${escapeHtml(typeCode)} - ${escapeHtml(typeName)}</option>`);
+                options.push(`<option value="${typeId}">${escapeHtml(typeName)}</option>`);
                 console.log(`[openMachineModal] Type ${index + 1}/${machineTypesData.data.length}:`, { 
                     id: typeId, 
                     code: typeCode, 
