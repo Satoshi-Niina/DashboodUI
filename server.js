@@ -2333,6 +2333,7 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
       machine_id = `M${Date.now().toString().slice(-6)}`;
     }
 
+    const now = new Date();
     const machines = await dynamicInsert('machines', {
       id: machine_id,
       machine_number,
@@ -2342,7 +2343,9 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
       purchase_date,
       notes,
       type_certification,
-      office_id
+      office_id,
+      created_at: now,
+      updated_at: now
     });
     res.json({ success: true, data: machines[0], message: '機械を追加しました' });
   } catch (err) {
@@ -2431,10 +2434,10 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 // サーバーバージョン取得エンドポイント
 app.get('/api/version', (req, res) => {
   res.json({
-    version: 'VER-20260107-1630-SELF-HEALING',
+    version: 'VER-20260107-1635-FIX-NOT-NULL',
     app_id: process.env.APP_ID || 'dashboard-ui',
     instance: process.env.CLOUD_SQL_INSTANCE || 'local',
-    description: 'Integrated database self-healing on startup'
+    description: 'Fix created_at Not-Null constraint in machines'
   });
 });
 
@@ -2507,6 +2510,8 @@ async function runEmergencyDbFix() {
       await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS notes TEXT`);
       await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS status TEXT`);
       await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS assigned_base_id TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now()`);
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()`);
 
       // 型変更
       await pool.query(`ALTER TABLE ${schema}.machines ALTER COLUMN id TYPE TEXT USING id::text`);
