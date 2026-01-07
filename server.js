@@ -2140,8 +2140,7 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
       manufacturer,
       category,
       description,
-      model_name: model_name || model || null,
-      model: model || model_name || null // 両方の可能性に対応
+      model_name: model_name || model || null
     };
 
     const types = await dynamicInsert('machine_types', saveData);
@@ -2199,7 +2198,6 @@ app.put('/api/machine-types/:id', requireAdmin, async (req, res) => {
       category,
       description,
       model_name: model_name || model || null,
-      model: model || model_name || null, // 両方の可能性に対応
       updated_at: new Date()
     };
 
@@ -2397,7 +2395,7 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 // サーバーバージョン取得エンドポイント
 app.get('/api/version', (req, res) => {
   res.json({
-    version: '2026-01-07T14:15:00',
+    version: '2026-01-07T14:23:00',
     app_id: process.env.APP_ID || 'dashboard-ui',
     instance: process.env.CLOUD_SQL_INSTANCE || 'local',
     description: 'Extreme logging for 500 error diagnostics'
