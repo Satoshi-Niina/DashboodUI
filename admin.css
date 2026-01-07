@@ -188,9 +188,9 @@ body {
     line-height: 1.5 !important;
 }
 
-/* 機種selectのみ横幅1.5倍 */
+/* 機種selectのみ横幅0.7倍 */
 #machine-type-select {
-    width: 150% !important;
+    width: 70% !important;
 }
 
 #machine-office-select option,
