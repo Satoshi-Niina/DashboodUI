@@ -2310,7 +2310,26 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: '機械番号と機種は必須です' });
     }
 
+    // 自動採番ID (M0001...)
+    const route = await resolveTablePath('machines');
+    let machine_id;
+    try {
+      const maxIdResult = await pool.query(`SELECT id::text FROM ${route.fullPath} WHERE id::text LIKE 'M%' ORDER BY id DESC LIMIT 1`);
+      let nextNumber = 1;
+      if (maxIdResult.rows.length > 0) {
+        const lastId = maxIdResult.rows[0].id;
+        const numericPart = parseInt(lastId.replace('M', ''));
+        if (!isNaN(numericPart)) {
+          nextNumber = numericPart + 1;
+        }
+      }
+      machine_id = `M${String(nextNumber).padStart(4, '0')}`;
+    } catch (e) {
+      machine_id = `M${Date.now().toString().slice(-6)}`;
+    }
+
     const machines = await dynamicInsert('machines', {
+      id: machine_id,
       machine_number,
       machine_type_id,
       serial_number,
