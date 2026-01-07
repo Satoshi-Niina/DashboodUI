@@ -1,7 +1,7 @@
 ﻿document.addEventListener('DOMContentLoaded', () => {
     // 認証チェック
     const token = localStorage.getItem('user_token');
-    console.log('[Admin] Version: 20260107-1345');
+    console.log('[Admin] Version: 20260107-1400');
     console.log('[Admin] Token check:', token ? 'Token exists' : 'No token found');
     console.log('[Admin] Initializing admin page...');
 

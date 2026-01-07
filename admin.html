@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ja">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,8 +8,9 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>設定管理 - Dashboard Admin</title>
-    <link rel="stylesheet" href="admin.css?v=20260107-1345">
+    <link rel="stylesheet" href="admin.css?v=20260107-1400">
 </head>
+
 <body>
     <div class="admin-container">
         <header class="admin-header">
@@ -210,7 +212,8 @@
                         <select id="table-select">
                             <option value="">-- テーブルを選択 --</option>
                             <option value="master_data.users">ユーザー (master_data.users)</option>
-                            <option value="master_data.managements_offices">事業所 (master_data.managements_offices)</option>
+                            <option value="master_data.managements_offices">事業所 (master_data.managements_offices)
+                            </option>
                             <option value="master_data.bases">保守基地 (master_data.bases)</option>
                             <option value="master_data.machines">保守用車管理 (master_data.machines)</option>
                             <option value="master_data.machine_types">機種 (master_data.machine_types)</option>
@@ -269,11 +272,8 @@
                         <label for="app_url_emergency">
                             🛠️ 応急復旧支援システム
                         </label>
-                        <input type="url" 
-                               id="app_url_emergency" 
-                               name="app_url_emergency"
-                               placeholder="https://emergency-client-xxx.run.app"
-                               required>
+                        <input type="url" id="app_url_emergency" name="app_url_emergency"
+                            placeholder="https://emergency-client-xxx.run.app" required>
                         <small>完全なURL（https://...）を入力してください</small>
                     </div>
 
@@ -281,33 +281,24 @@
                         <label for="app_url_planning">
                             📅 計画・実績管理システム
                         </label>
-                        <input type="url" 
-                               id="app_url_planning" 
-                               name="app_url_planning"
-                               placeholder="https://planning-xxx.run.app"
-                               required>
+                        <input type="url" id="app_url_planning" name="app_url_planning"
+                            placeholder="https://planning-xxx.run.app" required>
                     </div>
 
                     <div class="form-group">
                         <label for="app_url_equipment">
                             🚛 保守用車管理システム
                         </label>
-                        <input type="url" 
-                               id="app_url_equipment" 
-                               name="app_url_equipment"
-                               placeholder="https://equipment-xxx.run.app"
-                               required>
+                        <input type="url" id="app_url_equipment" name="app_url_equipment"
+                            placeholder="https://equipment-xxx.run.app" required>
                     </div>
 
                     <div class="form-group">
                         <label for="app_url_failure">
                             ⚠️ 機械故障管理システム
                         </label>
-                        <input type="url" 
-                               id="app_url_failure" 
-                               name="app_url_failure"
-                               placeholder="https://failure-xxx.run.app"
-                               required>
+                        <input type="url" id="app_url_failure" name="app_url_failure"
+                            placeholder="https://failure-xxx.run.app" required>
                     </div>
 
                     <div class="form-actions">
@@ -326,15 +317,13 @@
 
                 <section class="config-section">
                     <h2>🌐 CORS 許可オリジン設定</h2>
-                    
+
                     <div class="form-group">
                         <label for="cors_origin">
                             CORS 許可オリジン
                         </label>
-                        <input type="text" 
-                               id="cors_origin" 
-                               name="cors_origin"
-                               placeholder="* または https://domain1.com,https://domain2.com">
+                        <input type="text" id="cors_origin" name="cors_origin"
+                            placeholder="* または https://domain1.com,https://domain2.com">
                         <small class="small-text">複数指定する場合はカンマ区切り。すべて許可する場合は * を入力</small>
                         <div class="info-box">
                             <strong class="small-text">📌 CORS（Cross-Origin Resource Sharing）とは？</strong><br>
@@ -343,7 +332,8 @@
                             <strong class="small-text">設定例：</strong><br>
                             <span class="small-text">• <code>*</code> - すべてのドメインからのアクセスを許可（開発環境推奨）</span><br>
                             <span class="small-text">• <code>https://example.com</code> - 特定のドメインのみ許可（本番環境推奨）</span><br>
-                            <span class="small-text">• <code>https://app1.com,https://app2.com</code> - 複数ドメインを許可</span><br>
+                            <span class="small-text">• <code>https://app1.com,https://app2.com</code> -
+                                複数ドメインを許可</span><br>
                             <br>
                             <strong class="small-text">⚠️ セキュリティ上の注意：</strong><br>
                             <span class="small-text">本番環境では必要なドメインのみを指定することを強く推奨します。</span>
@@ -363,7 +353,8 @@
                 <p class="section-desc">ログインユーザーの追加・編集・削除を行います</p>
 
                 <div class="user-actions">
-                    <a href="/user-management" class="btn-primary" style="display: inline-block; text-decoration: none; text-align: center;">
+                    <a href="/user-management" class="btn-primary"
+                        style="display: inline-block; text-decoration: none; text-align: center;">
                         👥 ユーザー管理を開く
                     </a>
                 </div>
@@ -380,7 +371,7 @@
             </div>
             <form id="user-form">
                 <input type="hidden" id="user-id" name="user_id">
-                
+
                 <div class="form-group">
                     <label for="user-username">ユーザー名 *</label>
                     <input type="text" id="user-username" name="username" required>
@@ -428,7 +419,7 @@
             </div>
             <form id="machine-type-form">
                 <input type="hidden" id="machine-type-id" name="machine_type_id">
-                
+
                 <div class="form-group">
                     <label for="machine-type-name">機種名 *</label>
                     <input type="text" id="machine-type-name" name="type_name" required placeholder="例: 油圧ショベル10トン">
@@ -471,7 +462,7 @@
             </div>
             <form id="machine-form">
                 <input type="hidden" id="machine-id" name="machine_id">
-                
+
                 <div class="form-group">
                     <label for="machine-office-select">管理事業所 *</label>
                     <select id="machine-office-select" name="office_id" required>
@@ -498,7 +489,8 @@
 
                 <div class="form-group">
                     <label for="machine-type-certification">型式認定</label>
-                    <input type="text" id="machine-type-certification" name="type_certification" placeholder="例: ABC-123">
+                    <input type="text" id="machine-type-certification" name="type_certification"
+                        placeholder="例: ABC-123">
                 </div>
 
                 <div class="form-group">
@@ -527,6 +519,7 @@
     <!-- トースト通知 -->
     <div id="toast" class="toast"></div>
 
-    <script src="admin.js?v=20260107-1345"></script>
+    <script src="admin.js?v=20260107-1400"></script>
 </body>
+
 </html>
