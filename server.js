@@ -2434,10 +2434,10 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 // サーバーバージョン取得エンドポイント
 app.get('/api/version', (req, res) => {
   res.json({
-    version: 'VER-20260107-1650-FILTER-FEAT',
+    version: 'VER-20260107-1700-EXCEL-FILTER',
     app_id: process.env.APP_ID || 'dashboard-ui',
     instance: process.env.CLOUD_SQL_INSTANCE || 'local',
-    description: 'Added column filter functionality to master data tables'
+    description: 'Added Excel-style dropdown filters to master data tables'
   });
 });
 

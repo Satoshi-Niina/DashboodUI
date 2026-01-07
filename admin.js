@@ -46,17 +46,40 @@
         const filters = Array.from(table.querySelectorAll('.column-filter'));
         const activeFilters = filters.map(f => ({
             index: parseInt(f.dataset.col),
-            value: f.value.toLowerCase().trim()
+            value: f.value
         })).filter(f => f.value !== "");
 
         const rows = Array.from(table.querySelector('tbody').rows);
 
         rows.forEach(row => {
             const isMatch = activeFilters.every(f => {
-                const cellText = row.cells[f.index].textContent.toLowerCase();
-                return cellText.includes(f.value);
+                const cellText = row.cells[f.index].textContent.trim();
+                return cellText === f.value;
             });
             row.style.display = isMatch ? "" : "none";
+        });
+    };
+
+    // フィルタの選択肢を自動生成する関数
+    window.updateFilterOptions = function (table) {
+        const filters = Array.from(table.querySelectorAll('.column-filter'));
+        const rows = Array.from(table.querySelector('tbody').rows);
+
+        filters.forEach(select => {
+            const colIndex = parseInt(select.dataset.col);
+            const values = new Set();
+            rows.forEach(row => {
+                const text = row.cells[colIndex].textContent.trim();
+                if (text) values.add(text);
+            });
+
+            const currentVal = select.value;
+            let optionsHtml = '<option value="">(全て)</option>';
+            Array.from(values).sort().forEach(val => {
+                optionsHtml += `<option value="${val}">${val}</option>`;
+            });
+            select.innerHTML = optionsHtml;
+            select.value = currentVal;
         });
     };
 
@@ -476,10 +499,10 @@ async function loadMachineTypes() {
                             <th>操作</th>
                         </tr>
                         <tr class="filter-row">
-                            <th><input type="text" class="column-filter" placeholder="コードで検索..." data-col="0"></th>
-                            <th><input type="text" class="column-filter" placeholder="名前で検索..." data-col="1"></th>
-                            <th><input type="text" class="column-filter" placeholder="メーカーで検索..." data-col="2"></th>
-                            <th><input type="text" class="column-filter" placeholder="カテゴリで検索..." data-col="3"></th>
+                            <th><select class="column-filter" data-col="0"></select></th>
+                            <th><select class="column-filter" data-col="1"></select></th>
+                            <th><select class="column-filter" data-col="2"></select></th>
+                            <th><select class="column-filter" data-col="3"></select></th>
                             <th></th>
                         </tr>
                     </thead>
@@ -507,12 +530,13 @@ async function loadMachineTypes() {
             html += `</tbody></table>`;
             list.innerHTML = html;
 
-            // フィルターイベントの追加
+            // フィルターイベントと選択肢の初期化
             const table = document.getElementById('machine-types-table');
             if (table) {
+                updateFilterOptions(table);
                 const filters = table.querySelectorAll('.column-filter');
                 filters.forEach(filter => {
-                    filter.addEventListener('input', () => window.applyTableFilter(table));
+                    filter.addEventListener('change', () => window.applyTableFilter(table));
                 });
             }
         } else {
@@ -695,12 +719,12 @@ async function loadMachines() {
                             <th>操作</th>
                         </tr>
                         <tr class="filter-row">
-                            <th><input type="text" class="column-filter" placeholder="番号で検索..." data-col="0"></th>
-                            <th><input type="text" class="column-filter" placeholder="機種で検索..." data-col="1"></th>
-                            <th><input type="text" class="column-filter" placeholder="シリアルで検索..." data-col="2"></th>
+                            <th><select class="column-filter" data-col="0"></select></th>
+                            <th><select class="column-filter" data-col="1"></select></th>
+                            <th><select class="column-filter" data-col="2"></select></th>
                             <th></th>
-                            <th><input type="text" class="column-filter" placeholder="基地で検索..." data-col="4"></th>
-                            <th><input type="text" class="column-filter" placeholder="状態..." data-col="5"></th>
+                            <th><select class="column-filter" data-col="4"></select></th>
+                            <th><select class="column-filter" data-col="5"></select></th>
                             <th></th>
                         </tr>
                     </thead>
@@ -730,12 +754,13 @@ async function loadMachines() {
             html += `</tbody></table>`;
             list.innerHTML = html;
 
-            // フィルターイベントの追加
+            // フィルターイベントと選択肢の初期化
             const table = document.getElementById('machines-table');
             if (table) {
+                updateFilterOptions(table);
                 const filters = table.querySelectorAll('.column-filter');
                 filters.forEach(filter => {
-                    filter.addEventListener('input', () => window.applyTableFilter(table));
+                    filter.addEventListener('change', () => window.applyTableFilter(table));
                 });
             }
         } else {
