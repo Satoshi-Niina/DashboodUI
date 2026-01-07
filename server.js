@@ -342,14 +342,16 @@ async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'],
  * @returns {Promise<Array>}
  */
 async function dynamicInsert(logicalTableName, data, returning = true) {
+  let query = '';
+  let route = null;
+  const keys = Object.keys(data);
+  const values = Object.values(data);
   try {
-    const route = await resolveTablePath(logicalTableName);
+    route = await resolveTablePath(logicalTableName);
 
-    const keys = Object.keys(data);
-    const values = Object.values(data);
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
 
-    let query = `INSERT INTO ${route.fullPath} (${keys.join(', ')}) VALUES (${placeholders})`;
+    query = `INSERT INTO ${route.fullPath} (${keys.join(', ')}) VALUES (${placeholders})`;
 
     if (returning) {
       query += ' RETURNING *';
@@ -365,9 +367,9 @@ async function dynamicInsert(logicalTableName, data, returning = true) {
     console.error(`[DynamicDB] ❌ INSERT error for table ${logicalTableName}:`, err.message);
     console.error(`[DynamicDB] Error code:`, err.code);
     console.error(`[DynamicDB] Error detail:`, err.detail || 'N/A');
-    console.error(`[DynamicDB] Executed Query:`, query);
+    console.error(`[DynamicDB] Executed Query:`, query || 'N/A');
     console.error(`[DynamicDB] Query Values:`, values);
-    console.error(`[DynamicDB] Resolved Path:`, route.fullPath);
+    console.error(`[DynamicDB] Resolved Path:`, route ? route.fullPath : 'N/A');
     console.error(`[DynamicDB] Error stack:`, err.stack);
     throw err;
   }
@@ -382,18 +384,19 @@ async function dynamicInsert(logicalTableName, data, returning = true) {
  * @returns {Promise<Array>}
  */
 async function dynamicUpdate(logicalTableName, data, conditions, returning = true) {
+  let query = '';
+  let route = null;
+  const setKeys = Object.keys(data);
+  const setValues = Object.values(data);
+  const conditionKeys = Object.keys(conditions);
+  const conditionValues = Object.values(conditions);
   try {
-    const route = await resolveTablePath(logicalTableName);
-
-    const setKeys = Object.keys(data);
-    const setValues = Object.values(data);
-    const conditionKeys = Object.keys(conditions);
-    const conditionValues = Object.values(conditions);
+    route = await resolveTablePath(logicalTableName);
 
     const setClause = setKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
     const whereClause = conditionKeys.map((key, i) => `${key} = $${setKeys.length + i + 1}`).join(' AND ');
 
-    let query = `UPDATE ${route.fullPath} SET ${setClause}`;
+    query = `UPDATE ${route.fullPath} SET ${setClause}`;
 
     if (conditionKeys.length > 0) {
       query += ` WHERE ${whereClause}`;
@@ -413,9 +416,9 @@ async function dynamicUpdate(logicalTableName, data, conditions, returning = tru
     console.error(`[DynamicDB] ❌ UPDATE error for table ${logicalTableName}:`, err.message);
     console.error(`[DynamicDB] Error code:`, err.code);
     console.error(`[DynamicDB] Error detail:`, err.detail || 'N/A');
-    console.error(`[DynamicDB] Executed Query:`, query);
+    console.error(`[DynamicDB] Executed Query:`, query || 'N/A');
     console.error(`[DynamicDB] Query Parameters:`, [...setValues, ...conditionValues]);
-    console.error(`[DynamicDB] Resolved Path:`, route.fullPath);
+    console.error(`[DynamicDB] Resolved Path:`, route ? route.fullPath : 'N/A');
     console.error(`[DynamicDB] Error stack:`, err.stack);
     throw err;
   }
@@ -429,14 +432,16 @@ async function dynamicUpdate(logicalTableName, data, conditions, returning = tru
  * @returns {Promise<Array>}
  */
 async function dynamicDelete(logicalTableName, conditions, returning = false) {
+  let query = '';
+  let route = null;
+  const conditionKeys = Object.keys(conditions);
+  const conditionValues = Object.values(conditions);
   try {
-    const route = await resolveTablePath(logicalTableName);
+    route = await resolveTablePath(logicalTableName);
 
-    const conditionKeys = Object.keys(conditions);
-    const conditionValues = Object.values(conditions);
     const whereClause = conditionKeys.map((key, i) => `${key} = $${i + 1}`).join(' AND ');
 
-    let query = `DELETE FROM ${route.fullPath}`;
+    query = `DELETE FROM ${route.fullPath}`;
 
     if (conditionKeys.length > 0) {
       query += ` WHERE ${whereClause}`;
@@ -454,9 +459,9 @@ async function dynamicDelete(logicalTableName, conditions, returning = false) {
     console.error(`[DynamicDB] ❌ DELETE error for table ${logicalTableName}:`, err.message);
     console.error(`[DynamicDB] Error code:`, err.code);
     console.error(`[DynamicDB] Error detail:`, err.detail || 'N/A');
-    console.error(`[DynamicDB] Executed Query:`, query);
+    console.error(`[DynamicDB] Executed Query:`, query || 'N/A');
     console.error(`[DynamicDB] Query Parameters:`, conditionValues);
-    console.error(`[DynamicDB] Resolved Path:`, route.fullPath);
+    console.error(`[DynamicDB] Resolved Path:`, route ? route.fullPath : 'N/A');
     console.error(`[DynamicDB] Error stack:`, err.stack);
     throw err;
   }
