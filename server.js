@@ -2097,28 +2097,22 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
 // 機種マスタ追加
 app.post('/api/machine-types', requireAdmin, async (req, res) => {
   try {
-    console.log('[POST /api/machine-types] Smart Save Start...');
+    console.log('[POST /api/machine-types] Ultra-Strict Smart Save...');
 
-    // データクリーニング (空文字をnullに変換)
     const cleaned = {};
     Object.keys(req.body).forEach(key => {
       cleaned[key] = (req.body[key] === '' ? null : req.body[key]);
     });
 
-    const { type_name, manufacturer, category, description, model_name, model } = cleaned;
+    let { type_name, manufacturer, category, description, model_name, model } = cleaned;
     const final_model_name = model_name || model || null;
     const final_manufacturer = manufacturer || null;
 
-    if (!type_name) {
-      return res.status(400).json({ success: false, message: '機種名は必須です' });
-    }
+    if (!type_name) return res.status(400).json({ success: false, message: '機種名は必須です' });
 
     const route = await resolveTablePath('machine_types');
 
-    // 【ステップ1】 3点一致ルールの厳格な確認 (機種名, 型式, メーカー)
-    console.log(`[MachineTypes] Strict matching: ${type_name}, ${final_model_name}, ${final_manufacturer}`);
-
-    // 型式(model_name)とメーカー(manufacturer)が1つでも違えば新規追加にするための検索
+    // 【厳格判定】 機種名・型式・メーカーの3つが完全に一致するものがあるか？
     const matchQuery = `
       SELECT id FROM ${route.fullPath}
       WHERE type_name = $1
@@ -2129,56 +2123,37 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
     const matchResult = await pool.query(matchQuery, [type_name, final_model_name, final_manufacturer]);
 
     if (matchResult.rows.length > 0) {
-      // 一致するものがあったので「上書き保存（UPDATE）」
+      // 完全に一致する場合のみ「上書き」
       const existingId = matchResult.rows[0].id;
-      console.log(`[MachineTypes] Match found (ID: ${existingId}). Updating...`);
-
-      const updateData = {
-        category,
-        model_name: final_model_name,
-        manufacturer: final_manufacturer,
-        description,
-        updated_at: new Date()
-      };
+      console.log(`[MachineTypes] Exact match found (${existingId}). Updating existing record...`);
+      const updateData = { category, description, updated_at: new Date() };
       const result = await dynamicUpdate('machine_types', updateData, { id: existingId });
-      return res.json({ success: true, data: result[0], message: '既存の機種情報を更新しました(3点一致)' });
+      return res.json({ success: true, data: result[0], message: '既存の同一機種を特定し、情報を更新しました' });
     }
 
-    // 【ステップ2】 一致しなかったので「新規登録（INSERT + 自動採番）」
-    console.log(`[MachineTypes] No match found. Generating new ID...`);
+    // 1つでも違う場合は「新規追加」
+    console.log(`[MachineTypes] New combination detected. Creating new record...`);
 
-    let type_code;
-    const maxIdResult = await pool.query(`SELECT id::text FROM ${route.fullPath} WHERE id::text LIKE 'MT%' ORDER BY id DESC LIMIT 1`);
-    let nextNumber = 1;
-    if (maxIdResult.rows.length > 0) {
-      const lastId = maxIdResult.rows[0].id;
-      const numericPart = parseInt(lastId.replace('MT', ''));
-      if (!isNaN(numericPart)) {
-        nextNumber = numericPart + 1;
-      }
-    }
-    type_code = `MT${String(nextNumber).padStart(4, '0')}`;
+    // 確実にユニークなIDを生成 (MT + タイムスタンプの下6桁 + ランダム)
+    const uniqueSuffix = Date.now().toString().slice(-6) + Math.floor(Math.random() * 100).toString().padStart(2, '0');
+    const new_type_code = `MT-${uniqueSuffix}`;
 
     const saveData = {
-      id: type_code,
-      type_code,
+      id: new_type_code,
+      type_code: new_type_code,
       type_name,
-      manufacturer,
+      manufacturer: final_manufacturer,
       category,
       description,
       model_name: final_model_name
     };
 
     const result = await dynamicInsert('machine_types', saveData);
-    res.json({ success: true, data: result[0], message: '新しい機種を追加しました' });
+    res.json({ success: true, data: result[0], message: '新しい機種（別レコード）として登録しました' });
 
   } catch (err) {
-    console.error('[POST /api/machine-types] Smart Save Error:', err.message);
-    res.status(500).json({
-      success: false,
-      message: 'サーバーエラーが発生しました(スマート保存): ' + err.message,
-      stack: err.stack
-    });
+    console.error('[POST /api/machine-types] Fatal Error:', err.message);
+    res.status(500).json({ success: false, message: '保存に失敗しました: ' + err.message, detail: err.detail });
   }
 });
 
