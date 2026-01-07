@@ -2257,7 +2257,6 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
         m.serial_number,
         m.manufacture_date,
         m.purchase_date,
-        m.status,
         m.assigned_base_id,
         m.office_id,
         m.notes,
@@ -2434,10 +2433,10 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 // サーバーバージョン取得エンドポイント
 app.get('/api/version', (req, res) => {
   res.json({
-    version: 'VER-20260107-1700-EXCEL-FILTER',
+    version: 'VER-20260107-1715-RM-STATUS',
     app_id: process.env.APP_ID || 'dashboard-ui',
     instance: process.env.CLOUD_SQL_INSTANCE || 'local',
-    description: 'Added Excel-style dropdown filters to master data tables'
+    description: 'Removed Status column from machines table'
   });
 });
 
@@ -2508,7 +2507,6 @@ async function runEmergencyDbFix() {
       await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS manufacture_date TEXT`);
       await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS purchase_date TEXT`);
       await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS notes TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS status TEXT`);
       await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS assigned_base_id TEXT`);
       await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now()`);
       await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()`);

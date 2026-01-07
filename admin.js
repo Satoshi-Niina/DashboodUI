@@ -715,7 +715,6 @@ async function loadMachines() {
                             <th>シリアル番号</th>
                             <th>製造年月日</th>
                             <th>配属基地</th>
-                            <th>ステータス</th>
                             <th>操作</th>
                         </tr>
                         <tr class="filter-row">
@@ -724,7 +723,6 @@ async function loadMachines() {
                             <th><select class="column-filter" data-col="2"></select></th>
                             <th></th>
                             <th><select class="column-filter" data-col="4"></select></th>
-                            <th><select class="column-filter" data-col="5"></select></th>
                             <th></th>
                         </tr>
                     </thead>
@@ -742,7 +740,6 @@ async function loadMachines() {
                         <td>${escapeHtml(machine.serial_number || '-')}</td>
                         <td>${machine.manufacture_date ? new Date(machine.manufacture_date).toLocaleDateString('ja-JP') : '-'}</td>
                         <td>${escapeHtml(machine.base_name || '-')}</td>
-                        <td>${machine.status === 'active' ? '稼働中' : machine.status === 'maintenance' ? '整備中' : '廃車'}</td>
                         <td>
                             <button class="btn-sm btn-edit" data-id="${machineId}" data-action="edit-machine">編集</button>
                             <button class="btn-sm btn-delete" data-id="${machineId}" data-number="${escapeHtml(machineNumber)}" data-action="delete-machine">削除</button>
