@@ -27,10 +27,10 @@ console.log('Express app created');
 
 // CORS設定
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN === '*' 
-    ? '*' 
-    : process.env.CORS_ORIGIN 
-      ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) 
+  origin: process.env.CORS_ORIGIN === '*'
+    ? '*'
+    : process.env.CORS_ORIGIN
+      ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
       : '*',
   credentials: true
 };
@@ -183,9 +183,9 @@ if (isProduction && process.env.CLOUD_SQL_INSTANCE) {
   };
 }
 
-console.log('Database config (password hidden):', { 
-  ...poolConfig, 
-  password: poolConfig.password ? '****' : undefined 
+console.log('Database config (password hidden):', {
+  ...poolConfig,
+  password: poolConfig.password ? '****' : undefined
 });
 
 console.log('Creating database pool...');
@@ -199,8 +199,8 @@ try {
   // Create dummy pool that throws errors
   pool = {
     query: () => Promise.reject(new Error('Database not initialized: ' + err.message)),
-    end: () => {},
-    on: () => {}
+    end: () => { },
+    on: () => { }
   };
 }
 
@@ -225,7 +225,7 @@ const CACHE_TTL = 60 * 1000; // 1分（本番での即座な反映を重視）
  */
 async function resolveTablePath(logicalName) {
   const cacheKey = `${APP_ID}:${logicalName}`;
-  
+
   // キャッシュチェック
   const cached = routingCache.get(cacheKey);
   if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
@@ -249,7 +249,7 @@ async function resolveTablePath(logicalName) {
       const { physical_schema, physical_table } = result.rows[0];
       const fullPath = `${physical_schema}."${physical_table}"`;
       const resolved = { fullPath, schema: physical_schema, table: physical_table, timestamp: Date.now() };
-      
+
       // キャッシュに保存
       routingCache.set(cacheKey, resolved);
       console.log(`[Gateway] ✅ Resolved: ${logicalName} → ${fullPath}`);
@@ -258,15 +258,15 @@ async function resolveTablePath(logicalName) {
 
     // ルーティングが見つからない場合はmaster_dataスキーマにフォールバック
     console.log(`[Gateway] ⚠️ No route found for ${logicalName}, falling back to master_data.${logicalName}`);
-    const fallback = { 
-      fullPath: `master_data."${logicalName}"`, 
-      schema: 'master_data', 
+    const fallback = {
+      fullPath: `master_data."${logicalName}"`,
+      schema: 'master_data',
       table: logicalName,
       timestamp: Date.now()
     };
     routingCache.set(cacheKey, fallback);
     return fallback;
-    
+
   } catch (err) {
     console.error(`[Gateway] ❌ Error resolving ${logicalName}:`, err.message);
     console.error(`[Gateway] Error code:`, err.code);
@@ -275,9 +275,9 @@ async function resolveTablePath(logicalName) {
     console.error(`[Gateway] Parameters:`, { APP_ID, logicalName });
     console.error(`[Gateway] Error stack:`, err.stack);
     // エラー時もmaster_dataスキーマにフォールバック
-    const fallback = { 
-      fullPath: `master_data."${logicalName}"`, 
-      schema: 'master_data', 
+    const fallback = {
+      fullPath: `master_data."${logicalName}"`,
+      schema: 'master_data',
       table: logicalName,
       timestamp: Date.now()
     };
@@ -297,25 +297,25 @@ async function resolveTablePath(logicalName) {
 async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'], limit = null) {
   try {
     const route = await resolveTablePath(logicalTableName);
-    
+
     const columnList = columns.join(', ');
     let query = `SELECT ${columnList} FROM ${route.fullPath}`;
     const params = [];
-    
+
     // WHERE句の構築
     const whereConditions = Object.entries(conditions).map(([key, value], index) => {
       params.push(value);
       return `${key} = $${index + 1}`;
     });
-    
+
     if (whereConditions.length > 0) {
       query += ` WHERE ${whereConditions.join(' AND ')}`;
     }
-    
+
     if (limit) {
       query += ` LIMIT ${limit}`;
     }
-    
+
     console.log(`[DynamicDB] SELECT from ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
     console.log(`[DynamicDB] Params:`, params);
@@ -344,17 +344,17 @@ async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'],
 async function dynamicInsert(logicalTableName, data, returning = true) {
   try {
     const route = await resolveTablePath(logicalTableName);
-    
+
     const keys = Object.keys(data);
     const values = Object.values(data);
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
-    
+
     let query = `INSERT INTO ${route.fullPath} (${keys.join(', ')}) VALUES (${placeholders})`;
-    
+
     if (returning) {
       query += ' RETURNING *';
     }
-    
+
     console.log(`[DynamicDB] INSERT into ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
     console.log(`[DynamicDB] Values:`, values);
@@ -384,25 +384,25 @@ async function dynamicInsert(logicalTableName, data, returning = true) {
 async function dynamicUpdate(logicalTableName, data, conditions, returning = true) {
   try {
     const route = await resolveTablePath(logicalTableName);
-    
+
     const setKeys = Object.keys(data);
     const setValues = Object.values(data);
     const conditionKeys = Object.keys(conditions);
     const conditionValues = Object.values(conditions);
-    
+
     const setClause = setKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
     const whereClause = conditionKeys.map((key, i) => `${key} = $${setKeys.length + i + 1}`).join(' AND ');
-    
+
     let query = `UPDATE ${route.fullPath} SET ${setClause}`;
-    
+
     if (conditionKeys.length > 0) {
       query += ` WHERE ${whereClause}`;
     }
-    
+
     if (returning) {
       query += ' RETURNING *';
     }
-    
+
     console.log(`[DynamicDB] UPDATE ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
     console.log(`[DynamicDB] Params:`, [...setValues, ...conditionValues]);
@@ -431,21 +431,21 @@ async function dynamicUpdate(logicalTableName, data, conditions, returning = tru
 async function dynamicDelete(logicalTableName, conditions, returning = false) {
   try {
     const route = await resolveTablePath(logicalTableName);
-    
+
     const conditionKeys = Object.keys(conditions);
     const conditionValues = Object.values(conditions);
     const whereClause = conditionKeys.map((key, i) => `${key} = $${i + 1}`).join(' AND ');
-    
+
     let query = `DELETE FROM ${route.fullPath}`;
-    
+
     if (conditionKeys.length > 0) {
       query += ` WHERE ${whereClause}`;
     }
-    
+
     if (returning) {
       query += ' RETURNING *';
     }
-    
+
     console.log(`[DynamicDB] DELETE from ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
     const result = await pool.query(query, conditionValues);
@@ -504,19 +504,19 @@ app.get('/api/debug/routing', async (req, res) => {
       ORDER BY app_id, logical_resource_name
     `;
     const result = await pool.query(query);
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       count: result.rows.length,
       routing: result.rows,
       cache_size: routingCache.size
     });
   } catch (err) {
     console.error('[DEBUG] Routing fetch error:', err);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'ルーティング情報の取得に失敗しました',
-      error: err.message 
+      error: err.message
     });
   }
 });
@@ -524,22 +524,22 @@ app.get('/api/debug/routing', async (req, res) => {
 // スキーマ存在チェックエンドポイント（認証なし）
 app.get('/api/debug/schema-check', async (req, res) => {
   const { table, schema = 'master_data' } = req.query;
-  
+
   if (!table) {
-    return res.status(400).json({ 
-      success: false, 
-      message: 'tableパラメータが必要です' 
+    return res.status(400).json({
+      success: false,
+      message: 'tableパラメータが必要です'
     });
   }
-  
+
   try {
     console.log(`[DEBUG] Checking table: ${schema}.${table}`);
-    
+
     // to_regclassを使用してテーブル存在確認
     const existsQuery = `SELECT to_regclass($1) IS NOT NULL as exists`;
     const existsResult = await pool.query(existsQuery, [`${schema}.${table}`]);
     const exists = existsResult.rows[0].exists;
-    
+
     if (!exists) {
       return res.json({
         success: true,
@@ -547,7 +547,7 @@ app.get('/api/debug/schema-check', async (req, res) => {
         message: `テーブル ${schema}.${table} は存在しません`
       });
     }
-    
+
     // カラム情報を取得
     const columnsQuery = `
       SELECT 
@@ -560,11 +560,11 @@ app.get('/api/debug/schema-check', async (req, res) => {
       ORDER BY ordinal_position
     `;
     const columnsResult = await pool.query(columnsQuery, [schema, table]);
-    
+
     // レコード数を取得
     const countQuery = `SELECT COUNT(*) as count FROM ${schema}."${table}"`;
     const countResult = await pool.query(countQuery);
-    
+
     res.json({
       success: true,
       exists: true,
@@ -575,8 +575,8 @@ app.get('/api/debug/schema-check', async (req, res) => {
     });
   } catch (err) {
     console.error('[DEBUG] Schema check error:', err);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'スキーマチェックに失敗しました',
       error: err.message,
       code: err.code
@@ -616,9 +616,9 @@ async function testDatabaseConnection() {
   } catch (err) {
     console.error('⚠️ Database connection error:', err.message);
     console.error('Error code:', err.code);
-    console.error('Connection config:', { 
-      host: poolConfig.host, 
-      user: poolConfig.user, 
+    console.error('Connection config:', {
+      host: poolConfig.host,
+      user: poolConfig.user,
       database: poolConfig.database,
       cloudSqlInstance: process.env.CLOUD_SQL_INSTANCE
     });
@@ -675,12 +675,12 @@ app.post('/api/login', async (req, res) => {
 
   try {
     // ゲートウェイ方式でユーザー検索
-    const users = await dynamicSelect('users', 
-      { username }, 
-      ['id', 'username', 'password', 'display_name', 'role'], 
+    const users = await dynamicSelect('users',
+      { username },
+      ['id', 'username', 'password', 'display_name', 'role'],
       1
     );
-    
+
     console.log('[Login] Query result:', users.length > 0 ? 'User found' : 'User not found');
 
     if (users.length === 0) {
@@ -692,20 +692,20 @@ app.post('/api/login', async (req, res) => {
     // パスワード比較
     // DBのパスワードがbcryptハッシュ($2で始まる)かどうかを判定
     let match = false;
-    
+
     if (user.password && user.password.startsWith('$2')) {
       // ハッシュ化されたパスワード
       match = await bcrypt.compare(password, user.password);
     } else {
       // 平文パスワード（後方互換性のため）
       match = (password === user.password);
-      
+
       // セキュリティ向上のため、平文パスワードをハッシュ化して更新
       if (match) {
         try {
           const hashedPassword = await bcrypt.hash(password, 10);
-          await dynamicUpdate('users', 
-            { password: hashedPassword }, 
+          await dynamicUpdate('users',
+            { password: hashedPassword },
             { id: user.id },
             false
           );
@@ -718,11 +718,11 @@ app.post('/api/login', async (req, res) => {
 
     if (match) {
       console.log('[Login] Password matched for user:', username);
-      
+
       // 認証成功 - Emergency-Assistanceと互換性のあるトークンを生成
       // department情報を設定（DBカラムがなくてもエラーにならないよう対応）
       let department = 'システム管理部';  // デフォルト値
-      
+
       // roleに基づいてdepartmentを設定
       if (user.role === 'system_admin') {
         department = 'システム管理部';
@@ -777,10 +777,10 @@ app.post('/api/verify-token', async (req, res) => {
   const { token } = req.body;
 
   if (!token) {
-    return res.status(400).json({ 
-      valid: false, 
-      success: false, 
-      message: 'トークンが提供されていません' 
+    return res.status(400).json({
+      valid: false,
+      success: false,
+      message: 'トークンが提供されていません'
     });
   }
 
@@ -789,24 +789,24 @@ app.post('/api/verify-token', async (req, res) => {
       issuer: 'emergency-assistance-app',
       audience: 'emergency-assistance-app'
     });
-    
+
     // ゲートウェイ方式でユーザー情報を取得（departmentカラムは取得しない）
-    const users = await dynamicSelect('users', 
-      { id: decoded.id }, 
-      ['id', 'username', 'display_name', 'role'], 
+    const users = await dynamicSelect('users',
+      { id: decoded.id },
+      ['id', 'username', 'display_name', 'role'],
       1
     );
 
     if (users.length === 0) {
-      return res.status(404).json({ 
-        valid: false, 
-        success: false, 
-        message: 'ユーザーが見つかりません' 
+      return res.status(404).json({
+        valid: false,
+        success: false,
+        message: 'ユーザーが見つかりません'
       });
     }
 
     const user = users[0];
-    
+
     // departmentをroleから動的に生成
     let department = '一般';
     if (user.role === 'system_admin') {
@@ -814,36 +814,36 @@ app.post('/api/verify-token', async (req, res) => {
     } else if (user.role === 'operation_admin') {
       department = '運用管理部';
     }
-    
-    res.json({ 
+
+    res.json({
       valid: true,
-      success: true, 
-      user: { 
-        id: user.id, 
-        username: user.username, 
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
         displayName: user.display_name,
         role: user.role,
         department: department
-      } 
+      }
     });
   } catch (err) {
     console.error('Token verification error:', err);
-    
+
     // デバッグ用：検証失敗時の詳細情報
     if (err.message === 'invalid signature') {
-        console.error('⚠️ Invalid signature detected. Check JWT_SECRET mismatch.');
-        const secret = process.env.JWT_SECRET;
-        if (secret) {
-            console.error(`Server Secret Length: ${secret.length}`);
-            console.error(`Server Secret Prefix: ${secret.substring(0, 2)}***`);
-        } else {
-            console.error('Server Secret is NOT set!');
-        }
+      console.error('⚠️ Invalid signature detected. Check JWT_SECRET mismatch.');
+      const secret = process.env.JWT_SECRET;
+      if (secret) {
+        console.error(`Server Secret Length: ${secret.length}`);
+        console.error(`Server Secret Prefix: ${secret.substring(0, 2)}***`);
+      } else {
+        console.error('Server Secret is NOT set!');
+      }
     }
 
-    res.status(401).json({ 
-      valid: false, 
-      success: false, 
+    res.status(401).json({
+      valid: false,
+      success: false,
       message: 'トークンが無効または期限切れです',
       details: err.message
     });
@@ -864,7 +864,7 @@ app.post('/api/refresh-token', async (req, res) => {
       issuer: 'emergency-assistance-app',
       audience: 'emergency-assistance-app'
     });
-    
+
     // 新しいトークンを発行（Emergency-Assistanceと互換性のある形式）
     // departmentが存在しない場合のフォールバック処理
     let department = decoded.department;
@@ -905,7 +905,7 @@ app.post('/api/refresh-token', async (req, res) => {
 // 管理者認証ミドルウェア
 async function requireAdmin(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
-  
+
   if (!token) {
     return res.status(401).json({ success: false, message: '認証が必要です' });
   }
@@ -924,7 +924,7 @@ async function requireAdmin(req, res, next) {
     }
 
     const user = result.rows[0];
-    
+
     // system_admin または operation_admin のみアクセス可能
     if (user.role !== 'system_admin' && user.role !== 'operation_admin') {
       return res.status(403).json({ success: false, message: 'アクセス権限がありません。管理者権限が必要です。' });
@@ -1029,9 +1029,9 @@ app.get('/api/users/:id', requireAdmin, async (req, res) => {
   const userId = req.params.id;
 
   try {
-    const users = await dynamicSelect('users', 
-      { id: userId }, 
-      ['id', 'username', 'display_name', 'role'], 
+    const users = await dynamicSelect('users',
+      { id: userId },
+      ['id', 'username', 'display_name', 'role'],
       1
     );
 
@@ -1083,12 +1083,12 @@ app.post('/api/users', requireAdmin, async (req, res) => {
       display_name: display_name || null,
       role: role || 'user'
     };
-    
+
     // emailフィールドが存在する場合のみ追加
     if (email) {
       userData.email = email;
     }
-    
+
     console.log('[POST /api/users] Inserting user:', { username, display_name, role, email });
     const users = await dynamicInsert('users', userData);
 
@@ -1105,7 +1105,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 app.put('/api/users/:id', requireAdmin, async (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   const userId = req.params.id;
-  
+
   if (!token) {
     return res.status(401).json({ success: false, message: '認証が必要です' });
   }
@@ -1116,7 +1116,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       issuer: 'emergency-assistance-app',
       audience: 'emergency-assistance-app'
     });
-    
+
     console.log('[PUT /api/users/:id] Request body:', req.body);
     const { username, display_name, password, role, email } = req.body;
 
@@ -1151,12 +1151,12 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         role: role || 'user',
         updated_at: new Date()
       };
-      
+
       // emailフィールドが存在する場合のみ追加
       if (email !== undefined) {
         updateData.email = email || null;
       }
-      
+
       console.log('[PUT /api/users/:id] Updating user with password');
       const users = await dynamicUpdate('users', updateData, { id: userId });
 
@@ -1173,12 +1173,12 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         role: role || 'user',
         updated_at: new Date()
       };
-      
+
       // emailフィールドが存在する場合のみ追加
       if (email !== undefined) {
         updateData.email = email || null;
       }
-      
+
       console.log('[PUT /api/users/:id] Updating user without password');
       const users = await dynamicUpdate('users', updateData,
         { id: userId }
@@ -1200,7 +1200,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 app.delete('/api/users/:id', requireAdmin, async (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   const userId = req.params.id;
-  
+
   if (!token) {
     return res.status(401).json({ success: false, message: '認証が必要です' });
   }
@@ -1211,7 +1211,7 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
       issuer: 'emergency-assistance-app',
       audience: 'emergency-assistance-app'
     });
-    
+
     // 自分自身を削除しようとしていないかチェック
     if (decoded.id === parseInt(userId)) {
       return res.status(400).json({ success: false, message: '自分自身は削除できません' });
@@ -1328,7 +1328,7 @@ app.put('/api/offices/:id', requireAdmin, async (req, res) => {
 // 事業所削除
 app.delete('/api/offices/:id', requireAdmin, async (req, res) => {
   const officeId = req.params.id;
-  
+
   try {
     const offices = await dynamicDelete('managements_offices', { office_id: officeId }, true);
 
@@ -1447,7 +1447,7 @@ app.put('/api/bases/:id', requireAdmin, async (req, res) => {
 // 保守基地削除
 app.delete('/api/bases/:id', requireAdmin, async (req, res) => {
   const baseId = req.params.id;
-  
+
   try {
     const deleteQuery = 'DELETE FROM master_data.bases WHERE base_id = $1 RETURNING base_name';
     const result = await pool.query(deleteQuery, [baseId]);
@@ -1571,7 +1571,7 @@ app.get('/api/database/table/:schemaTable', authenticateToken, async (req, res) 
   try {
     const { schemaTable } = req.params;
     const [schema, table] = schemaTable.split('.');
-    
+
     if (!schema || !table) {
       return res.status(400).json({ success: false, message: 'Invalid table name format' });
     }
@@ -1587,7 +1587,7 @@ app.get('/api/database/table/:schemaTable', authenticateToken, async (req, res) 
     }
 
     const result = await pool.query(`SELECT * FROM ${schema}.${table} ORDER BY 1 DESC LIMIT 100`);
-    
+
     // カラム情報も取得
     const columnsQuery = await pool.query(`
       SELECT column_name, data_type 
@@ -1596,8 +1596,8 @@ app.get('/api/database/table/:schemaTable', authenticateToken, async (req, res) 
       ORDER BY ordinal_position
     `, [schema, table]);
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       data: result.rows,
       columns: columnsQuery.rows
     });
@@ -1631,7 +1631,7 @@ app.post('/api/database/table/:schemaTable', authenticateToken, async (req, res)
     const columns = Object.keys(data);
     const values = Object.values(data);
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
-    
+
     const query = `INSERT INTO ${schema}.${table} (${columns.join(', ')}) VALUES (${placeholders}) RETURNING *`;
     const result = await pool.query(query, values);
 
@@ -1668,10 +1668,10 @@ app.put('/api/database/table/:schemaTable/:id', authenticateToken, async (req, r
     const pkColumn = pkQuery.rows[0].attname;
     const columns = Object.keys(data);
     const values = Object.values(data);
-    
+
     const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
     const query = `UPDATE ${schema}.${table} SET ${setClause} WHERE ${pkColumn} = $${columns.length + 1} RETURNING *`;
-    
+
     const result = await pool.query(query, [...values, id]);
 
     if (result.rows.length === 0) {
@@ -1709,7 +1709,7 @@ app.delete('/api/database/table/:schemaTable/:id', authenticateToken, async (req
 
     const pkColumn = pkQuery.rows[0].attname;
     const query = `DELETE FROM ${schema}.${table} WHERE ${pkColumn} = $1 RETURNING *`;
-    
+
     const result = await pool.query(query, [id]);
 
     if (result.rows.length === 0) {
@@ -1729,7 +1729,7 @@ app.post('/api/database/backup', authenticateToken, async (req, res) => {
     const { exec } = require('child_process');
     const fs = require('fs');
     const backupDir = path.join(__dirname, 'backups');
-    
+
     // バックアップディレクトリ作成
     if (!fs.existsSync(backupDir)) {
       fs.mkdirSync(backupDir, { recursive: true });
@@ -1737,7 +1737,7 @@ app.post('/api/database/backup', authenticateToken, async (req, res) => {
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupFile = path.join(backupDir, `backup_${timestamp}.sql`);
-    
+
     const dbConfig = {
       host: pool.options.host || 'localhost',
       port: pool.options.port || 5432,
@@ -1747,7 +1747,7 @@ app.post('/api/database/backup', authenticateToken, async (req, res) => {
     };
 
     const pgDumpCmd = `"C:\\Program Files\\PostgreSQL\\17\\bin\\pg_dump.exe" -h ${dbConfig.host} -p ${dbConfig.port} -U ${dbConfig.user} -d ${dbConfig.database} -f "${backupFile}"`;
-    
+
     exec(pgDumpCmd, { env: { ...process.env, PGPASSWORD: dbConfig.password } }, (error, stdout, stderr) => {
       if (error) {
         console.error('Backup error:', error);
@@ -1774,13 +1774,13 @@ app.get('/api/database/export-csv/:schemaTable', authenticateToken, async (req, 
   try {
     const { schemaTable } = req.params;
     const [schema, table] = schemaTable.split('.');
-    
+
     if (!schema || !table) {
       return res.status(400).json({ success: false, message: 'Invalid table name format' });
     }
 
     const result = await pool.query(`SELECT * FROM ${schema}.${table}`);
-    
+
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: 'No data found' });
     }
@@ -1788,7 +1788,7 @@ app.get('/api/database/export-csv/:schemaTable', authenticateToken, async (req, 
     // CSV生成
     const columns = Object.keys(result.rows[0]);
     const csvHeader = columns.join(',') + '\n';
-    const csvRows = result.rows.map(row => 
+    const csvRows = result.rows.map(row =>
       columns.map(col => {
         const value = row[col];
         // 値にカンマや改行が含まれる場合はダブルクォートで囲む
@@ -1818,7 +1818,7 @@ app.post('/api/database/import-csv/:schemaTable', authenticateToken, async (req,
     const { schemaTable } = req.params;
     const { csvData } = req.body;
     const [schema, table] = schemaTable.split('.');
-    
+
     if (!schema || !table || !csvData) {
       return res.status(400).json({ success: false, message: 'Invalid request' });
     }
@@ -1838,7 +1838,7 @@ app.post('/api/database/import-csv/:schemaTable', authenticateToken, async (req,
         const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
         const placeholders = values.map((_, idx) => `$${idx + 1}`).join(', ');
         const query = `INSERT INTO ${schema}.${table} (${headers.join(', ')}) VALUES (${placeholders})`;
-        
+
         await pool.query(query, values);
         successCount++;
       } catch (err) {
@@ -1847,8 +1847,8 @@ app.post('/api/database/import-csv/:schemaTable', authenticateToken, async (req,
       }
     }
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: `Import completed: ${successCount} success, ${errorCount} errors`,
       successCount,
       errorCount
@@ -1876,15 +1876,15 @@ app.get('/health', async (req, res) => {
   try {
     // データベース接続確認
     await pool.query('SELECT 1');
-    res.json({ 
-      status: 'healthy', 
+    res.json({
+      status: 'healthy',
       database: 'connected',
       timestamp: new Date().toISOString()
     });
   } catch (err) {
     console.error('Health check failed:', err);
-    res.status(503).json({ 
-      status: 'unhealthy', 
+    res.status(503).json({
+      status: 'unhealthy',
       database: 'disconnected',
       error: err.message,
       timestamp: new Date().toISOString()
@@ -1926,7 +1926,7 @@ app.get('/debug/users', async (req, res) => {
       FROM master_data.users 
       ORDER BY id
     `);
-    
+
     res.json({
       success: true,
       count: result.rows.length,
@@ -1934,8 +1934,8 @@ app.get('/debug/users', async (req, res) => {
     });
   } catch (err) {
     console.error('Debug users error:', err);
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       error: err.message,
       hint: 'master_data.usersテーブルが存在しない可能性があります'
     });
@@ -1945,11 +1945,11 @@ app.get('/debug/users', async (req, res) => {
 // デバッグ用: ログインテスト
 app.post('/debug/test-login', async (req, res) => {
   const { username, password } = req.body;
-  
+
   try {
     const query = 'SELECT id, username, password FROM master_data.users WHERE username = $1';
     const result = await pool.query(query, [username]);
-    
+
     if (result.rows.length === 0) {
       return res.json({
         success: false,
@@ -1957,18 +1957,18 @@ app.post('/debug/test-login', async (req, res) => {
         username: username
       });
     }
-    
+
     const user = result.rows[0];
     const dbPassword = user.password;
     const isHashed = dbPassword && dbPassword.startsWith('$2');
-    
+
     let match = false;
     if (isHashed) {
       match = await bcrypt.compare(password, dbPassword);
     } else {
       match = (password === dbPassword);
     }
-    
+
     res.json({
       success: true,
       userFound: true,
@@ -1980,9 +1980,9 @@ app.post('/debug/test-login', async (req, res) => {
     });
   } catch (err) {
     console.error('Test login error:', err);
-    res.status(500).json({ 
-      success: false, 
-      error: err.message 
+    res.status(500).json({
+      success: false,
+      error: err.message
     });
   }
 });
@@ -1992,7 +1992,7 @@ app.get('/debug/tables', async (req, res) => {
   try {
     const tables = ['managements_offices', 'vehicles', 'machines', 'machine_types', 'bases', 'users'];
     const results = {};
-    
+
     for (const tableName of tables) {
       try {
         const checkQuery = `
@@ -2007,7 +2007,7 @@ app.get('/debug/tables', async (req, res) => {
           exists: checkResult.rows[0].exists,
           error: null
         };
-        
+
         // テーブルが存在する場合、カラム情報も取得
         if (checkResult.rows[0].exists) {
           const columnsQuery = `
@@ -2027,7 +2027,7 @@ app.get('/debug/tables', async (req, res) => {
         };
       }
     }
-    
+
     // ルーティングテーブルの確認
     try {
       const routingQuery = `
@@ -2041,7 +2041,7 @@ app.get('/debug/tables', async (req, res) => {
     } catch (err) {
       results._routing = { error: err.message };
     }
-    
+
     res.json({ success: true, tables: results });
   } catch (err) {
     console.error('Debug tables error:', err);
@@ -2057,13 +2057,13 @@ app.post('/debug/add-postal-code', async (req, res) => {
       ALTER TABLE master_data.managements_offices 
       ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20)
     `);
-    
+
     console.log('basesにpostal_codeカラムを追加...');
     await pool.query(`
       ALTER TABLE master_data.bases 
       ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20)
     `);
-    
+
     res.json({ success: true, message: 'postal_codeカラムを追加しました' });
   } catch (err) {
     console.error('Add postal_code error:', err);
@@ -2092,27 +2092,45 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
 // 機種マスタ追加
 app.post('/api/machine-types', requireAdmin, async (req, res) => {
   try {
-    const { type_name, manufacturer, category, description, model_name } = req.body;
-    
+    // データクリーニング (空文字をnullに変換)
+    const cleaned = {};
+    Object.keys(req.body).forEach(key => {
+      cleaned[key] = (req.body[key] === '' ? null : req.body[key]);
+    });
+
+    const { type_name, manufacturer, category, description, model_name, model } = cleaned;
+
     if (!type_name) {
       return res.status(400).json({ success: false, message: '機種名は必須です' });
     }
-    
-    // 機種コードを自動生成（MT + 連番）
+
+    // 機種コードを自動生成（MT + 数値最大値+1）
     const route = await resolveTablePath('machine_types');
-    const countResult = await pool.query(`SELECT COUNT(*) as count FROM ${route.fullPath}`);
-    const nextNumber = parseInt(countResult.rows[0].count) + 1;
+    const maxIdResult = await pool.query(`SELECT id FROM ${route.fullPath} WHERE id LIKE 'MT%' ORDER BY id DESC LIMIT 1`);
+    let nextNumber = 1;
+    if (maxIdResult.rows.length > 0) {
+      const lastId = maxIdResult.rows[0].id;
+      const numericPart = parseInt(lastId.replace('MT', ''));
+      if (!isNaN(numericPart)) {
+        nextNumber = numericPart + 1;
+      }
+    }
     const type_code = `MT${String(nextNumber).padStart(4, '0')}`; // MT0001, MT0002, ...
-    
-    const types = await dynamicInsert('machine_types', {
-      id: type_code,  // idもtype_codeと同じ値を使用
+
+    console.log(`[MachineTypes] Creating new type with code: ${type_code}`);
+
+    const saveData = {
+      id: type_code,
       type_code,
       type_name,
       manufacturer,
       category,
       description,
-      model_name: model_name || null
-    });
+      model_name: model_name || model || null,
+      model: model || model_name || null // 両方の可能性に対応
+    };
+
+    const types = await dynamicInsert('machine_types', saveData);
     res.json({ success: true, data: types[0], message: '機種を追加しました' });
   } catch (err) {
     console.error('Machine type create error:', err);
@@ -2129,11 +2147,11 @@ app.get('/api/machine-types/:id', requireAdmin, async (req, res) => {
   try {
     const machineTypeId = req.params.id;
     const types = await dynamicSelect('machine_types', { id: machineTypeId });
-    
+
     if (types.length === 0) {
       return res.status(404).json({ success: false, message: '機種が見つかりません' });
     }
-    
+
     res.json({ success: true, data: types[0] });
   } catch (err) {
     console.error('Machine type get error:', err);
@@ -2145,28 +2163,34 @@ app.get('/api/machine-types/:id', requireAdmin, async (req, res) => {
 app.put('/api/machine-types/:id', requireAdmin, async (req, res) => {
   try {
     const machineTypeId = req.params.id;
-    const { type_name, manufacturer, category, description, model_name } = req.body;
-    
+    // データクリーニング (空文字をnullに変換)
+    const cleaned = {};
+    Object.keys(req.body).forEach(key => {
+      cleaned[key] = (req.body[key] === '' ? null : req.body[key]);
+    });
+
+    const { type_name, manufacturer, category, description, model_name, model } = cleaned;
+
     if (!type_name) {
       return res.status(400).json({ success: false, message: '機種名は必須です' });
     }
-    
-    const types = await dynamicUpdate('machine_types', 
-      { id: machineTypeId },
-      {
-        type_name,
-        manufacturer,
-        category,
-        description,
-        model_name: model_name || null
-      },
-      true
-    );
-    
+
+    const updateData = {
+      type_name,
+      manufacturer,
+      category,
+      description,
+      model_name: model_name || model || null,
+      model: model || model_name || null, // 両方の可能性に対応
+      updated_at: new Date()
+    };
+
+    const types = await dynamicUpdate('machine_types', updateData, { id: machineTypeId }, true);
+
     if (types.length === 0) {
       return res.status(404).json({ success: false, message: '機種が見つかりません' });
     }
-    
+
     res.json({ success: true, data: types[0], message: '機種を更新しました' });
   } catch (err) {
     console.error('Machine type update error:', err);
@@ -2179,11 +2203,11 @@ app.delete('/api/machine-types/:id', requireAdmin, async (req, res) => {
   try {
     const machineTypeId = req.params.id;
     const types = await dynamicDelete('machine_types', { id: machineTypeId }, true);
-    
+
     if (types.length === 0) {
       return res.status(404).json({ success: false, message: '機種が見つかりません' });
     }
-    
+
     res.json({ success: true, message: '機種を削除しました' });
   } catch (err) {
     console.error('Machine type delete error:', err);
@@ -2197,7 +2221,7 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
     const machinesRoute = await resolveTablePath('machines');
     const machineTypesRoute = await resolveTablePath('machine_types');
     const basesRoute = await resolveTablePath('bases');
-    
+
     const query = `
       SELECT 
         m.id as machine_id,
@@ -2233,12 +2257,27 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
 // 機械番号マスタ追加
 app.post('/api/machines', requireAdmin, async (req, res) => {
   try {
-    const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, notes, type_certification, office_id } = req.body;
-    
+    // データクリーニング (空文字をnullに変換)
+    const cleaned = {};
+    Object.keys(req.body).forEach(key => {
+      cleaned[key] = (req.body[key] === '' ? null : req.body[key]);
+    });
+
+    const {
+      machine_number,
+      machine_type_id,
+      serial_number,
+      manufacture_date,
+      purchase_date,
+      notes,
+      type_certification,
+      office_id
+    } = cleaned;
+
     if (!machine_number || !machine_type_id) {
       return res.status(400).json({ success: false, message: '機械番号と機種は必須です' });
     }
-    
+
     const machines = await dynamicInsert('machines', {
       machine_number,
       machine_type_id,
@@ -2246,8 +2285,8 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
       manufacture_date,
       purchase_date,
       notes,
-      type_certification: type_certification || null,
-      office_id: office_id || null
+      type_certification,
+      office_id
     });
     res.json({ success: true, data: machines[0], message: '機械を追加しました' });
   } catch (err) {
@@ -2264,25 +2303,43 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
 app.put('/api/machines/:id', requireAdmin, async (req, res) => {
   try {
     const machineId = req.params.id;
-    const { machine_number, machine_type_id, serial_number, manufacture_date, purchase_date, notes } = req.body;
-    
-    const machines = await dynamicUpdate('machines', 
-      {
-        machine_number,
-        machine_type_id,
-        serial_number,
-        manufacture_date,
-        purchase_date,
-        notes,
-        updated_at: new Date()
-      },
-      { id: machineId }
-    );
-    
+    // データクリーニング (空文字をnullに変換)
+    const cleaned = {};
+    Object.keys(req.body).forEach(key => {
+      cleaned[key] = (req.body[key] === '' ? null : req.body[key]);
+    });
+
+    const {
+      machine_number,
+      machine_type_id,
+      serial_number,
+      manufacture_date,
+      purchase_date,
+      notes,
+      type_certification,
+      office_id
+    } = cleaned;
+
+    console.log(`[Machines] Updating machine ID: ${machineId}`, cleaned);
+
+    const updateData = {
+      machine_number,
+      machine_type_id,
+      serial_number,
+      manufacture_date,
+      purchase_date,
+      notes,
+      type_certification,
+      office_id,
+      updated_at: new Date()
+    };
+
+    const machines = await dynamicUpdate('machines', updateData, { id: machineId });
+
     if (machines.length === 0) {
       return res.status(404).json({ success: false, message: '機械が見つかりません' });
     }
-    
+
     res.json({ success: true, data: machines[0], message: '機械を更新しました' });
   } catch (err) {
     console.error('Machine update error:', err);
@@ -2295,11 +2352,11 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
   try {
     const machineId = req.params.id;
     const machines = await dynamicDelete('machines', { id: machineId }, true);
-    
+
     if (machines.length === 0) {
       return res.status(404).json({ success: false, message: '機械が見つかりません' });
     }
-    
+
     res.json({ success: true, message: '機械を削除しました' });
   } catch (err) {
     console.error('Machine delete error:', err);
@@ -2308,9 +2365,9 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 });
 
 // サーバー起動
-console.log('=' .repeat(60));
+console.log('='.repeat(60));
 console.log(`🚀 ATTEMPTING TO START SERVER ON PORT ${PORT}...`);
-console.log('=' .repeat(60));
+console.log('='.repeat(60));
 
 // JWT_SECRETのデバッグ情報（セキュリティのため一部のみ表示）
 const secret = process.env.JWT_SECRET;
@@ -2342,12 +2399,12 @@ async function startServer() {
       console.error('Stack trace:', err.stack);
       process.exit(1);
     }
-    console.log('=' .repeat(60));
+    console.log('='.repeat(60));
     console.log(`✅✅✅ SERVER STARTED SUCCESSFULLY ✅✅✅`);
     console.log(`🌐 Listening on 0.0.0.0:${PORT}`);
     console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`❤️ Health check: http://0.0.0.0:${PORT}/health`);
-    console.log('=' .repeat(60));
+    console.log('='.repeat(60));
   });
 
   server.on('error', (err) => {
