@@ -2097,42 +2097,64 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
 // 機種マスタ追加
 app.post('/api/machine-types', requireAdmin, async (req, res) => {
   try {
-    console.log('[POST /api/machine-types] Start processing...');
+    console.log('[POST /api/machine-types] Smart Save Start...');
+
     // データクリーニング (空文字をnullに変換)
     const cleaned = {};
-    if (req.body && typeof req.body === 'object') {
-      Object.keys(req.body).forEach(key => {
-        cleaned[key] = (req.body[key] === '' ? null : req.body[key]);
-      });
-    } else {
-      console.error('[POST /api/machine-types] Invalid request body');
-      return res.status(400).json({ success: false, message: '不正なリクエストです' });
-    }
+    Object.keys(req.body).forEach(key => {
+      cleaned[key] = (req.body[key] === '' ? null : req.body[key]);
+    });
 
     const { type_name, manufacturer, category, description, model_name, model } = cleaned;
+    const final_model_name = model_name || model || null;
 
     if (!type_name) {
       return res.status(400).json({ success: false, message: '機種名は必須です' });
     }
 
-    // 機種コードを自動生成
     const route = await resolveTablePath('machine_types');
 
-    let type_code;
-    try {
-      const maxIdResult = await pool.query(`SELECT id::text FROM ${route.fullPath} WHERE id::text LIKE 'MT%' ORDER BY id DESC LIMIT 1`);
-      let nextNumber = 1;
-      if (maxIdResult.rows.length > 0) {
-        const lastId = maxIdResult.rows[0].id;
-        const numericPart = parseInt(lastId.replace('MT', ''));
-        if (!isNaN(numericPart)) {
-          nextNumber = numericPart + 1;
-        }
-      }
-      type_code = `MT${String(nextNumber).padStart(4, '0')}`;
-    } catch (e) {
-      type_code = `MT${Date.now().toString().slice(-6)}`;
+    // 【ステップ1】 3点一致ルールの確認 (機種名, 型式, メーカー)
+    console.log(`[MachineTypes] Checking for match: ${type_name}, ${final_model_name}, ${manufacturer}`);
+
+    // 型式とメーカーが NULL の場合も考慮した検索
+    const matchQuery = `
+      SELECT id FROM ${route.fullPath}
+      WHERE type_name = $1
+        AND (model_name IS NOT DISTINCT FROM $2)
+        AND (manufacturer IS NOT DISTINCT FROM $3)
+      LIMIT 1
+    `;
+    const matchResult = await pool.query(matchQuery, [type_name, final_model_name, manufacturer]);
+
+    if (matchResult.rows.length > 0) {
+      // 一致するものがあったので「上書き保存（UPDATE）」
+      const existingId = matchResult.rows[0].id;
+      console.log(`[MachineTypes] Match found (ID: ${existingId}). Updating...`);
+
+      const updateData = {
+        category,
+        description,
+        updated_at: new Date()
+      };
+      const result = await dynamicUpdate('machine_types', updateData, { id: existingId });
+      return res.json({ success: true, data: result[0], message: '既存の機種情報を更新しました(3点一致)' });
     }
+
+    // 【ステップ2】 一致しなかったので「新規登録（INSERT + 自動採番）」
+    console.log(`[MachineTypes] No match found. Generating new ID...`);
+
+    let type_code;
+    const maxIdResult = await pool.query(`SELECT id::text FROM ${route.fullPath} WHERE id::text LIKE 'MT%' ORDER BY id DESC LIMIT 1`);
+    let nextNumber = 1;
+    if (maxIdResult.rows.length > 0) {
+      const lastId = maxIdResult.rows[0].id;
+      const numericPart = parseInt(lastId.replace('MT', ''));
+      if (!isNaN(numericPart)) {
+        nextNumber = numericPart + 1;
+      }
+    }
+    type_code = `MT${String(nextNumber).padStart(4, '0')}`;
 
     const saveData = {
       id: type_code,
@@ -2141,31 +2163,17 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
       manufacturer,
       category,
       description,
-      model_name: model_name || model || null
+      model_name: final_model_name
     };
 
-    let types;
-    try {
-      console.log(`[MachineTypes] Attempting save with ID: ${type_code}`);
-      types = await dynamicInsert('machine_types', saveData);
-    } catch (err) {
-      if (err.code === '23505') {
-        const fallbackId = `${type_code}-${Math.floor(Math.random() * 1000)}`;
-        console.log(`[MachineTypes] Collision! Retrying with fallback ID: ${fallbackId}`);
-        saveData.id = fallbackId;
-        saveData.type_code = fallbackId;
-        types = await dynamicInsert('machine_types', saveData);
-      } else {
-        throw err;
-      }
-    }
+    const result = await dynamicInsert('machine_types', saveData);
+    res.json({ success: true, data: result[0], message: '新しい機種を追加しました' });
 
-    res.json({ success: true, data: types[0], message: '機種を追加しました' });
   } catch (err) {
-    console.error('[POST /api/machine-types] Fatal machine type error:', err.message);
+    console.error('[POST /api/machine-types] Smart Save Error:', err.message);
     res.status(500).json({
       success: false,
-      message: 'サーバーエラーが発生しました(追加): ' + err.message,
+      message: 'サーバーエラーが発生しました(スマート保存): ' + err.message,
       stack: err.stack
     });
   }
