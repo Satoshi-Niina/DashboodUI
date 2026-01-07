@@ -2142,15 +2142,14 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
     const types = await dynamicInsert('machine_types', saveData);
     res.json({ success: true, data: types[0], message: '機種を追加しました' });
   } catch (err) {
-    console.error('[POST /api/machine-types] Machine type create error:', err);
-    console.error('[POST /api/machine-types] Details:', err.detail || 'No detail');
+    console.error('[POST /api/machine-types] Machine type create error:', err.message);
     if (err.code === '23505') {
       res.status(409).json({ success: false, message: 'この機種コードは既に登録されています' });
     } else {
       res.status(500).json({
         success: false,
         message: 'サーバーエラーが発生しました(追加): ' + err.message,
-        detail: err.detail
+        stack: err.stack
       });
     }
   }
@@ -2207,12 +2206,11 @@ app.put('/api/machine-types/:id', requireAdmin, async (req, res) => {
 
     res.json({ success: true, data: types[0], message: '機種を更新しました' });
   } catch (err) {
-    console.error('[PUT /api/machine-types/:id] Machine type update error:', err);
-    console.error('[PUT /api/machine-types/:id] Details:', err.detail || 'No detail');
+    console.error('[PUT /api/machine-types/:id] Machine type update error:', err.message);
     res.status(500).json({
       success: false,
       message: 'サーバーエラーが発生しました(更新): ' + err.message,
-      detail: err.detail
+      stack: err.stack
     });
   }
 });
@@ -2309,15 +2307,14 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
     });
     res.json({ success: true, data: machines[0], message: '機械を追加しました' });
   } catch (err) {
-    console.error('[POST /api/machines] Machine create error:', err);
-    console.error('[POST /api/machines] Details:', err.detail || 'No detail');
+    console.error('[POST /api/machines] Machine create error:', err.message);
     if (err.code === '23505') {
       res.status(409).json({ success: false, message: 'この機械番号は既に登録されています' });
     } else {
       res.status(500).json({
         success: false,
         message: 'サーバーエラーが発生しました(追加): ' + err.message,
-        detail: err.detail
+        stack: err.stack
       });
     }
   }
@@ -2366,12 +2363,11 @@ app.put('/api/machines/:id', requireAdmin, async (req, res) => {
 
     res.json({ success: true, data: machines[0], message: '機械を更新しました' });
   } catch (err) {
-    console.error('[PUT /api/machines/:id] Machine update error:', err);
-    console.error('[PUT /api/machines/:id] Details:', err.detail || 'No detail');
+    console.error('[PUT /api/machines/:id] Machine update error:', err.message);
     res.status(500).json({
       success: false,
       message: 'サーバーエラーが発生しました(更新): ' + err.message,
-      detail: err.detail
+      stack: err.stack
     });
   }
 });
@@ -2396,7 +2392,7 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 // サーバーバージョン取得エンドポイント
 app.get('/api/version', (req, res) => {
   res.json({
-    version: '2026-01-07T14:10:00',
+    version: '2026-01-07T14:15:00',
     app_id: process.env.APP_ID || 'dashboard-ui',
     instance: process.env.CLOUD_SQL_INSTANCE || 'local',
     description: 'Extreme logging for 500 error diagnostics'
