@@ -568,10 +568,14 @@ async function saveMachineType() {
             document.getElementById('machine-type-modal').style.display = 'none';
             loadMachineTypes();
         } else {
+            // サーバーからのエラー詳細をアラートで表示（診断用）
+            const errorMsg = data.detail ? `${data.message}\n詳細: ${data.detail}` : (data.message || '保存に失敗しました');
+            alert('🚨 サーバーエラーが発生しました:\n' + errorMsg);
             showToast(data.message || '保存に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Failed to save machine type:', error);
+        alert('❌ リクエスト自体が失敗しました:\n' + error.message);
         showToast('保存中にエラーが発生しました', 'error');
     }
 }
@@ -908,10 +912,14 @@ async function saveMachine() {
             document.getElementById('machine-modal').style.display = 'none';
             loadMachines();
         } else {
+            // サーバーからのエラー詳細をアラートで表示（診断用）
+            const errorMsg = data.detail ? `${data.message}\n詳細: ${data.detail}` : (data.message || '保存に失敗しました');
+            alert('🚨 サーバーエラーが発生しました:\n' + errorMsg);
             showToast(data.message || '保存に失敗しました', 'error');
         }
     } catch (error) {
         console.error('Failed to save machine:', error);
+        alert('❌ リクエスト自体が失敗しました:\n' + error.message);
         showToast('保存中にエラーが発生しました', 'error');
     }
 }

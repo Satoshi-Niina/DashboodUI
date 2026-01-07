@@ -2092,11 +2092,17 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
 // 機種マスタ追加
 app.post('/api/machine-types', requireAdmin, async (req, res) => {
   try {
+    console.log('[POST /api/machine-types] Start processing...');
     // データクリーニング (空文字をnullに変換)
     const cleaned = {};
-    Object.keys(req.body).forEach(key => {
-      cleaned[key] = (req.body[key] === '' ? null : req.body[key]);
-    });
+    if (req.body && typeof req.body === 'object') {
+      Object.keys(req.body).forEach(key => {
+        cleaned[key] = (req.body[key] === '' ? null : req.body[key]);
+      });
+    } else {
+      console.error('[POST /api/machine-types] Invalid request body');
+      return res.status(400).json({ success: false, message: '不正なリクエストです' });
+    }
 
     const { type_name, manufacturer, category, description, model_name, model } = cleaned;
 
@@ -2105,8 +2111,11 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
     }
 
     // 機種コードを自動生成（MT + 数値最大値+1）
+    // ルーティング先の物理パスをログ出力
     const route = await resolveTablePath('machine_types');
-    const maxIdResult = await pool.query(`SELECT id FROM ${route.fullPath} WHERE id LIKE 'MT%' ORDER BY id DESC LIMIT 1`);
+    console.log(`[MachineTypes] Route: ${route.fullPath}, APP_ID: ${process.env.APP_ID || 'dashboard-ui'}`);
+
+    const maxIdResult = await pool.query(`SELECT id FROM ${route.fullPath} WHERE id::text LIKE 'MT%' ORDER BY id DESC LIMIT 1`);
     let nextNumber = 1;
     if (maxIdResult.rows.length > 0) {
       const lastId = maxIdResult.rows[0].id;
@@ -2387,8 +2396,10 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 // サーバーバージョン取得エンドポイント
 app.get('/api/version', (req, res) => {
   res.json({
-    version: '2026-01-07T13:45:00',
-    description: 'Fix with enhanced error logging and empty string handling'
+    version: '2026-01-07T14:10:00',
+    app_id: process.env.APP_ID || 'dashboard-ui',
+    instance: process.env.CLOUD_SQL_INSTANCE || 'local',
+    description: 'Extreme logging for 500 error diagnostics'
   });
 });
 
