@@ -523,6 +523,7 @@ async function loadMachineTypeData(machineTypeId) {
             if (machineType) {
                 document.getElementById('machine-type-id').value = machineType.id;
                 document.getElementById('machine-type-name').value = machineType.type_name || '';
+                document.getElementById('machine-type-model-name').value = machineType.model_name || machineType.model || '';
                 document.getElementById('machine-type-manufacturer').value = machineType.manufacturer || '';
                 document.getElementById('machine-type-category').value = machineType.category || '';
                 document.getElementById('machine-type-description').value = machineType.description || '';
@@ -543,6 +544,7 @@ async function saveMachineType() {
 
     const machineTypeData = {
         type_name: document.getElementById('machine-type-name').value,
+        model_name: document.getElementById('machine-type-model-name').value,
         manufacturer: document.getElementById('machine-type-manufacturer').value,
         category: document.getElementById('machine-type-category').value,
         description: document.getElementById('machine-type-description').value

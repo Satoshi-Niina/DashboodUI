@@ -2414,10 +2414,10 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 // サーバーバージョン取得エンドポイント
 app.get('/api/version', (req, res) => {
   res.json({
-    version: '2026-01-07T14:35:00',
+    version: '20260107-1610-FIX-FINAL',
     app_id: process.env.APP_ID || 'dashboard-ui',
     instance: process.env.CLOUD_SQL_INSTANCE || 'local',
-    description: 'Extreme logging for 500 error diagnostics'
+    description: 'Final fix for smart save and vehicle columns'
   });
 });
 
