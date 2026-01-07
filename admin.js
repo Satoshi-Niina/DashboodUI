@@ -746,7 +746,12 @@ async function openMachineModal(machineId = null) {
                 const typeId = type.id;
                 const typeCode = type.type_code || '';
                 const typeName = type.type_name || '名前なし';
-                options.push(`<option value="${typeId}">${escapeHtml(typeName)}</option>`);
+                const modelName = type.model_name || '';
+
+                // 機種名にメーカー型式を並べて表示する
+                const displayText = modelName ? `${typeName} (${modelName})` : typeName;
+
+                options.push(`<option value="${typeId}">${escapeHtml(displayText)}</option>`);
                 console.log(`[openMachineModal] Type ${index + 1}/${machineTypesData.data.length}:`, {
                     id: typeId,
                     code: typeCode,
