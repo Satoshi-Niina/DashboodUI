@@ -182,17 +182,15 @@ body {
 /* 管理事業所と機種のドロップダウン拡大 */
 #machine-office-select,
 #machine-type-select {
-    font-size: 21px !important;
-    padding: 18px 22px !important;
+    font-size: 18.9px !important;
+    padding: 16.2px 22px !important;
     height: auto !important;
     line-height: 1.5 !important;
 }
 
-/* 機種selectのみ横幅1.5倍、縦0.9倍 */
+/* 機種selectのみ横幅1.5倍 */
 #machine-type-select {
     width: 150% !important;
-    padding: 16.2px 22px !important;
-    font-size: 18.9px !important;
 }
 
 #machine-office-select option,
