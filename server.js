@@ -2084,13 +2084,21 @@ app.post('/debug/add-postal-code', async (req, res) => {
 app.get('/api/machine-types', requireAdmin, async (req, res) => {
   try {
     const route = await resolveTablePath('machine_types');
+    console.log(`[GET /api/machine-types] Resolved Route: ${route.fullPath}`);
     const query = `SELECT * FROM ${route.fullPath} ORDER BY type_code`;
+    console.log(`[GET /api/machine-types] Executing: ${query}`);
     const result = await pool.query(query);
+    console.log(`[GET /api/machine-types] Success, Rows: ${result.rows.length}`);
     res.json({ success: true, data: result.rows });
   } catch (err) {
-    console.error('Machine types get error:', err);
-    console.error('Machine types get error stack:', err.stack);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
+    console.error('❌ Machine types get error:', err.message);
+    console.error('❌ Error Stack:', err.stack);
+    res.status(500).json({
+      success: false,
+      message: 'サーバーエラーが発生しました(機種一覧)',
+      detail: err.message,
+      stack: process.env.NODE_ENV === 'production' ? null : err.stack
+    });
   }
 });
 
@@ -2240,6 +2248,8 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
     const machineTypesRoute = await resolveTablePath('machine_types');
     const basesRoute = await resolveTablePath('bases');
 
+    console.log(`[GET /api/machines] Resolving tables:`, { machines: machinesRoute.fullPath, types: machineTypesRoute.fullPath });
+
     const query = `
       SELECT 
         m.id,
@@ -2261,16 +2271,23 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
         m.created_at,
         m.updated_at
       FROM ${machinesRoute.fullPath} m
-      LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id = mt.id
-      LEFT JOIN ${basesRoute.fullPath} b ON m.assigned_base_id = b.base_id
+      LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id::text = mt.id::text
+      LEFT JOIN ${basesRoute.fullPath} b ON m.assigned_base_id::text = b.base_id::text
       ORDER BY m.machine_number
     `;
+    console.log(`[GET /api/machines] Executing SQL...`);
     const result = await pool.query(query);
+    console.log(`[GET /api/machines] Success, result count: ${result.rows.length}`);
     res.json({ success: true, data: result.rows });
   } catch (err) {
-    console.error('Machines get error:', err);
-    console.error('Machines get error stack:', err.stack);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
+    console.error('❌ Machines get error:', err.message);
+    console.error('❌ Stack:', err.stack);
+    res.status(500).json({
+      success: false,
+      message: 'サーバーエラーが発生しました(保守用車一覧)',
+      detail: err.message,
+      stack: process.env.NODE_ENV === 'production' ? null : err.stack
+    });
   }
 });
 
@@ -2414,10 +2431,10 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 // サーバーバージョン取得エンドポイント
 app.get('/api/version', (req, res) => {
   res.json({
-    version: '20260107-1610-FIX-FINAL',
+    version: 'VER-20260107-1630-SELF-HEALING',
     app_id: process.env.APP_ID || 'dashboard-ui',
     instance: process.env.CLOUD_SQL_INSTANCE || 'local',
-    description: 'Final fix for smart save and vehicle columns'
+    description: 'Integrated database self-healing on startup'
   });
 });
 
@@ -2436,12 +2453,98 @@ if (secret) {
   console.error('⚠️ JWT_SECRET is NOT set!');
 }
 
-// Test database connection before starting server
+// --- データベース自動修正機能 (起動時に実行) ---
+async function runEmergencyDbFix() {
+  console.log('👷 Running Emergency DB Fix (Self-Healing)...');
+  try {
+    // 1. 全ての関連外部キーを一旦削除 (型変更を阻害しないため)
+    await pool.query(`
+        DO $$ 
+        DECLARE r RECORD;
+        BEGIN
+            FOR r IN (
+                SELECT 'ALTER TABLE "' || n.nspname || '"."' || c.relname || '" DROP CONSTRAINT IF EXISTS "' || con.conname || '" CASCADE' as cmd
+                FROM pg_constraint con
+                JOIN pg_class c ON c.oid = con.conrelid
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                WHERE con.confrelid IN (SELECT oid FROM pg_class WHERE relname IN ('machines', 'machine_types'))
+            ) LOOP EXECUTE r.cmd; END LOOP;
+        END $$;
+      `);
+    const schemas = ['master_data', 'public'];
+    for (const schema of schemas) {
+      console.log(`[Self-Healing] Checking schema: ${schema}`);
+
+      // machine_types 必要なカラムを全て確実に作成
+      await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS type_code TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS type_name TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS manufacturer TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS category TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS description TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS model_name TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machine_types ALTER COLUMN id TYPE TEXT USING id::text`);
+
+      await pool.query(`
+          DO $$ DECLARE r RECORD; BEGIN
+            -- ユニーク制約の削除
+            FOR r IN (SELECT conname FROM pg_constraint con JOIN pg_class rel ON rel.oid = con.conrelid JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace WHERE nsp.nspname = '${schema}' AND rel.relname = 'machine_types' AND contype = 'u')
+            LOOP EXECUTE 'ALTER TABLE ${schema}.machine_types DROP CONSTRAINT IF EXISTS "' || r.conname || '" CASCADE'; END LOOP;
+            -- インデックスの削除 (PKEY以外)
+            FOR r IN (SELECT indexname FROM pg_indexes WHERE schemaname = '${schema}' AND tablename = 'machine_types' AND indexname NOT LIKE '%_pkey')
+            LOOP EXECUTE 'DROP INDEX IF EXISTS ${schema}."' || r.indexname || '" CASCADE'; END LOOP;
+          END $$;
+        `);
+
+      // machines 必要なカラムを全て確実に作成
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS id TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS machine_number TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS machine_type_id TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS serial_number TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS type_certification TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS office_id TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS manufacture_date TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS purchase_date TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS notes TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS status TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS assigned_base_id TEXT`);
+
+      // 型変更
+      await pool.query(`ALTER TABLE ${schema}.machines ALTER COLUMN id TYPE TEXT USING id::text`);
+      await pool.query(`ALTER TABLE ${schema}.machines ALTER COLUMN machine_type_id TYPE TEXT USING machine_type_id::text`);
+
+      await pool.query(`
+          DO $$ DECLARE r RECORD; BEGIN
+            FOR r IN (SELECT conname FROM pg_constraint con JOIN pg_class rel ON rel.oid = con.conrelid JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace WHERE nsp.nspname = '${schema}' AND rel.relname = 'machines' AND contype = 'u')
+            LOOP EXECUTE 'ALTER TABLE ${schema}.machines DROP CONSTRAINT IF EXISTS "' || r.conname || '" CASCADE'; END LOOP;
+            FOR r IN (SELECT indexname FROM pg_indexes WHERE schemaname = '${schema}' AND tablename = 'machines' AND indexname NOT LIKE '%_pkey')
+            LOOP EXECUTE 'DROP INDEX IF EXISTS ${schema}."' || r.indexname || '" CASCADE'; END LOOP;
+          END $$;
+        `);
+    }
+
+    // ルーティング再設定
+    await pool.query(`
+        INSERT INTO public.app_resource_routing (app_id, logical_resource_name, physical_schema, physical_table, resource_type, is_active)
+        VALUES ('dashboard-ui', 'machines', 'master_data', 'machines', 'table', true),
+               ('dashboard-ui', 'machine_types', 'master_data', 'machine_types', 'table', true)
+        ON CONFLICT (app_id, logical_resource_name) DO UPDATE SET physical_schema = EXCLUDED.physical_schema, physical_table = EXCLUDED.physical_table;
+      `);
+    console.log('✅ Self-healing completed successfully.');
+  } catch (e) {
+    console.error('❌ Self-healing failed:', e.message);
+  }
+}
+
+// --- サーバー起動 ---
 async function startServer() {
   try {
     console.log('Testing database connection...');
     const testQuery = await pool.query('SELECT NOW() as current_time');
     console.log('✅ Database connection successful:', testQuery.rows[0].current_time);
+
+    // 起動時にDB修正を実行
+    await runEmergencyDbFix();
+
   } catch (err) {
     console.error('❌ Database connection failed:', err.message);
     console.error('Stack:', err.stack);

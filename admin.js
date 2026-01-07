@@ -638,7 +638,10 @@ async function loadMachines() {
         });
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            const errData = await response.json().catch(() => ({}));
+            const errorMsg = `HTTP ${response.status}: ${errData.message || response.statusText}`;
+            if (errData.detail) alert(`🚨 サーバーエラー詳細:\n${errData.detail}`);
+            throw new Error(errorMsg);
         }
 
         const data = await response.json();
