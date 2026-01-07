@@ -2242,14 +2242,16 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
 
     const query = `
       SELECT 
-        m.id as machine_id,
+        m.id,
         m.machine_number,
         m.serial_number,
         m.manufacture_date,
         m.purchase_date,
         m.status,
         m.assigned_base_id,
+        m.office_id,
         m.notes,
+        m.type_certification,
         m.machine_type_id,
         mt.type_code,
         mt.type_name,
