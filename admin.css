@@ -404,7 +404,7 @@ body {
     border-radius: 12px;
     width: 90%;
     max-width: 700px;
-    max-height: 90vh;
+    max-height: 85vh;
     overflow-y: auto;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
     border: 3px solid #4169E1;
@@ -418,7 +418,8 @@ body {
 #machine-modal .modal-content,
 #machine-type-modal .modal-content {
     max-width: 700px;
-    font-size: 1.2em;
+    max-height: 85vh;
+    font-size: 0.8em;
 }
 
 #user-modal .modal-header h3,
@@ -426,7 +427,7 @@ body {
 #base-modal .modal-header h3,
 #machine-modal .modal-header h3,
 #machine-type-modal .modal-header h3 {
-    font-size: 28.8px;
+    font-size: 19.2px;
     font-weight: 700;
 }
 
@@ -435,8 +436,17 @@ body {
 #base-modal .form-group label,
 #machine-modal .form-group label,
 #machine-type-modal .form-group label {
-    font-size: 1.2em;
+    font-size: 0.8em;
     font-weight: 700;
+    margin-bottom: 4px;
+}
+
+#user-modal .form-group,
+#office-modal .form-group,
+#base-modal .form-group,
+#machine-modal .form-group,
+#machine-type-modal .form-group {
+    margin-bottom: 12px;
 }
 
 #user-modal .form-group input,
@@ -454,8 +464,8 @@ body {
 #machine-type-modal .form-group input,
 #machine-type-modal .form-group select,
 #machine-type-modal .form-group textarea {
-    font-size: 1.2em;
-    padding: 14px;
+    font-size: 0.8em;
+    padding: 8px;
     border: 2px solid #d0d0d0;
     box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
 }
@@ -484,8 +494,8 @@ body {
 #base-modal .modal-actions button,
 #machine-modal .modal-actions button,
 #machine-type-modal .modal-actions button {
-    font-size: 1.2em;
-    padding: 14px 28px;
+    font-size: 0.8em;
+    padding: 10px 20px;
     font-weight: 700;
 }
 
@@ -494,9 +504,34 @@ body {
 #base-modal .form-actions button,
 #machine-modal .form-actions button,
 #machine-type-modal .form-actions button {
-    font-size: 1.2em;
-    padding: 14px 28px;
+    font-size: 0.8em;
+    padding: 10px 20px;
     font-weight: 700;
+}
+
+#user-modal .modal-content form,
+#office-modal .modal-content form,
+#base-modal .modal-content form,
+#machine-modal .modal-content form,
+#machine-type-modal .modal-content form {
+    padding: 20px;
+}
+
+#user-modal .modal-header,
+#office-modal .modal-header,
+#base-modal .modal-header,
+#machine-modal .modal-header,
+#machine-type-modal .modal-header {
+    padding: 15px 20px;
+}
+
+#user-modal .form-group small,
+#office-modal .form-group small,
+#base-modal .form-group small,
+#machine-modal .form-group small,
+#machine-type-modal .form-group small {
+    font-size: 0.85em;
+    margin-top: 3px;
 }
 
 .modal-header {
@@ -1067,7 +1102,7 @@ body {
 }
 
 .modal-header h2 {
-    font-size: 24px;
+    font-size: 16px;
     color: #333;
     font-weight: 700;
 }
@@ -1090,28 +1125,28 @@ body {
 .modal-form {
     display: flex;
     flex-direction: column;
-    gap: 15px;
+    gap: 10px;
 }
 
 .modal-form .form-group {
     display: flex;
     flex-direction: column;
-    gap: 5px;
+    gap: 3px;
 }
 
 .modal-form label {
     font-weight: 700;
     color: #333;
-    font-size: 16.8px;
+    font-size: 11.2px;
 }
 
 .modal-form input,
 .modal-form select,
 .modal-form textarea {
-    padding: 12px;
+    padding: 8px;
     border: 2px solid #d0d0d0;
     border-radius: 6px;
-    font-size: 16.8px;
+    font-size: 11.2px;
     transition: border-color 0.3s;
     box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
 }
