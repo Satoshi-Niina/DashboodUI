@@ -41,6 +41,25 @@
     loadBases();
     loadDatabaseStats();
 
+    // 汎用テーブルフィルター関数
+    window.applyTableFilter = function (table) {
+        const filters = Array.from(table.querySelectorAll('.column-filter'));
+        const activeFilters = filters.map(f => ({
+            index: parseInt(f.dataset.col),
+            value: f.value.toLowerCase().trim()
+        })).filter(f => f.value !== "");
+
+        const rows = Array.from(table.querySelector('tbody').rows);
+
+        rows.forEach(row => {
+            const isMatch = activeFilters.every(f => {
+                const cellText = row.cells[f.index].textContent.toLowerCase();
+                return cellText.includes(f.value);
+            });
+            row.style.display = isMatch ? "" : "none";
+        });
+    };
+
     // イベントリスナーの初期化
     initializeEventListeners();
     initializeCorsSettings();
@@ -447,7 +466,7 @@ async function loadMachineTypes() {
 
         if (data.success && data.data.length > 0) {
             let html = `
-                <table class="data-table">
+                <table class="data-table" id="machine-types-table">
                     <thead>
                         <tr>
                             <th>機種コード</th>
@@ -455,6 +474,13 @@ async function loadMachineTypes() {
                             <th>メーカー</th>
                             <th>カテゴリ</th>
                             <th>操作</th>
+                        </tr>
+                        <tr class="filter-row">
+                            <th><input type="text" class="column-filter" placeholder="コードで検索..." data-col="0"></th>
+                            <th><input type="text" class="column-filter" placeholder="名前で検索..." data-col="1"></th>
+                            <th><input type="text" class="column-filter" placeholder="メーカーで検索..." data-col="2"></th>
+                            <th><input type="text" class="column-filter" placeholder="カテゴリで検索..." data-col="3"></th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -480,6 +506,15 @@ async function loadMachineTypes() {
 
             html += `</tbody></table>`;
             list.innerHTML = html;
+
+            // フィルターイベントの追加
+            const table = document.getElementById('machine-types-table');
+            if (table) {
+                const filters = table.querySelectorAll('.column-filter');
+                filters.forEach(filter => {
+                    filter.addEventListener('input', () => window.applyTableFilter(table));
+                });
+            }
         } else {
             list.innerHTML = '<p class="loading">機種が登録されていません</p>';
         }
@@ -648,7 +683,7 @@ async function loadMachines() {
 
         if (data.success && data.data.length > 0) {
             let html = `
-                <table class="data-table">
+                <table class="data-table" id="machines-table">
                     <thead>
                         <tr>
                             <th>機械番号</th>
@@ -658,6 +693,15 @@ async function loadMachines() {
                             <th>配属基地</th>
                             <th>ステータス</th>
                             <th>操作</th>
+                        </tr>
+                        <tr class="filter-row">
+                            <th><input type="text" class="column-filter" placeholder="番号で検索..." data-col="0"></th>
+                            <th><input type="text" class="column-filter" placeholder="機種で検索..." data-col="1"></th>
+                            <th><input type="text" class="column-filter" placeholder="シリアルで検索..." data-col="2"></th>
+                            <th></th>
+                            <th><input type="text" class="column-filter" placeholder="基地で検索..." data-col="4"></th>
+                            <th><input type="text" class="column-filter" placeholder="状態..." data-col="5"></th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -685,6 +729,15 @@ async function loadMachines() {
 
             html += `</tbody></table>`;
             list.innerHTML = html;
+
+            // フィルターイベントの追加
+            const table = document.getElementById('machines-table');
+            if (table) {
+                const filters = table.querySelectorAll('.column-filter');
+                filters.forEach(filter => {
+                    filter.addEventListener('input', () => window.applyTableFilter(table));
+                });
+            }
         } else {
             list.innerHTML = '<p class="loading">機械番号が登録されていません</p>';
         }

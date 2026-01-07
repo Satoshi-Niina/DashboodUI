@@ -2434,10 +2434,10 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 // サーバーバージョン取得エンドポイント
 app.get('/api/version', (req, res) => {
   res.json({
-    version: 'VER-20260107-1635-FIX-NOT-NULL',
+    version: 'VER-20260107-1650-FILTER-FEAT',
     app_id: process.env.APP_ID || 'dashboard-ui',
     instance: process.env.CLOUD_SQL_INSTANCE || 'local',
-    description: 'Fix created_at Not-Null constraint in machines'
+    description: 'Added column filter functionality to master data tables'
   });
 });
 

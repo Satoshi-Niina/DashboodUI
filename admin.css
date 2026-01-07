@@ -89,6 +89,7 @@ body {
         opacity: 0;
         transform: translateY(10px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -137,6 +138,28 @@ body {
     font-size: 20px;
     color: #333;
     margin-bottom: 10px;
+}
+
+.search-wrapper {
+    margin-bottom: 15px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.search-input {
+    flex: 1;
+    padding: 10px 15px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: all 0.3s;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
 .section-desc {
@@ -212,7 +235,8 @@ body {
     margin-top: 30px;
 }
 
-.btn-primary, .btn-secondary {
+.btn-primary,
+.btn-secondary {
     padding: 12px 24px;
     border: none;
     border-radius: 8px;
@@ -355,7 +379,8 @@ body {
     gap: 10px;
 }
 
-.btn-edit, .btn-delete {
+.btn-edit,
+.btn-delete {
     padding: 6px 12px;
     border: none;
     border-radius: 4px;
@@ -1087,6 +1112,7 @@ body {
         transform: translateY(50px);
         opacity: 0;
     }
+
     to {
         transform: translateY(0);
         opacity: 1;
@@ -1217,4 +1243,26 @@ body {
         left: 10px;
         bottom: 10px;
     }
+}
+
+/* カラムフィルター行 */
+.filter-row th {
+    padding: 8px !important;
+    background: #f1f3f9 !important;
+}
+
+.column-filter {
+    width: 100%;
+    padding: 6px 10px;
+    border: 2px solid #ddd;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: normal;
+    color: #333;
+}
+
+.column-filter:focus {
+    border-color: #667eea;
+    outline: none;
+    background: white;
 }
