@@ -1,9 +1,10 @@
 ﻿document.addEventListener('DOMContentLoaded', () => {
     // 認証チェック
     const token = localStorage.getItem('user_token');
+    console.log('[Admin] Version: 20260107-1345');
     console.log('[Admin] Token check:', token ? 'Token exists' : 'No token found');
     console.log('[Admin] Initializing admin page...');
-    
+
     if (!token) {
         console.error('[Admin] No token, redirecting to login');
         window.location.href = '/';
@@ -23,7 +24,7 @@
         window.location.href = '/index.html';
         return;
     }
-    
+
     console.log('[Admin] Access granted for admin user');
 
     // メイン画面に戻る
@@ -215,7 +216,7 @@ function initializeEventListeners() {
     // テーブルの編集・削除ボタンのイベント委譲
     document.addEventListener('click', (e) => {
         const target = e.target;
-        
+
         // 機種の編集ボタン
         if (target.classList.contains('btn-edit') && target.dataset.action === 'edit-type') {
             e.preventDefault();
@@ -223,7 +224,7 @@ function initializeEventListeners() {
             console.log('[Event] Edit machine type clicked:', typeId);
             window.editMachineType(typeId);
         }
-        
+
         // 機種の削除ボタン
         if (target.classList.contains('btn-delete') && target.dataset.action === 'delete-type') {
             e.preventDefault();
@@ -232,7 +233,7 @@ function initializeEventListeners() {
             console.log('[Event] Delete machine type clicked:', { id: typeId, code: typeCode });
             window.deleteMachineType(typeId, typeCode);
         }
-        
+
         // 保守用車の編集ボタン
         if (target.classList.contains('btn-edit') && target.dataset.action === 'edit-machine') {
             e.preventDefault();
@@ -240,7 +241,7 @@ function initializeEventListeners() {
             console.log('[Event] Edit machine clicked:', machineId);
             window.editMachine(machineId);
         }
-        
+
         // 保守用車の削除ボタン
         if (target.classList.contains('btn-delete') && target.dataset.action === 'delete-machine') {
             e.preventDefault();
@@ -265,7 +266,7 @@ async function loadUsers() {
         });
 
         console.log('[loadUsers] Response status:', response.status);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -286,7 +287,7 @@ async function loadUsers() {
                 } else if (user.role === 'user') {
                     roleDisplayName = 'ユーザー';
                 }
-                
+
                 return `
                     <div class="user-item">
                         <div class="user-info">
@@ -314,17 +315,17 @@ function openUserModal(userId = null) {
     const modal = document.getElementById('user-modal');
     const modalTitle = document.getElementById('modal-title');
     const form = document.getElementById('user-form');
-    
+
     form.reset();
     document.getElementById('user-id').value = '';
-    
+
     if (userId) {
         modalTitle.textContent = 'ユーザーを編集';
         loadUserData(userId);
     } else {
         modalTitle.textContent = 'ユーザーを追加';
     }
-    
+
     modal.style.display = 'flex';
 }
 
@@ -335,7 +336,7 @@ async function loadUserData(userId) {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
-        
+
         if (data.success) {
             const user = data.user;
             document.getElementById('user-id').value = user.id;
@@ -492,17 +493,17 @@ function openMachineTypeModal(machineTypeId = null) {
     const modal = document.getElementById('machine-type-modal');
     const modalTitle = document.getElementById('machine-type-modal-title');
     const form = document.getElementById('machine-type-form');
-    
+
     form.reset();
     document.getElementById('machine-type-id').value = '';
-    
+
     if (machineTypeId) {
         modalTitle.textContent = '編集';
         loadMachineTypeData(machineTypeId);
     } else {
         modalTitle.textContent = '新規追加';
     }
-    
+
     modal.style.display = 'flex';
 }
 
@@ -514,7 +515,7 @@ async function loadMachineTypeData(machineTypeId) {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
-        
+
         if (data.success) {
             // IDの型を柔軟に比較（数値と文字列の両方に対応）
             const machineType = data.data.find(mt => String(mt.id) === String(machineTypeId));
@@ -539,7 +540,7 @@ async function loadMachineTypeData(machineTypeId) {
 async function saveMachineType() {
     const machineTypeId = document.getElementById('machine-type-id').value;
     const token = localStorage.getItem('user_token');
-    
+
     const machineTypeData = {
         type_name: document.getElementById('machine-type-name').value,
         manufacturer: document.getElementById('machine-type-manufacturer').value,
@@ -691,33 +692,33 @@ async function openMachineModal(machineId = null) {
     const modalTitle = document.getElementById('machine-modal-title');
     const form = document.getElementById('machine-form');
     const token = localStorage.getItem('user_token');
-    
+
     if (!modal) {
         console.error('[openMachineModal] ❌ Modal element not found!');
         alert('エラー: モーダルが見つかりません');
         return;
     }
-    
+
     form.reset();
     document.getElementById('machine-id').value = '';
-    
+
     // モーダルを先に表示
     modal.style.display = 'flex';
     console.log('[openMachineModal] ✅ Modal displayed');
-    
+
     // 機種リストを読み込む
     try {
         console.log('[openMachineModal] 📡 Fetching machine types from /api/machine-types...');
         const machineTypesResponse = await fetch('/api/machine-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        
+
         console.log('[openMachineModal] Machine types response status:', machineTypesResponse.status);
-        
+
         if (!machineTypesResponse.ok) {
             throw new Error(`HTTP ${machineTypesResponse.status}: ${machineTypesResponse.statusText}`);
         }
-        
+
         const machineTypesData = await machineTypesResponse.json();
         console.log('[openMachineModal] 📦 Machine types data received:', machineTypesData);
         console.log('[openMachineModal] Success:', machineTypesData.success);
@@ -731,24 +732,24 @@ async function openMachineModal(machineId = null) {
                 showToast('機種選択欄が見つかりません', 'error');
                 return;
             }
-            
+
             console.log('[openMachineModal] ✅ machine-type-select found:', machineTypeSelect);
-            
+
             const options = ['<option value="">-- 機種を選択 --</option>'];
             console.log('[openMachineModal] Processing machine types...');
-            
+
             machineTypesData.data.forEach((type, index) => {
                 const typeId = type.id;
                 const typeCode = type.type_code || '';
                 const typeName = type.type_name || '名前なし';
                 options.push(`<option value="${typeId}">${escapeHtml(typeName)}</option>`);
-                console.log(`[openMachineModal] Type ${index + 1}/${machineTypesData.data.length}:`, { 
-                    id: typeId, 
-                    code: typeCode, 
-                    name: typeName 
+                console.log(`[openMachineModal] Type ${index + 1}/${machineTypesData.data.length}:`, {
+                    id: typeId,
+                    code: typeCode,
+                    name: typeName
                 });
             });
-            
+
             machineTypeSelect.innerHTML = options.join('');
             console.log('[openMachineModal] ✅ Machine types loaded:', machineTypesData.data.length, 'items');
             console.log('[openMachineModal] Select HTML length:', machineTypeSelect.innerHTML.length);
@@ -768,13 +769,13 @@ async function openMachineModal(machineId = null) {
         const officesResponse = await fetch('/api/offices', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        
+
         console.log('[openMachineModal] Offices response status:', officesResponse.status);
-        
+
         if (!officesResponse.ok) {
             throw new Error(`HTTP ${officesResponse.status}: ${officesResponse.statusText}`);
         }
-        
+
         const officesData = await officesResponse.json();
         console.log('[openMachineModal] 📦 Offices data received:', officesData);
         console.log('[openMachineModal] Success:', officesData.success);
@@ -788,22 +789,22 @@ async function openMachineModal(machineId = null) {
                 showToast('事業所選択欄が見つかりません', 'error');
                 return;
             }
-            
+
             console.log('[openMachineModal] ✅ machine-office-select found:', officeSelect);
-            
+
             const options = ['<option value="">-- 事業所を選択 --</option>'];
             console.log('[openMachineModal] Processing offices...');
-            
+
             officesData.offices.forEach((office, index) => {
                 const officeId = office.office_id;
                 const officeName = office.office_name || '名前なし';
                 options.push(`<option value="${officeId}">${escapeHtml(officeName)}</option>`);
-                console.log(`[openMachineModal] Office ${index + 1}/${officesData.offices.length}:`, { 
-                    id: officeId, 
-                    name: officeName 
+                console.log(`[openMachineModal] Office ${index + 1}/${officesData.offices.length}:`, {
+                    id: officeId,
+                    name: officeName
                 });
             });
-            
+
             officeSelect.innerHTML = options.join('');
             console.log('[openMachineModal] ✅ Offices loaded:', officesData.offices.length, 'items');
             console.log('[openMachineModal] Select HTML length:', officeSelect.innerHTML.length);
@@ -817,21 +818,21 @@ async function openMachineModal(machineId = null) {
             });
             showToast('事業所データの読み込みに失敗しました', 'error');
         }
-        
+
         console.log('[openMachineModal] ✅ All data loaded successfully');
     } catch (error) {
         console.error('[openMachineModal] ❌ CRITICAL ERROR:', error);
         console.error('[openMachineModal] Error stack:', error.stack);
         showToast('データの読み込み中にエラーが発生しました: ' + error.message, 'error');
     }
-    
+
     if (machineId) {
         modalTitle.textContent = '編集';
         await loadMachineData(machineId);
     } else {
         modalTitle.textContent = '新規追加';
     }
-    
+
     console.log('[openMachineModal] ===== END =====');
 }
 
@@ -843,7 +844,7 @@ async function loadMachineData(machineId) {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
-        
+
         if (data.success) {
             // IDの型を柔軟に比較（数値と文字列の両方に対応）
             const machine = data.data.find(m => {
@@ -875,7 +876,7 @@ async function loadMachineData(machineId) {
 async function saveMachine() {
     const machineId = document.getElementById('machine-id').value;
     const token = localStorage.getItem('user_token');
-    
+
     const machineData = {
         office_id: document.getElementById('machine-office-select').value,
         machine_type_id: document.getElementById('machine-type-select').value,
@@ -972,7 +973,7 @@ async function loadOffices() {
         });
 
         console.log('[loadOffices] Response status:', response.status);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -1012,13 +1013,13 @@ function showOfficeModal(mode, officeId) {
         fetch(`/api/offices`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
         })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success) {
-                const office = data.offices.find(o => o.office_id === officeId);
-                createOfficeModal(mode, office);
-            }
-        });
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    const office = data.offices.find(o => o.office_id === officeId);
+                    createOfficeModal(mode, office);
+                }
+            });
     } else {
         createOfficeModal(mode, null);
     }
@@ -1113,11 +1114,11 @@ async function saveOffice(mode, officeId) {
     }
 }
 
-window.editOffice = function(officeId) {
+window.editOffice = function (officeId) {
     showOfficeModal('edit', officeId);
 }
 
-window.deleteOffice = async function(officeId, officeName) {
+window.deleteOffice = async function (officeId, officeName) {
     if (!confirm(`事業所「${officeName}」を削除してもよろしいですか？`)) {
         return;
     }
@@ -1143,7 +1144,7 @@ window.deleteOffice = async function(officeId, officeName) {
     }
 }
 
-window.closeOfficeModal = function() {
+window.closeOfficeModal = function () {
     const modal = document.getElementById('office-modal');
     if (modal) modal.remove();
 }
@@ -1161,7 +1162,7 @@ async function loadBases() {
         });
 
         console.log('[loadBases] Response status:', response.status);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -1218,7 +1219,7 @@ async function showBaseModal(mode, baseId) {
 }
 
 function createBaseModal(mode, base, offices) {
-    const officeOptions = offices.map(o => 
+    const officeOptions = offices.map(o =>
         `<option value="${o.office_id}" ${base && base.office_id === o.office_id ? 'selected' : ''}>${escapeHtml(o.office_name)}</option>`
     ).join('');
 
@@ -1300,11 +1301,11 @@ async function saveBase(mode, baseId) {
     }
 }
 
-window.editBase = function(baseId) {
+window.editBase = function (baseId) {
     showBaseModal('edit', baseId);
 }
 
-window.deleteBase = async function(baseId, baseName) {
+window.deleteBase = async function (baseId, baseName) {
     if (!confirm(`保守基地「${baseName}」を削除してもよろしいですか？`)) {
         return;
     }
@@ -1330,7 +1331,7 @@ window.deleteBase = async function(baseId, baseName) {
     }
 }
 
-window.closeBaseModal = function() {
+window.closeBaseModal = function () {
     const modal = document.getElementById('base-modal');
     if (modal) modal.remove();
 }
@@ -1354,7 +1355,7 @@ async function loadDatabaseStats() {
         });
 
         console.log('[loadDatabaseStats] Response status:', response.status);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -1459,7 +1460,7 @@ function initializeTableManagement() {
     // CSVエクスポート
     exportCsvBtn.addEventListener('click', async () => {
         if (!currentTable) return;
-        
+
         try {
             const token = localStorage.getItem('user_token');
             const response = await fetch(`/api/database/export-csv/${currentTable}`, {
@@ -1500,7 +1501,7 @@ function initializeTableManagement() {
             try {
                 const csvData = event.target.result;
                 const token = localStorage.getItem('user_token');
-                
+
                 const response = await fetch(`/api/database/import-csv/${currentTable}`, {
                     method: 'POST',
                     headers: {
@@ -1689,10 +1690,10 @@ async function saveRecord(mode, recordId) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const url = mode === 'add' 
+        const url = mode === 'add'
             ? `/api/database/table/${currentTable}`
             : `/api/database/table/${currentTable}/${recordId}`;
-        
+
         const response = await fetch(url, {
             method: mode === 'add' ? 'POST' : 'PUT',
             headers: {
@@ -1745,7 +1746,7 @@ async function deleteRecord(recordId) {
     }
 }
 
-window.closeRecordModal = function() {
+window.closeRecordModal = function () {
     const modal = document.getElementById('record-modal');
     if (modal) modal.remove();
 }
@@ -1763,7 +1764,7 @@ async function loadCorsSettings() {
         });
 
         console.log('[loadCorsSettings] Response status:', response.status);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -1789,7 +1790,7 @@ function initializeCorsSettings() {
     if (saveCorsBtn) {
         saveCorsBtn.addEventListener('click', async () => {
             const corsOrigin = document.getElementById('cors_origin').value.trim();
-            
+
             if (!corsOrigin) {
                 showToast('CORS設定を入力してください', 'error');
                 return;
