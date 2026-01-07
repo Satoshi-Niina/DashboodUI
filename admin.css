@@ -403,36 +403,100 @@ body {
     background: white;
     border-radius: 12px;
     width: 90%;
-    max-width: 500px;
+    max-width: 700px;
     max-height: 90vh;
     overflow-y: auto;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    border: 3px solid #4169E1;
+    box-shadow: 0 8px 16px rgba(65, 105, 225, 0.2), 0 0 0 1px rgba(65, 105, 225, 0.1);
 }
 
-/* 保守用車モーダルのサイズ拡大 */
-#machine-modal .modal-content {
-    max-width: 600px;
+/* 全モーダル統一スタイル - ユーザー管理、事業所、保守基地、保守用車 */
+#user-modal .modal-content,
+#office-modal .modal-content,
+#base-modal .modal-content,
+#machine-modal .modal-content,
+#machine-type-modal .modal-content {
+    max-width: 700px;
     font-size: 1.2em;
 }
 
-#machine-modal .modal-header h3 {
-    font-size: 24px;
+#user-modal .modal-header h3,
+#office-modal .modal-header h3,
+#base-modal .modal-header h3,
+#machine-modal .modal-header h3,
+#machine-type-modal .modal-header h3 {
+    font-size: 28.8px;
+    font-weight: 700;
 }
 
-#machine-modal .form-group label {
+#user-modal .form-group label,
+#office-modal .form-group label,
+#base-modal .form-group label,
+#machine-modal .form-group label,
+#machine-type-modal .form-group label {
     font-size: 1.2em;
+    font-weight: 700;
 }
 
+#user-modal .form-group input,
+#user-modal .form-group select,
+#user-modal .form-group textarea,
+#office-modal .form-group input,
+#office-modal .form-group select,
+#office-modal .form-group textarea,
+#base-modal .form-group input,
+#base-modal .form-group select,
+#base-modal .form-group textarea,
 #machine-modal .form-group input,
 #machine-modal .form-group select,
-#machine-modal .form-group textarea {
+#machine-modal .form-group textarea,
+#machine-type-modal .form-group input,
+#machine-type-modal .form-group select,
+#machine-type-modal .form-group textarea {
     font-size: 1.2em;
-    padding: 12px;
+    padding: 14px;
+    border: 2px solid #d0d0d0;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-#machine-modal .modal-actions button {
+#user-modal .form-group input:focus,
+#user-modal .form-group select:focus,
+#user-modal .form-group textarea:focus,
+#office-modal .form-group input:focus,
+#office-modal .form-group select:focus,
+#office-modal .form-group textarea:focus,
+#base-modal .form-group input:focus,
+#base-modal .form-group select:focus,
+#base-modal .form-group textarea:focus,
+#machine-modal .form-group input:focus,
+#machine-modal .form-group select:focus,
+#machine-modal .form-group textarea:focus,
+#machine-type-modal .form-group input:focus,
+#machine-type-modal .form-group select:focus,
+#machine-type-modal .form-group textarea:focus {
+    border-color: #4169E1;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 0 0 3px rgba(65, 105, 225, 0.2);
+}
+
+#user-modal .modal-actions button,
+#office-modal .modal-actions button,
+#base-modal .modal-actions button,
+#machine-modal .modal-actions button,
+#machine-type-modal .modal-actions button {
     font-size: 1.2em;
-    padding: 12px 24px;
+    padding: 14px 28px;
+    font-weight: 700;
+}
+
+#user-modal .form-actions button,
+#office-modal .form-actions button,
+#base-modal .form-actions button,
+#machine-modal .form-actions button,
+#machine-type-modal .form-actions button {
+    font-size: 1.2em;
+    padding: 14px 28px;
+    font-weight: 700;
 }
 
 .modal-header {
@@ -1003,8 +1067,9 @@ body {
 }
 
 .modal-header h2 {
-    font-size: 20px;
+    font-size: 24px;
     color: #333;
+    font-weight: 700;
 }
 
 .modal-close {
@@ -1035,26 +1100,28 @@ body {
 }
 
 .modal-form label {
-    font-weight: 600;
+    font-weight: 700;
     color: #333;
-    font-size: 14px;
+    font-size: 16.8px;
 }
 
 .modal-form input,
 .modal-form select,
 .modal-form textarea {
-    padding: 10px;
-    border: 2px solid #e0e0e0;
+    padding: 12px;
+    border: 2px solid #d0d0d0;
     border-radius: 6px;
-    font-size: 14px;
+    font-size: 16.8px;
     transition: border-color 0.3s;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .modal-form input:focus,
 .modal-form select:focus,
 .modal-form textarea:focus {
     outline: none;
-    border-color: #667eea;
+    border-color: #4169E1;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1), 0 0 0 3px rgba(65, 105, 225, 0.2);
 }
 
 .modal-form textarea {

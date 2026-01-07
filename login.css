@@ -1,11 +1,11 @@
 :root {
     --primary: #6366f1;
     --primary-hover: #4f46e5;
-    --bg-gradient: linear-gradient(135deg, #1e293b 0%, #334155 100%);
-    --card-bg: rgba(255, 255, 255, 0.1);
-    --card-border: rgba(255, 255, 255, 0.2);
-    --text-main: #ffffff;
-    --text-muted: #cbd5e1;
+    --bg-gradient: linear-gradient(135deg, #4a90e2 0%, #5da5f5 50%, #7ab8ff 100%);
+    --card-bg: rgba(255, 255, 255, 0.95);
+    --card-border: rgba(99, 102, 241, 0.3);
+    --text-main: #1e293b;
+    --text-muted: #64748b;
     --input-bg: rgba(255, 255, 255, 0.03);
     --error-red: #ef4444;
     --success-green: #10b981;
@@ -50,7 +50,7 @@ body {
 .blob-1 {
     width: 400px;
     height: 400px;
-    background: #4f46e5;
+    background: #5ba3f5;
     top: -100px;
     left: -100px;
 }
@@ -58,7 +58,7 @@ body {
 .blob-2 {
     width: 350px;
     height: 350px;
-    background: #a855f7;
+    background: #6bb6ff;
     bottom: -50px;
     right: -50px;
     animation-delay: -5s;
@@ -67,7 +67,7 @@ body {
 .blob-3 {
     width: 300px;
     height: 300px;
-    background: #0ea5e9;
+    background: #4a90e2;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
@@ -96,10 +96,10 @@ body {
     background: var(--card-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid var(--card-border);
+    border: 2px solid var(--card-border);
     border-radius: 24px;
     padding: 3rem 2.5rem;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 30px 60px rgba(74, 144, 226, 0.3), 0 10px 30px rgba(0, 0, 0, 0.15);
     animation: slideUp 0.6s ease-out;
 }
 
@@ -156,7 +156,7 @@ body {
 
 .input-group label {
     font-size: 0.875rem;
-    font-weight: 500;
+    font-weight: 600;
     color: var(--text-main);
     margin-left: 0.25rem;
 }
