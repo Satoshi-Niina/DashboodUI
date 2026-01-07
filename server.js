@@ -2107,6 +2107,7 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
 
     const { type_name, manufacturer, category, description, model_name, model } = cleaned;
     const final_model_name = model_name || model || null;
+    const final_manufacturer = manufacturer || null;
 
     if (!type_name) {
       return res.status(400).json({ success: false, message: '機種名は必須です' });
@@ -2114,10 +2115,10 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
 
     const route = await resolveTablePath('machine_types');
 
-    // 【ステップ1】 3点一致ルールの確認 (機種名, 型式, メーカー)
-    console.log(`[MachineTypes] Checking for match: ${type_name}, ${final_model_name}, ${manufacturer}`);
+    // 【ステップ1】 3点一致ルールの厳格な確認 (機種名, 型式, メーカー)
+    console.log(`[MachineTypes] Strict matching: ${type_name}, ${final_model_name}, ${final_manufacturer}`);
 
-    // 型式とメーカーが NULL の場合も考慮した検索
+    // 型式(model_name)とメーカー(manufacturer)が1つでも違えば新規追加にするための検索
     const matchQuery = `
       SELECT id FROM ${route.fullPath}
       WHERE type_name = $1
@@ -2125,7 +2126,7 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
         AND (manufacturer IS NOT DISTINCT FROM $3)
       LIMIT 1
     `;
-    const matchResult = await pool.query(matchQuery, [type_name, final_model_name, manufacturer]);
+    const matchResult = await pool.query(matchQuery, [type_name, final_model_name, final_manufacturer]);
 
     if (matchResult.rows.length > 0) {
       // 一致するものがあったので「上書き保存（UPDATE）」
@@ -2134,6 +2135,8 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
 
       const updateData = {
         category,
+        model_name: final_model_name,
+        manufacturer: final_manufacturer,
         description,
         updated_at: new Date()
       };
