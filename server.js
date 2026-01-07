@@ -2115,23 +2115,24 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: '機種名は必須です' });
     }
 
-    // 機種コードを自動生成（MT + 数値最大値+1）
-    // ルーティング先の物理パスをログ出力
+    // 機種コードを自動生成
     const route = await resolveTablePath('machine_types');
-    console.log(`[MachineTypes] Route: ${route.fullPath}, APP_ID: ${process.env.APP_ID || 'dashboard-ui'}`);
 
-    const maxIdResult = await pool.query(`SELECT id FROM ${route.fullPath} WHERE id::text LIKE 'MT%' ORDER BY id DESC LIMIT 1`);
-    let nextNumber = 1;
-    if (maxIdResult.rows.length > 0) {
-      const lastId = maxIdResult.rows[0].id;
-      const numericPart = parseInt(lastId.replace('MT', ''));
-      if (!isNaN(numericPart)) {
-        nextNumber = numericPart + 1;
+    let type_code;
+    try {
+      const maxIdResult = await pool.query(`SELECT id::text FROM ${route.fullPath} WHERE id::text LIKE 'MT%' ORDER BY id DESC LIMIT 1`);
+      let nextNumber = 1;
+      if (maxIdResult.rows.length > 0) {
+        const lastId = maxIdResult.rows[0].id;
+        const numericPart = parseInt(lastId.replace('MT', ''));
+        if (!isNaN(numericPart)) {
+          nextNumber = numericPart + 1;
+        }
       }
+      type_code = `MT${String(nextNumber).padStart(4, '0')}`;
+    } catch (e) {
+      type_code = `MT${Date.now().toString().slice(-6)}`;
     }
-    const type_code = `MT${String(nextNumber).padStart(4, '0')}`; // MT0001, MT0002, ...
-
-    console.log(`[MachineTypes] Creating new type with code: ${type_code}`);
 
     const saveData = {
       id: type_code,
@@ -2143,19 +2144,30 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
       model_name: model_name || model || null
     };
 
-    const types = await dynamicInsert('machine_types', saveData);
+    let types;
+    try {
+      console.log(`[MachineTypes] Attempting save with ID: ${type_code}`);
+      types = await dynamicInsert('machine_types', saveData);
+    } catch (err) {
+      if (err.code === '23505') {
+        const fallbackId = `${type_code}-${Math.floor(Math.random() * 1000)}`;
+        console.log(`[MachineTypes] Collision! Retrying with fallback ID: ${fallbackId}`);
+        saveData.id = fallbackId;
+        saveData.type_code = fallbackId;
+        types = await dynamicInsert('machine_types', saveData);
+      } else {
+        throw err;
+      }
+    }
+
     res.json({ success: true, data: types[0], message: '機種を追加しました' });
   } catch (err) {
-    console.error('[POST /api/machine-types] Machine type create error:', err.message);
-    if (err.code === '23505') {
-      res.status(409).json({ success: false, message: 'この機種コードは既に登録されています' });
-    } else {
-      res.status(500).json({
-        success: false,
-        message: 'サーバーエラーが発生しました(追加): ' + err.message,
-        stack: err.stack
-      });
-    }
+    console.error('[POST /api/machine-types] Fatal machine type error:', err.message);
+    res.status(500).json({
+      success: false,
+      message: 'サーバーエラーが発生しました(追加): ' + err.message,
+      stack: err.stack
+    });
   }
 });
 
@@ -2395,7 +2407,7 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 // サーバーバージョン取得エンドポイント
 app.get('/api/version', (req, res) => {
   res.json({
-    version: '2026-01-07T14:23:00',
+    version: '2026-01-07T14:35:00',
     app_id: process.env.APP_ID || 'dashboard-ui',
     instance: process.env.CLOUD_SQL_INSTANCE || 'local',
     description: 'Extreme logging for 500 error diagnostics'
