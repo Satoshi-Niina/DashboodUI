@@ -930,8 +930,8 @@ async function requireAdmin(req, res, next) {
 
     const user = result.rows[0];
 
-    // system_admin または operation_admin のみアクセス可能
-    if (user.role !== 'system_admin' && user.role !== 'operation_admin') {
+    // system_admin、operation_admin、または admin のみアクセス可能
+    if (user.role !== 'system_admin' && user.role !== 'operation_admin' && user.role !== 'admin') {
       return res.status(403).json({ success: false, message: 'アクセス権限がありません。管理者権限が必要です。' });
     }
 
@@ -1245,8 +1245,8 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 // 事業所一覧取得
 app.get('/api/offices', authenticateToken, async (req, res) => {
   try {
-    const route = await resolveTablePath('managements_offices');
-    const query = `SELECT * FROM ${route.fullPath} ORDER BY office_id DESC`;
+    const route = await resolveTablePath('management_offices');
+    const query = `SELECT * FROM ${route.fullPath} ORDER BY id DESC`;
     const result = await pool.query(query);
     res.json({ success: true, offices: result.rows });
   } catch (err) {
@@ -1267,7 +1267,7 @@ app.post('/api/offices', requireAdmin, async (req, res) => {
   try {
     // 事業所コードが指定されていない場合は自動採番
     if (!office_code) {
-      const route = await resolveTablePath('managements_offices');
+      const route = await resolveTablePath('management_offices');
       const maxCodeQuery = `SELECT MAX(CAST(office_code AS INTEGER)) as max_code FROM ${route.fullPath} WHERE office_code ~ '^[0-9]+$'`;
       const maxCodeResult = await pool.query(maxCodeQuery);
       const maxCode = maxCodeResult.rows[0].max_code || 0;
@@ -1315,7 +1315,7 @@ app.put('/api/offices/:id', requireAdmin, async (req, res) => {
         phone_number: phone_number || null,
         updated_at: new Date()
       },
-      { office_id: officeId }
+      { id: officeId }
     );
 
     if (offices.length === 0) {
@@ -1335,7 +1335,7 @@ app.delete('/api/offices/:id', requireAdmin, async (req, res) => {
   const officeId = req.params.id;
 
   try {
-    const offices = await dynamicDelete('managements_offices', { office_id: officeId }, true);
+    const offices = await dynamicDelete('managements_offices', { id: officeId }, true);
 
     if (offices.length === 0) {
       return res.status(404).json({ success: false, message: '事業所が見つかりません' });
@@ -1372,7 +1372,12 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
 
 // 保守基地追加
 app.post('/api/bases', requireAdmin, async (req, res) => {
-  let { base_code, base_name, office_id, location, address, postal_code } = req.body;
+  let { base_code, base_name, management_office_id, location, address, postal_code } = req.body;
+  
+  // 互換性のためoffice_idも受け入れる
+  if (req.body.office_id && !management_office_id) {
+    management_office_id = req.body.office_id;
+  }
 
   if (!base_name) {
     return res.status(400).json({ success: false, message: '基地名は必須です' });
@@ -1389,17 +1394,15 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
 
     const insertQuery = `
       INSERT INTO master_data.bases 
-      (base_code, base_name, office_id, location, address, postal_code)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      (base_name, base_type, location, management_office_id)
+      VALUES ($1, $2, $3, $4)
       RETURNING *
     `;
     const result = await pool.query(insertQuery, [
-      base_code,
       base_name,
-      office_id || null,
+      'maintenance',
       location || null,
-      address || null,
-      postal_code || null
+      management_office_id || null
     ]);
 
     res.json({ success: true, base: result.rows[0], message: '保守基地を追加しました' });
@@ -1417,24 +1420,26 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
 // 保守基地更新
 app.put('/api/bases/:id', requireAdmin, async (req, res) => {
   const baseId = req.params.id;
-  const { base_code, base_name, office_id, location, address, postal_code } = req.body;
+  let { base_code, base_name, management_office_id, location, address, postal_code } = req.body;
+  
+  // 互換性のためoffice_idも受け入れる
+  if (req.body.office_id && !management_office_id) {
+    management_office_id = req.body.office_id;
+  }
 
   try {
     const updateQuery = `
       UPDATE master_data.bases 
-      SET base_code = $1, base_name = $2, office_id = $3, location = $4, address = $5,
-          postal_code = $6,
+      SET base_name = $1, base_type = $2, location = $3, management_office_id = $4,
           updated_at = CURRENT_TIMESTAMP
-      WHERE base_id = $7
+      WHERE id = $5
       RETURNING *
     `;
     const result = await pool.query(updateQuery, [
-      base_code,
       base_name,
-      office_id || null,
+      'maintenance',
       location || null,
-      address || null,
-      postal_code || null,
+      management_office_id || null,
       baseId
     ]);
 
@@ -1454,7 +1459,7 @@ app.delete('/api/bases/:id', requireAdmin, async (req, res) => {
   const baseId = req.params.id;
 
   try {
-    const deleteQuery = 'DELETE FROM master_data.bases WHERE base_id = $1 RETURNING base_name';
+    const deleteQuery = 'DELETE FROM master_data.bases WHERE id = $1 RETURNING base_name';
     const result = await pool.query(deleteQuery, [baseId]);
 
     if (result.rows.length === 0) {
@@ -2085,7 +2090,7 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
   try {
     const route = await resolveTablePath('machine_types');
     console.log(`[GET /api/machine-types] Resolved Route: ${route.fullPath}`);
-    const query = `SELECT * FROM ${route.fullPath} ORDER BY type_code`;
+    const query = `SELECT * FROM ${route.fullPath} ORDER BY id`;
     console.log(`[GET /api/machine-types] Executing: ${query}`);
     const result = await pool.query(query);
     console.log(`[GET /api/machine-types] Success, Rows: ${result.rows.length}`);
@@ -2250,6 +2255,8 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
 
     console.log(`[GET /api/machines] Resolving tables:`, { machines: machinesRoute.fullPath, types: machineTypesRoute.fullPath });
 
+    const officesRoute = await resolveTablePath('managements_offices');
+
     const query = `
       SELECT 
         m.id,
@@ -2262,16 +2269,15 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
         m.notes,
         m.type_certification,
         m.machine_type_id,
-        mt.type_code,
-        mt.type_name,
+        mt.model_name,
         mt.manufacturer,
         mt.category,
-        b.base_name,
+        o.office_name,
         m.created_at,
         m.updated_at
       FROM ${machinesRoute.fullPath} m
       LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id::text = mt.id::text
-      LEFT JOIN ${basesRoute.fullPath} b ON m.assigned_base_id::text = b.base_id::text
+      LEFT JOIN ${officesRoute.fullPath} o ON m.office_id::text = o.office_id::text
       ORDER BY m.machine_number
     `;
     console.log(`[GET /api/machines] Executing SQL...`);
@@ -2473,9 +2479,31 @@ async function runEmergencyDbFix() {
             ) LOOP EXECUTE r.cmd; END LOOP;
         END $$;
       `);
-    const schemas = ['master_data', 'public'];
+    const schemas = ['master_data'];
     for (const schema of schemas) {
       console.log(`[Self-Healing] Checking schema: ${schema}`);
+      
+      // テーブルの存在確認
+      const mtCheck = await pool.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = $1 AND table_name = 'machine_types'
+        )
+      `, [schema]);
+      const machinesCheck = await pool.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = $1 AND table_name = 'machines'
+        )
+      `, [schema]);
+      
+      console.log(`[Self-Healing] machine_types exists in ${schema}:`, mtCheck.rows[0].exists);
+      console.log(`[Self-Healing] machines exists in ${schema}:`, machinesCheck.rows[0].exists);
+      
+      if (!mtCheck.rows[0].exists) {
+        console.log(`[Self-Healing] Skipping ${schema}.machine_types - table does not exist`);
+        continue;
+      }
 
       // machine_types 必要なカラムを全て確実に作成
       await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS type_code TEXT`);
@@ -2498,6 +2526,11 @@ async function runEmergencyDbFix() {
         `);
 
       // machines 必要なカラムを全て確実に作成
+      if (!machinesCheck.rows[0].exists) {
+        console.log(`[Self-Healing] Skipping ${schema}.machines - table does not exist`);
+        continue;
+      }
+      
       await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS id TEXT`);
       await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS machine_number TEXT`);
       await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS machine_type_id TEXT`);

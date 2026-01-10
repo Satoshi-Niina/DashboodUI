@@ -74,13 +74,12 @@ CREATE TABLE IF NOT EXISTS master_data.vehicles (
 -- 機種マスタ
 CREATE TABLE IF NOT EXISTS master_data.machine_types (
     id SERIAL PRIMARY KEY,
-    type_code VARCHAR(20) UNIQUE NOT NULL,
-    type_name VARCHAR(100) NOT NULL,
-    manufacturer VARCHAR(100),
-    category VARCHAR(50),
-    description TEXT,
+    model_name VARCHAR(100) NOT NULL,  -- メーカー型式（必須）
+    manufacturer VARCHAR(100),          -- メーカー
+    category VARCHAR(50) NOT NULL,      -- カテゴリ（必須）
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(model_name, manufacturer)    -- 型式とメーカーの組み合わせで一意
 );
 
 -- 機械番号マスタ
@@ -281,7 +280,8 @@ CREATE INDEX IF NOT EXISTS idx_vehicles_status ON master_data.vehicles(status);
 CREATE INDEX IF NOT EXISTS idx_machines_number ON master_data.machines(machine_number);
 CREATE INDEX IF NOT EXISTS idx_machines_type ON master_data.machines(machine_type_id);
 CREATE INDEX IF NOT EXISTS idx_machines_base ON master_data.machines(assigned_base_id);
-CREATE INDEX IF NOT EXISTS idx_machine_types_code ON master_data.machine_types(type_code);
+CREATE INDEX IF NOT EXISTS idx_machine_types_category ON master_data.machine_types(category);
+CREATE INDEX IF NOT EXISTS idx_machine_types_manufacturer ON master_data.machine_types(manufacturer);
 
 -- operations スキーマ
 CREATE INDEX IF NOT EXISTS idx_schedules_vehicle ON operations.schedules(vehicle_id);

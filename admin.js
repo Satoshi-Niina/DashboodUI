@@ -1,4 +1,17 @@
-﻿document.addEventListener('DOMContentLoaded', () => {
+﻿// ========================================
+// 設定: 機種マスタ関連の定数
+// ========================================
+const MACHINE_CATEGORIES = [
+    '軌道モータカー',
+    '箱トロ',
+    '鉄トロ',
+    'レールカッター',
+    '油圧ショベル',
+    'クレーン',
+    'その他'
+];
+
+document.addEventListener('DOMContentLoaded', () => {
     // 認証チェック
     const token = localStorage.getItem('user_token');
     console.log('[Admin] Version: 20260107-1400');
@@ -18,7 +31,7 @@
     document.getElementById('admin-user').textContent = userInfo.displayName || userInfo.username;
 
     // システム管理者または運用管理者のみアクセス可能
-    if (userInfo.role !== 'system_admin' && userInfo.role !== 'operation_admin') {
+    if (userInfo.role !== 'system_admin' && userInfo.role !== 'operation_admin' && userInfo.role !== 'admin') {
         console.error('[Admin] Access denied - role:', userInfo.role);
         alert('アクセス権限がありません。管理者権限が必要です。');
         window.location.href = '/index.html';
@@ -26,6 +39,9 @@
     }
 
     console.log('[Admin] Access granted for admin user');
+
+    // ロールに基づいてタブの表示制御
+    applyRoleBasedTabVisibility(userInfo.role);
 
     // メイン画面に戻る
     document.getElementById('back-to-main-btn').addEventListener('click', () => {
@@ -87,6 +103,43 @@
     initializeEventListeners();
     initializeCorsSettings();
 });
+
+// ロールに基づいてタブの表示制御
+function applyRoleBasedTabVisibility(role) {
+    console.log('[applyRoleBasedTabVisibility] Applying visibility for role:', role);
+    
+    // システム管理者専用のタブ
+    const systemAdminOnlyTabs = [
+        'database-management',
+        'cors-settings'
+    ];
+
+    systemAdminOnlyTabs.forEach(tabName => {
+        const tabButton = document.querySelector(`.tab-button[data-tab="${tabName}"]`);
+        const tabContent = document.getElementById(`${tabName}-tab`);
+        
+        // admin ロールは system_admin として扱う（後方互換性）
+        if (role === 'system_admin' || role === 'admin') {
+            // システム管理者には表示
+            if (tabButton) {
+                tabButton.style.display = '';
+                console.log(`[applyRoleBasedTabVisibility] Showing tab: ${tabName}`);
+            }
+            if (tabContent) {
+                tabContent.style.display = '';
+            }
+        } else {
+            // 運用管理者には非表示
+            if (tabButton) {
+                tabButton.style.display = 'none';
+                console.log(`[applyRoleBasedTabVisibility] Hiding tab: ${tabName}`);
+            }
+            if (tabContent) {
+                tabContent.style.display = 'none';
+            }
+        }
+    });
+}
 
 // タブ機能
 function initializeTabs() {
@@ -196,7 +249,19 @@ function initializeEventListeners() {
     // 機種マスタ追加ボタン
     const addMachineTypeBtn = document.getElementById('add-new-machine-type-btn');
     if (addMachineTypeBtn) {
-        addMachineTypeBtn.addEventListener('click', () => openMachineTypeModal());
+        addMachineTypeBtn.addEventListener('click', () => {
+            // カテゴリ選択肢を初期化
+            const categorySelect = document.getElementById('machine-type-category');
+            if (categorySelect && categorySelect.options.length === 1) {
+                MACHINE_CATEGORIES.forEach(cat => {
+                    const option = document.createElement('option');
+                    option.value = cat;
+                    option.textContent = cat;
+                    categorySelect.appendChild(option);
+                });
+            }
+            openMachineTypeModal();
+        });
     }
 
     // 機種マスタモーダルのイベントリスナー
@@ -492,8 +557,8 @@ async function loadMachineTypes() {
                 <table class="data-table" id="machine-types-table">
                     <thead>
                         <tr>
-                            <th>機種コード</th>
-                            <th>機種名</th>
+                            <th>ID</th>
+                            <th>メーカー型式</th>
                             <th>メーカー</th>
                             <th>カテゴリ</th>
                             <th>操作</th>
@@ -511,17 +576,16 @@ async function loadMachineTypes() {
 
             data.data.forEach(type => {
                 const typeId = String(type.id);
-                const typeCode = type.type_code || '-';
-                console.log('[loadMachineTypes] Rendering type:', { id: typeId, code: typeCode });
+                console.log('[loadMachineTypes] Rendering type:', { id: typeId });
                 html += `
                     <tr>
-                        <td>${escapeHtml(type.type_code || '-')}</td>
-                        <td>${escapeHtml(type.type_name || '-')}</td>
+                        <td>${escapeHtml(type.id || '-')}</td>
+                        <td>${escapeHtml(type.model_name || '-')}</td>
                         <td>${escapeHtml(type.manufacturer || '-')}</td>
                         <td>${escapeHtml(type.category || '-')}</td>
                         <td>
                             <button class="btn-sm btn-edit" data-id="${typeId}" data-action="edit-type">編集</button>
-                            <button class="btn-sm btn-delete" data-id="${typeId}" data-code="${escapeHtml(typeCode)}" data-action="delete-type">削除</button>
+                            <button class="btn-sm btn-delete" data-id="${typeId}" data-action="delete-type">削除</button>
                         </td>
                     </tr>
                 `;
@@ -581,8 +645,7 @@ async function loadMachineTypeData(machineTypeId) {
             console.log('[loadMachineTypeData] Found machine type:', machineType);
             if (machineType) {
                 document.getElementById('machine-type-id').value = machineType.id;
-                document.getElementById('machine-type-name').value = machineType.type_name || '';
-                document.getElementById('machine-type-model-name').value = machineType.model_name || machineType.model || '';
+                document.getElementById('machine-type-model-name').value = machineType.model_name || '';
                 document.getElementById('machine-type-manufacturer').value = machineType.manufacturer || '';
                 document.getElementById('machine-type-category').value = machineType.category || '';
                 document.getElementById('machine-type-description').value = machineType.description || '';
@@ -602,11 +665,9 @@ async function saveMachineType() {
     const token = localStorage.getItem('user_token');
 
     const machineTypeData = {
-        type_name: document.getElementById('machine-type-name').value,
         model_name: document.getElementById('machine-type-model-name').value,
         manufacturer: document.getElementById('machine-type-manufacturer').value,
-        category: document.getElementById('machine-type-category').value,
-        description: document.getElementById('machine-type-description').value
+        category: document.getElementById('machine-type-category').value
     };
 
     try {
@@ -714,7 +775,7 @@ async function loadMachines() {
                             <th>機種</th>
                             <th>シリアル番号</th>
                             <th>製造年月日</th>
-                            <th>配属基地</th>
+                            <th>管理事業所</th>
                             <th>操作</th>
                         </tr>
                         <tr class="filter-row">
@@ -736,10 +797,10 @@ async function loadMachines() {
                 html += `
                     <tr>
                         <td>${escapeHtml(machine.machine_number || '-')}</td>
-                        <td>${escapeHtml(machine.type_name || '-')}</td>
+                        <td>${escapeHtml(machine.model_name || '-')}</td>
                         <td>${escapeHtml(machine.serial_number || '-')}</td>
                         <td>${machine.manufacture_date ? new Date(machine.manufacture_date).toLocaleDateString('ja-JP') : '-'}</td>
-                        <td>${escapeHtml(machine.base_name || '-')}</td>
+                        <td>${escapeHtml(machine.office_name || '-')}</td>
                         <td>
                             <button class="btn-sm btn-edit" data-id="${machineId}" data-action="edit-machine">編集</button>
                             <button class="btn-sm btn-delete" data-id="${machineId}" data-number="${escapeHtml(machineNumber)}" data-action="delete-machine">削除</button>
@@ -824,18 +885,18 @@ async function openMachineModal(machineId = null) {
 
             machineTypesData.data.forEach((type, index) => {
                 const typeId = type.id;
-                const typeCode = type.type_code || '';
-                const typeName = type.type_name || '名前なし';
-                const modelName = type.model_name || '';
+                const modelName = type.model_name || '名前なし';
+                const manufacturer = type.manufacturer || '';
+                const category = type.category || '';
 
-                // 機種名にメーカー型式を並べて表示する
-                const displayText = modelName ? `${typeName} (${modelName})` : typeName;
+                // 機種名（model_name）を表示
+                const displayText = manufacturer ? `${modelName} (${manufacturer})` : modelName;
 
                 options.push(`<option value="${typeId}">${escapeHtml(displayText)}</option>`);
                 console.log(`[openMachineModal] Type ${index + 1}/${machineTypesData.data.length}:`, {
                     id: typeId,
-                    code: typeCode,
-                    name: typeName
+                    modelName: modelName,
+                    manufacturer: manufacturer
                 });
             });
 

@@ -48,18 +48,52 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // ユーザー情報の反映
     const userInfoStr = localStorage.getItem('user_info');
+    console.log('[App] Raw user_info from localStorage:', userInfoStr);
+    
     if (userInfoStr) {
         const userInfo = JSON.parse(userInfoStr);
+        console.log('[App] Parsed user info:', userInfo);
+        console.log('[App] User role:', userInfo.role);
+        console.log('[App] Role type:', typeof userInfo.role);
+        
         const headerUserName = document.getElementById('header-user-name');
         const headerAvatar = document.getElementById('header-avatar');
 
-        // システム管理者と運用管理者以外はシステム設定リンクを非表示
+        // システム管理者と運用管理者にのみシステム設定リンクを表示
         const footerNav = document.querySelector('.footer-nav');
-        if (footerNav && userInfo.role !== 'system_admin' && userInfo.role !== 'operation_admin') {
-            const adminLink = footerNav.querySelector('a[href="/admin.html"]');
-            if (adminLink) {
+        console.log('[App] Footer nav found:', !!footerNav);
+        console.log('[App] Footer nav element:', footerNav);
+        
+        const adminLink = footerNav ? footerNav.querySelector('a[href="/admin.html"]') : null;
+        console.log('[App] Admin link found:', !!adminLink);
+        console.log('[App] Admin link element:', adminLink);
+        
+        if (adminLink) {
+            const currentDisplay = window.getComputedStyle(adminLink).display;
+            console.log('[App] Current computed display style:', currentDisplay);
+            console.log('[App] Current inline display style:', adminLink.style.display);
+            
+            console.log('[App] Checking role... system_admin?', userInfo.role === 'system_admin');
+            console.log('[App] Checking role... operation_admin?', userInfo.role === 'operation_admin');
+            console.log('[App] Checking role... admin?', userInfo.role === 'admin');
+            
+            // admin, system_admin, operation_admin のいずれかであれば表示
+            if (userInfo.role === 'system_admin' || userInfo.role === 'operation_admin' || userInfo.role === 'admin') {
+                // システム管理者・運用管理者には表示
+                adminLink.style.display = 'inline';
+                adminLink.style.visibility = 'visible';
+                adminLink.style.opacity = '1';
+                console.log('[App] ✅ System settings link SHOWN for role:', userInfo.role);
+                console.log('[App] After setting - display:', adminLink.style.display);
+            } else {
+                // 一般ユーザーには非表示
                 adminLink.style.display = 'none';
-                console.log('[App] System settings link hidden for role:', userInfo.role);
+                console.log('[App] ❌ System settings link HIDDEN for role:', userInfo.role);
+            }
+        } else {
+            console.error('[App] ⚠️ Admin link not found in footer!');
+            if (footerNav) {
+                console.error('[App] Footer nav HTML:', footerNav.innerHTML);
             }
         }
 
@@ -84,11 +118,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (headerAvatar) {
             headerAvatar.src = `https://ui-avatars.com/api/?name=${userInfo.username}&background=random`;
         }
+    } else {
+        console.warn('[App] No user_info found in localStorage');
     }
 
     let currentAppId = '';
 
     // アプリカードの動的生成
+    console.log('[App] Starting to generate app cards...');
     apps.forEach(app => {
         const card = document.createElement('div');
         card.className = 'app-card';

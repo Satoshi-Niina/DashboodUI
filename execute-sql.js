@@ -1,10 +1,10 @@
 const pool = require('./shared-db-config');
 const fs = require('fs');
 
-async function executeSQLFile() {
+async function executeSQLFile(sqlFilePath = 'database-complete-update.sql') {
     try {
         console.log('📂 Reading SQL file...');
-        const sql = fs.readFileSync('database-complete-update.sql', 'utf-8');
+        const sql = fs.readFileSync(sqlFilePath, 'utf-8');
         
         console.log('🔄 Executing SQL statements...\n');
         
@@ -77,4 +77,7 @@ async function executeSQLFile() {
     }
 }
 
-executeSQLFile();
+// コマンドライン引数からファイル名を取得
+const sqlFile = process.argv[2] || 'database-complete-update.sql';
+console.log(`📄 SQL File: ${sqlFile}`);
+executeSQLFile(sqlFile);
