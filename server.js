@@ -1245,8 +1245,8 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 // 事業所一覧取得
 app.get('/api/offices', authenticateToken, async (req, res) => {
   try {
-    const route = await resolveTablePath('management_offices');
-    const query = `SELECT * FROM ${route.fullPath} ORDER BY id DESC`;
+    const route = await resolveTablePath('managements_offices');
+    const query = `SELECT * FROM ${route.fullPath} ORDER BY office_id DESC`;
     const result = await pool.query(query);
     res.json({ success: true, offices: result.rows });
   } catch (err) {
@@ -1267,7 +1267,7 @@ app.post('/api/offices', requireAdmin, async (req, res) => {
   try {
     // 事業所コードが指定されていない場合は自動採番
     if (!office_code) {
-      const route = await resolveTablePath('management_offices');
+      const route = await resolveTablePath('managements_offices');
       const maxCodeQuery = `SELECT MAX(CAST(office_code AS INTEGER)) as max_code FROM ${route.fullPath} WHERE office_code ~ '^[0-9]+$'`;
       const maxCodeResult = await pool.query(maxCodeQuery);
       const maxCode = maxCodeResult.rows[0].max_code || 0;
@@ -2560,9 +2560,9 @@ async function runEmergencyDbFix() {
 
     // ルーティング再設定
     await pool.query(`
-        INSERT INTO public.app_resource_routing (app_id, logical_resource_name, physical_schema, physical_table, resource_type, is_active)
-        VALUES ('dashboard-ui', 'machines', 'master_data', 'machines', 'table', true),
-               ('dashboard-ui', 'machine_types', 'master_data', 'machine_types', 'table', true)
+        INSERT INTO public.app_resource_routing (app_id, logical_resource_name, physical_schema, physical_table, is_active)
+        VALUES ('dashboard-ui', 'machines', 'master_data', 'machines', true),
+               ('dashboard-ui', 'machine_types', 'master_data', 'machine_types', true)
         ON CONFLICT (app_id, logical_resource_name) DO UPDATE SET physical_schema = EXCLUDED.physical_schema, physical_table = EXCLUDED.physical_table;
       `);
     console.log('✅ Self-healing completed successfully.');

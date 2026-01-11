@@ -78,11 +78,13 @@ jobs:
         run: |
           # タイムスタンプでイメージタグを生成（キャッシュ無効化）
           TIMESTAMP=$(date +%s)
-          IMAGE_TAG="gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${TIMESTAMP}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          IMAGE_TAG="gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${TIMESTAMP}-${SHORT_SHA}"
           
           echo "🔨 Building Docker image with timestamp: $TIMESTAMP"
           echo "🚫 Cache disabled: --no-cache"
           echo "📦 Image tag: $IMAGE_TAG"
+          echo "📌 Short SHA: $SHORT_SHA"
           
           # Dockerイメージをビルド（完全にキャッシュ無効化）
           docker build \
@@ -100,6 +102,7 @@ jobs:
           echo "✅ Push completed"
           
           # Cloud Runにデプロイ
+          # 注意: --tagオプションは使用しない（サービス名+タグで46文字制限あり）
           echo "🚀 Deploying to Cloud Run..."
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image=$IMAGE_TAG \
