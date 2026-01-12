@@ -161,7 +161,21 @@ document.addEventListener('DOMContentLoaded', () => {
         // 位置の計算（position: fixed のためビューポート基準）
         const rect = event.currentTarget.getBoundingClientRect();
         const tooltipX = rect.left + (rect.width / 2) - 160; // 320pxの半分を引く
-        const tooltipY = rect.top - 180; // カードの上部に表示（scrollYは不要）
+
+        // ツールチップの高さを考慮（約200px）
+        const tooltipHeight = 200;
+        let tooltipY = rect.top - 180; // カードの上部に表示
+
+        // 画面外に出ないように調整
+        if (tooltipY < 10) {
+            // 上端に余裕がない場合はカードの下に表示
+            tooltipY = rect.bottom + 10;
+            // 下端もチェック
+            if (tooltipY + tooltipHeight > window.innerHeight) {
+                // 両方に余裕がない場合は画面中央に
+                tooltipY = Math.max(10, (window.innerHeight - tooltipHeight) / 2);
+            }
+        }
 
         tooltip.style.left = `${tooltipX}px`;
         tooltip.style.top = `${tooltipY}px`;
