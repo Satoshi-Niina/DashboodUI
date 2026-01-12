@@ -39,6 +39,10 @@
                 <span class="tab-icon">🚛</span>
                 <span class="tab-label">保守用車マスタ</span>
             </button>
+            <button class="tab-button" data-tab="inspection-master">
+                <span class="tab-icon">🔧</span>
+                <span class="tab-label">検修マスタ</span>
+            </button>
             <button class="tab-button" data-tab="database-management">
                 <span class="tab-icon">💾</span>
                 <span class="tab-label">データベース管理</span>
@@ -138,6 +142,41 @@
                     </div>
 
                     <div id="bases-list" class="vehicles-list">
+                        <p class="loading">読み込み中...</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 検修マスタタブ -->
+            <div id="inspection-master-tab" class="tab-content" style="display: none;">
+                <div class="info-banner">
+                    <p>💡 機種・機械番号毎に検修種別による検修周期（月単位）と検修期間（日）を設定します</p>
+                </div>
+
+                <!-- 検修種別マスタ管理 -->
+                <section class="config-section">
+                    <h3>📋 検修種別マスタ</h3>
+                    <div class="user-actions">
+                        <button type="button" id="add-new-inspection-type-btn" class="btn-primary">
+                            ➕ 新規検修種別追加
+                        </button>
+                    </div>
+
+                    <div id="inspection-types-list" class="vehicles-list">
+                        <p class="loading">読み込み中...</p>
+                    </div>
+                </section>
+
+                <!-- 検修周期・期間設定 -->
+                <section class="config-section">
+                    <h3>🔧 検修周期・期間設定</h3>
+                    <div class="user-actions">
+                        <button type="button" id="add-new-inspection-schedule-btn" class="btn-primary">
+                            ➕ 新規検修設定追加
+                        </button>
+                    </div>
+
+                    <div id="inspection-schedules-list" class="vehicles-list">
                         <p class="loading">読み込み中...</p>
                     </div>
                 </section>
@@ -257,10 +296,6 @@
                     </div>
                     <p class="info-text">※ テーブルを選択すると使用できます</p>
                 </section>
-            </div>
-
-            <div class="info-banner">
-                <p>💡 ここで設定を変更すると、再デプロイなしで即座に反映されます</p>
             </div>
 
             <section class="config-section" style="display: none;">
@@ -510,6 +545,104 @@
                 <div class="form-actions">
                     <button type="submit" class="btn-primary">保存</button>
                     <button type="button" class="btn-secondary" id="cancel-machine-btn">キャンセル</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 検修種別追加・編集モーダル -->
+    <div id="inspection-type-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="inspection-type-modal-title">検修種別を追加</h3>
+                <button class="modal-close" id="inspection-type-modal-close">&times;</button>
+            </div>
+            <form id="inspection-type-form">
+                <input type="hidden" id="inspection-type-id" name="id">
+                <input type="hidden" id="inspection-type-code" name="type_code">
+
+                <div class="form-group">
+                    <label for="inspection-type-name">検修種別名 *</label>
+                    <input type="text" id="inspection-type-name" name="type_name" required placeholder="例: A検修">
+                    <small>検修種別コードは自動で生成されます</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="inspection-type-description">説明</label>
+                    <textarea id="inspection-type-description" name="description" rows="3" placeholder="検修種別の説明を入力"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="inspection-type-order">表示順序</label>
+                    <input type="number" id="inspection-type-order" name="display_order" value="0" min="0">
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="inspection-type-active" name="is_active" checked>
+                        有効
+                    </label>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">保存</button>
+                    <button type="button" class="btn-secondary" id="cancel-inspection-type-btn">キャンセル</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 検修周期・期間設定モーダル -->
+    <div id="inspection-schedule-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="inspection-schedule-modal-title">検修設定を追加</h3>
+                <button class="modal-close" id="inspection-schedule-modal-close">&times;</button>
+            </div>
+            <form id="inspection-schedule-form">
+                <input type="hidden" id="inspection-schedule-id" name="id">
+
+                <div class="form-group">
+                    <label for="inspection-schedule-machine">保守用車 *</label>
+                    <select id="inspection-schedule-machine" name="machine_id" required>
+                        <option value="">-- 保守用車を選択 --</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="inspection-schedule-type">検修種別 *</label>
+                    <select id="inspection-schedule-type" name="inspection_type_id" required>
+                        <option value="">-- 検修種別を選択 --</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="inspection-schedule-cycle">検修周期（月単位） *</label>
+                    <input type="number" id="inspection-schedule-cycle" name="cycle_months" required min="1" placeholder="例: 6">
+                    <small>検修を実施する周期を月単位で入力してください</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="inspection-schedule-duration">検修期間（日数） *</label>
+                    <input type="number" id="inspection-schedule-duration" name="duration_days" required min="1" placeholder="例: 7">
+                    <small>検修にかかる期間を日数で入力してください</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="inspection-schedule-remarks">備考</label>
+                    <textarea id="inspection-schedule-remarks" name="remarks" rows="3"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="inspection-schedule-active" name="is_active" checked>
+                        有効
+                    </label>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">保存</button>
+                    <button type="button" class="btn-secondary" id="cancel-inspection-schedule-btn">キャンセル</button>
                 </div>
             </form>
         </div>

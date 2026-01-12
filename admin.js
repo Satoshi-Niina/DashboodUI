@@ -56,6 +56,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadOffices();
     loadBases();
     loadDatabaseStats();
+    loadInspectionTypes();
+    loadInspectionSchedules();
 
     // 汎用テーブルフィルター関数
     window.applyTableFilter = function (table) {
@@ -107,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // ロールに基づいてタブの表示制御
 function applyRoleBasedTabVisibility(role) {
     console.log('[applyRoleBasedTabVisibility] Applying visibility for role:', role);
-    
+
     // システム管理者専用のタブ
     const systemAdminOnlyTabs = [
         'database-management',
@@ -117,7 +119,7 @@ function applyRoleBasedTabVisibility(role) {
     systemAdminOnlyTabs.forEach(tabName => {
         const tabButton = document.querySelector(`.tab-button[data-tab="${tabName}"]`);
         const tabContent = document.getElementById(`${tabName}-tab`);
-        
+
         // admin ロールは system_admin として扱う（後方互換性）
         if (role === 'system_admin' || role === 'admin') {
             // システム管理者には表示
@@ -192,6 +194,9 @@ function initializeTabs() {
             } else if (tabName === 'vehicle-master') {
                 loadMachineTypes();
                 loadMachines();
+            } else if (tabName === 'inspection-master') {
+                loadInspectionTypes();
+                loadInspectionSchedules();
             } else if (tabName === 'database-management') {
                 loadDatabaseStats();
             } else if (tabName === 'cors-settings') {
@@ -317,6 +322,68 @@ function initializeEventListeners() {
         machineForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             await saveMachine();
+        });
+    }
+
+    // 検修種別追加ボタン
+    const addInspectionTypeBtn = document.getElementById('add-new-inspection-type-btn');
+    if (addInspectionTypeBtn) {
+        addInspectionTypeBtn.addEventListener('click', () => openInspectionTypeModal());
+    }
+
+    // 検修種別モーダルのイベントリスナー
+    const inspectionTypeModal = document.getElementById('inspection-type-modal');
+    const inspectionTypeCloseModal = document.getElementById('inspection-type-modal-close');
+    const inspectionTypeCancelBtn = document.getElementById('cancel-inspection-type-btn');
+    const inspectionTypeForm = document.getElementById('inspection-type-form');
+
+    if (inspectionTypeCloseModal) {
+        inspectionTypeCloseModal.addEventListener('click', () => {
+            inspectionTypeModal.style.display = 'none';
+        });
+    }
+
+    if (inspectionTypeCancelBtn) {
+        inspectionTypeCancelBtn.addEventListener('click', () => {
+            inspectionTypeModal.style.display = 'none';
+        });
+    }
+
+    if (inspectionTypeForm) {
+        inspectionTypeForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await saveInspectionType();
+        });
+    }
+
+    // 検修設定追加ボタン
+    const addInspectionScheduleBtn = document.getElementById('add-new-inspection-schedule-btn');
+    if (addInspectionScheduleBtn) {
+        addInspectionScheduleBtn.addEventListener('click', () => openInspectionScheduleModal());
+    }
+
+    // 検修設定モーダルのイベントリスナー
+    const inspectionScheduleModal = document.getElementById('inspection-schedule-modal');
+    const inspectionScheduleCloseModal = document.getElementById('inspection-schedule-modal-close');
+    const inspectionScheduleCancelBtn = document.getElementById('cancel-inspection-schedule-btn');
+    const inspectionScheduleForm = document.getElementById('inspection-schedule-form');
+
+    if (inspectionScheduleCloseModal) {
+        inspectionScheduleCloseModal.addEventListener('click', () => {
+            inspectionScheduleModal.style.display = 'none';
+        });
+    }
+
+    if (inspectionScheduleCancelBtn) {
+        inspectionScheduleCancelBtn.addEventListener('click', () => {
+            inspectionScheduleModal.style.display = 'none';
+        });
+    }
+
+    if (inspectionScheduleForm) {
+        inspectionScheduleForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await saveInspectionSchedule();
         });
     }
 
@@ -1113,6 +1180,445 @@ async function deleteMachine(machineId, machineNumber) {
 
 // グローバルに公開
 window.deleteMachine = deleteMachine;
+
+// ========== 検修マスタ管理 ==========
+async function loadInspectionTypes() {
+    const list = document.getElementById('inspection-types-list');
+    if (!list) {
+        console.warn('[loadInspectionTypes] inspection-types-list element not found');
+        return;
+    }
+
+    list.innerHTML = '<p class="loading">読み込み中...</p>';
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/inspection-types', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('[loadInspectionTypes] Response:', data);
+
+        if (data.success && data.data && data.data.length > 0) {
+            let html = `
+                <table class="data-table" id="inspection-types-table">
+                    <thead>
+                        <tr>
+                            <th>検修種別コード</th>
+                            <th>検修種別名</th>
+                            <th>説明</th>
+                            <th>表示順序</th>
+                            <th>状態</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            data.data.forEach(type => {
+                const statusBadge = type.is_active ?
+                    '<span class="status-badge status-active">有効</span>' :
+                    '<span class="status-badge status-inactive">無効</span>';
+
+                html += `
+                    <tr>
+                        <td>${escapeHtml(type.type_code || '-')}</td>
+                        <td>${escapeHtml(type.type_name || '-')}</td>
+                        <td>${escapeHtml(type.description || '-')}</td>
+                        <td>${type.display_order || 0}</td>
+                        <td>${statusBadge}</td>
+                        <td>
+                            <button class="btn-sm btn-edit" onclick="editInspectionType('${type.id}')">編集</button>
+                            <button class="btn-sm btn-delete" onclick="deleteInspectionType('${type.id}', '${escapeHtml(type.type_name)}')">削除</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += `</tbody></table>`;
+            list.innerHTML = html;
+        } else {
+            list.innerHTML = '<p class="loading">検修種別が登録されていません</p>';
+        }
+    } catch (error) {
+        console.error('[loadInspectionTypes] Error:', error);
+        list.innerHTML = `<p class="loading" style="color: red;">⚠️ 検修種別の読み込みに失敗しました<br>エラー: ${error.message}</p>`;
+    }
+}
+
+async function loadInspectionSchedules() {
+    const list = document.getElementById('inspection-schedules-list');
+    if (!list) {
+        console.warn('[loadInspectionSchedules] inspection-schedules-list element not found');
+        return;
+    }
+
+    list.innerHTML = '<p class="loading">読み込み中...</p>';
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/inspection-schedules', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('[loadInspectionSchedules] Response:', data);
+
+        if (data.success && data.data && data.data.length > 0) {
+            let html = `
+                <table class="data-table" id="inspection-schedules-table">
+                    <thead>
+                        <tr>
+                            <th>保守用車</th>
+                            <th>検修種別</th>
+                            <th>検修周期（月）</th>
+                            <th>検修期間（日）</th>
+                            <th>備考</th>
+                            <th>状態</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            data.data.forEach(schedule => {
+                const statusBadge = schedule.is_active ?
+                    '<span class="status-badge status-active">有効</span>' :
+                    '<span class="status-badge status-inactive">無効</span>';
+
+                html += `
+                    <tr>
+                        <td>${escapeHtml(schedule.machine_number || '-')}</td>
+                        <td>${escapeHtml(schedule.type_name || '-')}</td>
+                        <td>${schedule.cycle_months || '-'}ヶ月</td>
+                        <td>${schedule.duration_days || '-'}日</td>
+                        <td>${escapeHtml(schedule.remarks || '-')}</td>
+                        <td>${statusBadge}</td>
+                        <td>
+                            <button class="btn-sm btn-edit" onclick="editInspectionSchedule('${schedule.id}')">編集</button>
+                            <button class="btn-sm btn-delete" onclick="deleteInspectionSchedule('${schedule.id}', '${escapeHtml(schedule.machine_number)}')">削除</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += `</tbody></table>`;
+            list.innerHTML = html;
+        } else {
+            list.innerHTML = '<p class="loading">検修設定が登録されていません</p>';
+        }
+    } catch (error) {
+        console.error('[loadInspectionSchedules] Error:', error);
+        list.innerHTML = `<p class="loading" style="color: red;">⚠️ 検修設定の読み込みに失敗しました<br>エラー: ${error.message}</p>`;
+    }
+}
+
+// 検修種別の編集・削除
+function editInspectionType(id) {
+    console.log('[editInspectionType] Opening modal for ID:', id);
+    openInspectionTypeModal(id);
+}
+
+function openInspectionTypeModal(id = null) {
+    const modal = document.getElementById('inspection-type-modal');
+    const modalTitle = document.getElementById('inspection-type-modal-title');
+    const form = document.getElementById('inspection-type-form');
+
+    form.reset();
+    document.getElementById('inspection-type-id').value = '';
+
+    if (id) {
+        modalTitle.textContent = '検修種別を編集';
+        loadInspectionTypeData(id);
+    } else {
+        modalTitle.textContent = '検修種別を追加';
+    }
+
+    modal.style.display = 'flex';
+}
+
+async function loadInspectionTypeData(id) {
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch(`/api/inspection-types/${id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        if (data.success && data.data) {
+            const type = data.data;
+            document.getElementById('inspection-type-id').value = type.id;
+            document.getElementById('inspection-type-name').value = type.type_name || '';
+            document.getElementById('inspection-type-code').value = type.type_code || '';
+            document.getElementById('inspection-type-description').value = type.description || '';
+            document.getElementById('inspection-type-order').value = type.display_order || 0;
+            document.getElementById('inspection-type-active').checked = type.is_active !== false;
+        }
+    } catch (error) {
+        console.error('Failed to load inspection type data:', error);
+        showToast('検修種別情報の読み込みに失敗しました', 'error');
+    }
+}
+
+async function deleteInspectionType(id, name) {
+    if (!confirm(`検修種別「${name}」を削除してもよろしいですか？`)) {
+        return;
+    }
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch(`/api/inspection-types/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('検修種別を削除しました', 'success');
+            loadInspectionTypes();
+        } else {
+            showToast(data.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to delete inspection type:', error);
+        showToast('削除中にエラーが発生しました', 'error');
+    }
+}
+
+// 検修設定の編集・削除
+function editInspectionSchedule(id) {
+    console.log('[editInspectionSchedule] Opening modal for ID:', id);
+    openInspectionScheduleModal(id);
+}
+
+function openInspectionScheduleModal(id = null) {
+    const modal = document.getElementById('inspection-schedule-modal');
+    const modalTitle = document.getElementById('inspection-schedule-modal-title');
+    const form = document.getElementById('inspection-schedule-form');
+
+    form.reset();
+    document.getElementById('inspection-schedule-id').value = '';
+
+    // 保守用車と検修種別のセレクトボックスを初期化
+    loadMachineSelectOptions('inspection-schedule-machine');
+    loadInspectionTypeSelectOptions('inspection-schedule-type');
+
+    if (id) {
+        modalTitle.textContent = '検修設定を編集';
+        loadInspectionScheduleData(id);
+    } else {
+        modalTitle.textContent = '検修設定を追加';
+    }
+
+    modal.style.display = 'flex';
+}
+
+async function loadInspectionScheduleData(id) {
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch(`/api/inspection-schedules/${id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        if (data.success && data.data) {
+            const schedule = data.data;
+            document.getElementById('inspection-schedule-id').value = schedule.id;
+            document.getElementById('inspection-schedule-machine').value = schedule.machine_id || '';
+            document.getElementById('inspection-schedule-type').value = schedule.inspection_type_id || '';
+            document.getElementById('inspection-schedule-cycle').value = schedule.cycle_months || '';
+            document.getElementById('inspection-schedule-duration').value = schedule.duration_days || '';
+            document.getElementById('inspection-schedule-remarks').value = schedule.remarks || '';
+            document.getElementById('inspection-schedule-active').checked = schedule.is_active !== false;
+        }
+    } catch (error) {
+        console.error('Failed to load inspection schedule data:', error);
+        showToast('検修設定情報の読み込みに失敗しました', 'error');
+    }
+}
+
+async function deleteInspectionSchedule(id, machineName) {
+    if (!confirm(`保守用車「${machineName}」の検修設定を削除してもよろしいですか？`)) {
+        return;
+    }
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch(`/api/inspection-schedules/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('検修設定を削除しました', 'success');
+            loadInspectionSchedules();
+        } else {
+            showToast(data.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to delete inspection schedule:', error);
+        showToast('削除中にエラーが発生しました', 'error');
+    }
+}
+
+// 検修種別の保存
+async function saveInspectionType() {
+    const id = document.getElementById('inspection-type-id').value;
+    const typeName = document.getElementById('inspection-type-name').value;
+    const description = document.getElementById('inspection-type-description').value;
+    const displayOrder = document.getElementById('inspection-type-order').value;
+    const isActive = document.getElementById('inspection-type-active').checked;
+
+    const typeData = {
+        type_name: typeName,
+        description: description,
+        display_order: parseInt(displayOrder) || 0,
+        is_active: isActive
+    };
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const url = id ? `/api/inspection-types/${id}` : '/api/inspection-types';
+        const method = id ? 'PUT' : 'POST';
+
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(typeData)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(id ? '検修種別を更新しました' : '検修種別を追加しました', 'success');
+            document.getElementById('inspection-type-modal').style.display = 'none';
+            loadInspectionTypes();
+        } else {
+            showToast(data.message || '保存に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to save inspection type:', error);
+        showToast('保存中にエラーが発生しました', 'error');
+    }
+}
+
+// 検修設定の保存
+async function saveInspectionSchedule() {
+    const id = document.getElementById('inspection-schedule-id').value;
+    const machineId = document.getElementById('inspection-schedule-machine').value;
+    const inspectionTypeId = document.getElementById('inspection-schedule-type').value;
+    const cycleMonths = document.getElementById('inspection-schedule-cycle').value;
+    const durationDays = document.getElementById('inspection-schedule-duration').value;
+    const remarks = document.getElementById('inspection-schedule-remarks').value;
+    const isActive = document.getElementById('inspection-schedule-active').checked;
+
+    const scheduleData = {
+        machine_id: machineId,
+        inspection_type_id: inspectionTypeId,
+        cycle_months: parseInt(cycleMonths) || 0,
+        duration_days: parseInt(durationDays) || 0,
+        remarks: remarks,
+        is_active: isActive
+    };
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const url = id ? `/api/inspection-schedules/${id}` : '/api/inspection-schedules';
+        const method = id ? 'PUT' : 'POST';
+
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(scheduleData)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(id ? '検修設定を更新しました' : '検修設定を追加しました', 'success');
+            document.getElementById('inspection-schedule-modal').style.display = 'none';
+            loadInspectionSchedules();
+        } else {
+            showToast(data.message || '保存に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to save inspection schedule:', error);
+        showToast('保存中にエラーが発生しました', 'error');
+    }
+}
+
+// ヘルパー関数
+async function loadMachineSelectOptions(selectId) {
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/machines', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        const select = document.getElementById(selectId);
+        if (select && data.success && data.data) {
+            select.innerHTML = '<option value="">-- 保守用車を選択 --</option>';
+            data.data.forEach(machine => {
+                const option = document.createElement('option');
+                option.value = machine.machine_id || machine.id;
+                option.textContent = machine.machine_number || '-';
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Failed to load machine options:', error);
+    }
+}
+
+async function loadInspectionTypeSelectOptions(selectId) {
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/inspection-types', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        const select = document.getElementById(selectId);
+        if (select && data.success && data.data) {
+            select.innerHTML = '<option value="">-- 検修種別を選択 --</option>';
+            data.data.forEach(type => {
+                const option = document.createElement('option');
+                option.value = type.id;
+                option.textContent = type.type_name || '-';
+                select.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Failed to load inspection type options:', error);
+    }
+}
+
+// グローバルに公開
+window.editInspectionType = editInspectionType;
+window.deleteInspectionType = deleteInspectionType;
+window.editInspectionSchedule = editInspectionSchedule;
+window.deleteInspectionSchedule = deleteInspectionSchedule;
+window.openInspectionTypeModal = openInspectionTypeModal;
+window.openInspectionScheduleModal = openInspectionScheduleModal;
 
 // ========== 事業所マスタ ==========
 async function loadOffices() {
@@ -2060,4 +2566,519 @@ function showToast(message, type = 'success') {
         toast.className = 'toast';
     }, 3000);
 }
+
+// ========================================
+// 検修マスタ関連の処理
+// ========================================
+
+// 検修種別の読み込み
+async function loadInspectionTypes() {
+    console.log('[Admin] Loading inspection types...');
+    const listEl = document.getElementById('inspection-types-list');
+    if (!listEl) return;
+
+    listEl.innerHTML = '<p class="loading">読み込み中...</p>';
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/inspection-types', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error(`Failed to load: ${response.statusText}`);
+
+        const data = await response.json();
+        console.log('[Admin] Inspection types loaded:', data.length);
+
+        if (!data || data.length === 0) {
+            listEl.innerHTML = '<p class="no-data">検修種別が登録されていません</p>';
+            return;
+        }
+
+        let html = `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>種別コード</th>
+                        <th>種別名</th>
+                        <th>説明</th>
+                        <th>表示順</th>
+                        <th>状態</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        data.forEach(type => {
+            const statusBadge = type.is_active
+                ? '<span class="badge badge-success">有効</span>'
+                : '<span class="badge badge-inactive">無効</span>';
+
+            html += `
+                <tr>
+                    <td>${escapeHtml(type.type_code)}</td>
+                    <td>${escapeHtml(type.type_name)}</td>
+                    <td>${escapeHtml(type.description || '')}</td>
+                    <td>${type.display_order || 0}</td>
+                    <td>${statusBadge}</td>
+                    <td>
+                        <button class="btn-edit" onclick="editInspectionType(${type.id})">編集</button>
+                        <button class="btn-delete" onclick="deleteInspectionType(${type.id})">削除</button>
+                    </td>
+                </tr>
+            `;
+        });
+
+        html += '</tbody></table>';
+        listEl.innerHTML = html;
+
+    } catch (err) {
+        console.error('[Admin] Error loading inspection types:', err);
+        listEl.innerHTML = `<p class="error">読み込みエラー: ${err.message}</p>`;
+    }
+}
+
+// 検修種別の追加
+window.addNewInspectionType = function () {
+    const modal = document.getElementById('inspection-type-modal');
+    const title = document.getElementById('inspection-type-modal-title');
+    const form = document.getElementById('inspection-type-form');
+
+    title.textContent = '検修種別を追加';
+    form.reset();
+    document.getElementById('inspection-type-id').value = '';
+    document.getElementById('inspection-type-code').value = '';
+    document.getElementById('inspection-type-active').checked = true;
+    modal.style.display = 'block';
+};
+
+// 検修種別の編集
+window.editInspectionType = async function (id) {
+    const modal = document.getElementById('inspection-type-modal');
+    const title = document.getElementById('inspection-type-modal-title');
+
+    title.textContent = '検修種別を編集';
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch(`/api/inspection-types/${id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch inspection type');
+
+        const type = await response.json();
+
+        document.getElementById('inspection-type-id').value = type.id;
+        document.getElementById('inspection-type-code').value = type.type_code;
+        document.getElementById('inspection-type-name').value = type.type_name;
+        document.getElementById('inspection-type-description').value = type.description || '';
+        document.getElementById('inspection-type-order').value = type.display_order || 0;
+        document.getElementById('inspection-type-active').checked = type.is_active;
+
+        modal.style.display = 'block';
+    } catch (err) {
+        console.error('[Admin] Error loading inspection type:', err);
+        showToast('検修種別の読み込みに失敗しました', 'error');
+    }
+};
+
+// 検修種別の削除
+window.deleteInspectionType = async function (id) {
+    if (!confirm('この検修種別を削除してもよろしいですか？')) return;
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch(`/api/inspection-types/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error('Failed to delete inspection type');
+
+        showToast('検修種別を削除しました', 'success');
+        loadInspectionTypes();
+    } catch (err) {
+        console.error('[Admin] Error deleting inspection type:', err);
+        showToast('検修種別の削除に失敗しました', 'error');
+    }
+};
+
+// 検修種別フォームの送信
+async function handleInspectionTypeSubmit(e) {
+    e.preventDefault();
+
+    const id = document.getElementById('inspection-type-id').value;
+    const typeName = document.getElementById('inspection-type-name').value;
+
+    // type_codeを自動生成（新規追加の場合）
+    let typeCode = document.getElementById('inspection-type-code').value;
+    if (!id && !typeCode) {
+        // 日本語名をローマ字に変換し、アンダースコアで連結
+        typeCode = typeName.toUpperCase()
+            .replace(/\s+/g, '_')
+            .replace(/[^A-Z0-9_]/g, '')
+            + '_INSPECTION';
+
+        // もし空の場合はタイムスタンプを使用
+        if (typeCode === '_INSPECTION') {
+            typeCode = 'INSPECTION_' + Date.now();
+        }
+    }
+
+    const formData = {
+        type_code: typeCode,
+        type_name: typeName,
+        description: document.getElementById('inspection-type-description').value,
+        display_order: parseInt(document.getElementById('inspection-type-order').value) || 0,
+        is_active: document.getElementById('inspection-type-active').checked
+    };
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const url = id ? `/api/inspection-types/${id}` : '/api/inspection-types';
+        const method = id ? 'PUT' : 'POST';
+
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+
+        if (!response.ok) throw new Error('Failed to save inspection type');
+
+        showToast(id ? '検修種別を更新しました' : '検修種別を追加しました', 'success');
+        document.getElementById('inspection-type-modal').style.display = 'none';
+        loadInspectionTypes();
+    } catch (err) {
+        console.error('[Admin] Error saving inspection type:', err);
+        showToast('検修種別の保存に失敗しました', 'error');
+    }
+}
+
+// 検修周期・期間設定の読み込み
+async function loadInspectionSchedules() {
+    console.log('[Admin] Loading inspection schedules...');
+    const listEl = document.getElementById('inspection-schedules-list');
+    if (!listEl) return;
+
+    listEl.innerHTML = '<p class="loading">読み込み中...</p>';
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/inspection-schedules', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error(`Failed to load: ${response.statusText}`);
+
+        const data = await response.json();
+        console.log('[Admin] Inspection schedules loaded:', data.length);
+
+        if (!data || data.length === 0) {
+            listEl.innerHTML = '<p class="no-data">検修設定が登録されていません</p>';
+            return;
+        }
+
+        let html = `
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>事業所</th>
+                        <th>機種</th>
+                        <th>機械番号</th>
+                        <th>検修種別</th>
+                        <th>周期（月）</th>
+                        <th>期間（日）</th>
+                        <th>備考</th>
+                        <th>状態</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+
+        data.forEach(schedule => {
+            const statusBadge = schedule.is_active
+                ? '<span class="badge badge-success">有効</span>'
+                : '<span class="badge badge-inactive">無効</span>';
+
+            html += `
+                <tr>
+                    <td>${escapeHtml(schedule.office_name || '')}</td>
+                    <td>${escapeHtml(schedule.model_name || '')}</td>
+                    <td>${escapeHtml(schedule.machine_number || '')}</td>
+                    <td>${escapeHtml(schedule.type_name || '')}</td>
+                    <td>${schedule.cycle_months}ヶ月</td>
+                    <td>${schedule.duration_days}日</td>
+                    <td>${escapeHtml(schedule.remarks || '')}</td>
+                    <td>${statusBadge}</td>
+                    <td>
+                        <button class="btn-edit" onclick="editInspectionSchedule(${schedule.id})">編集</button>
+                        <button class="btn-delete" onclick="deleteInspectionSchedule(${schedule.id})">削除</button>
+                    </td>
+                </tr>
+            `;
+        });
+
+        html += '</tbody></table>';
+        listEl.innerHTML = html;
+
+    } catch (err) {
+        console.error('[Admin] Error loading inspection schedules:', err);
+        listEl.innerHTML = `<p class="error">読み込みエラー: ${err.message}</p>`;
+    }
+}
+
+// 検修設定の追加
+window.addNewInspectionSchedule = async function () {
+    const modal = document.getElementById('inspection-schedule-modal');
+    const title = document.getElementById('inspection-schedule-modal-title');
+    const form = document.getElementById('inspection-schedule-form');
+
+    title.textContent = '検修設定を追加';
+    form.reset();
+    document.getElementById('inspection-schedule-id').value = '';
+    document.getElementById('inspection-schedule-active').checked = true;
+
+    // ドロップダウンを読み込む
+    await loadMachinesForSchedule();
+    await loadInspectionTypesForSchedule();
+
+    modal.style.display = 'block';
+};
+
+// 検修設定の編集
+window.editInspectionSchedule = async function (id) {
+    const modal = document.getElementById('inspection-schedule-modal');
+    const title = document.getElementById('inspection-schedule-modal-title');
+
+    title.textContent = '検修設定を編集';
+
+    // ドロップダウンを読み込む
+    await loadMachinesForSchedule();
+    await loadInspectionTypesForSchedule();
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch(`/api/inspection-schedules/${id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch inspection schedule');
+
+        const schedule = await response.json();
+
+        document.getElementById('inspection-schedule-id').value = schedule.id;
+        document.getElementById('inspection-schedule-machine').value = schedule.machine_id;
+        document.getElementById('inspection-schedule-type').value = schedule.inspection_type_id;
+        document.getElementById('inspection-schedule-cycle').value = schedule.cycle_months;
+        document.getElementById('inspection-schedule-duration').value = schedule.duration_days;
+        document.getElementById('inspection-schedule-remarks').value = schedule.remarks || '';
+        document.getElementById('inspection-schedule-active').checked = schedule.is_active;
+
+        modal.style.display = 'block';
+    } catch (err) {
+        console.error('[Admin] Error loading inspection schedule:', err);
+        showToast('検修設定の読み込みに失敗しました', 'error');
+    }
+};
+
+// 検修設定の削除
+window.deleteInspectionSchedule = async function (id) {
+    if (!confirm('この検修設定を削除してもよろしいですか？')) return;
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch(`/api/inspection-schedules/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error('Failed to delete inspection schedule');
+
+        showToast('検修設定を削除しました', 'success');
+        loadInspectionSchedules();
+    } catch (err) {
+        console.error('[Admin] Error deleting inspection schedule:', err);
+        showToast('検修設定の削除に失敗しました', 'error');
+    }
+};
+
+// 検修設定フォームの送信
+async function handleInspectionScheduleSubmit(e) {
+    e.preventDefault();
+
+    const id = document.getElementById('inspection-schedule-id').value;
+    const formData = {
+        machine_id: document.getElementById('inspection-schedule-machine').value,
+        inspection_type_id: parseInt(document.getElementById('inspection-schedule-type').value),
+        cycle_months: parseInt(document.getElementById('inspection-schedule-cycle').value),
+        duration_days: parseInt(document.getElementById('inspection-schedule-duration').value),
+        remarks: document.getElementById('inspection-schedule-remarks').value,
+        is_active: document.getElementById('inspection-schedule-active').checked
+    };
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const url = id ? `/api/inspection-schedules/${id}` : '/api/inspection-schedules';
+        const method = id ? 'PUT' : 'POST';
+
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to save inspection schedule');
+        }
+
+        showToast(id ? '検修設定を更新しました' : '検修設定を追加しました', 'success');
+        document.getElementById('inspection-schedule-modal').style.display = 'none';
+        loadInspectionSchedules();
+    } catch (err) {
+        console.error('[Admin] Error saving inspection schedule:', err);
+        showToast('検修設定の保存に失敗しました: ' + err.message, 'error');
+    }
+}
+
+// 保守用車一覧を検修設定用に読み込む
+async function loadMachinesForSchedule() {
+    const select = document.getElementById('inspection-schedule-machine');
+    if (!select) return;
+
+    try {
+        const token = localStorage.getItem('user_token');
+
+        // 機種マスタを取得
+        const typesResponse = await fetch('/api/machine-types', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!typesResponse.ok) throw new Error('Failed to load machine types');
+        const machineTypes = await typesResponse.json();
+
+        // 機種IDと名前のマップを作成
+        const typeMap = {};
+        machineTypes.forEach(type => {
+            typeMap[type.id] = type.model_name;
+        });
+
+        // 保守用車を取得
+        const response = await fetch('/api/machines', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error('Failed to load machines');
+
+        const machines = await response.json();
+
+        let html = '<option value="">-- 保守用車を選択 --</option>';
+        machines.forEach(machine => {
+            const typeName = typeMap[machine.machine_type_id] || machine.model_name || '不明';
+            html += `<option value="${machine.id}">${escapeHtml(machine.office_name || '')} - ${escapeHtml(typeName)} - ${escapeHtml(machine.machine_number || '')}</option>`;
+        });
+
+        select.innerHTML = html;
+    } catch (err) {
+        console.error('[Admin] Error loading machines for schedule:', err);
+    }
+}
+
+// 検修種別一覧を検修設定用に読み込む
+async function loadInspectionTypesForSchedule() {
+    const select = document.getElementById('inspection-schedule-type');
+    if (!select) return;
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/inspection-types', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) throw new Error('Failed to load inspection types');
+
+        const types = await response.json();
+
+        let html = '<option value="">-- 検修種別を選択 --</option>';
+        types.filter(t => t.is_active).forEach(type => {
+            html += `<option value="${type.id}">${escapeHtml(type.type_name)}</option>`;
+        });
+
+        select.innerHTML = html;
+    } catch (err) {
+        console.error('[Admin] Error loading inspection types for schedule:', err);
+    }
+}
+
+// 検修マスタ関連のイベントリスナー設定
+function setupInspectionMasterEventListeners() {
+    // 検修種別の新規追加ボタン
+    const addInspectionTypeBtn = document.getElementById('add-new-inspection-type-btn');
+    if (addInspectionTypeBtn) {
+        addInspectionTypeBtn.addEventListener('click', addNewInspectionType);
+    }
+
+    // 検修設定の新規追加ボタン
+    const addInspectionScheduleBtn = document.getElementById('add-new-inspection-schedule-btn');
+    if (addInspectionScheduleBtn) {
+        addInspectionScheduleBtn.addEventListener('click', addNewInspectionSchedule);
+    }
+
+    // 検修種別モーダル
+    const inspectionTypeModal = document.getElementById('inspection-type-modal');
+    const inspectionTypeClose = document.getElementById('inspection-type-modal-close');
+    const inspectionTypeCancelBtn = document.getElementById('cancel-inspection-type-btn');
+    const inspectionTypeForm = document.getElementById('inspection-type-form');
+
+    if (inspectionTypeClose) {
+        inspectionTypeClose.addEventListener('click', () => {
+            inspectionTypeModal.style.display = 'none';
+        });
+    }
+
+    if (inspectionTypeCancelBtn) {
+        inspectionTypeCancelBtn.addEventListener('click', () => {
+            inspectionTypeModal.style.display = 'none';
+        });
+    }
+
+    if (inspectionTypeForm) {
+        inspectionTypeForm.addEventListener('submit', handleInspectionTypeSubmit);
+    }
+
+    // 検修設定モーダル
+    const inspectionScheduleModal = document.getElementById('inspection-schedule-modal');
+    const inspectionScheduleClose = document.getElementById('inspection-schedule-modal-close');
+    const inspectionScheduleCancelBtn = document.getElementById('cancel-inspection-schedule-btn');
+    const inspectionScheduleForm = document.getElementById('inspection-schedule-form');
+
+    if (inspectionScheduleClose) {
+        inspectionScheduleClose.addEventListener('click', () => {
+            inspectionScheduleModal.style.display = 'none';
+        });
+    }
+
+    if (inspectionScheduleCancelBtn) {
+        inspectionScheduleCancelBtn.addEventListener('click', () => {
+            inspectionScheduleModal.style.display = 'none';
+        });
+    }
+
+    if (inspectionScheduleForm) {
+        inspectionScheduleForm.addEventListener('submit', handleInspectionScheduleSubmit);
+    }
+}
+
+// DOMContentLoadedイベントで検修マスタのイベントリスナーを設定
+document.addEventListener('DOMContentLoaded', setupInspectionMasterEventListeners);
 

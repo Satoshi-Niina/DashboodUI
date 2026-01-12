@@ -49,13 +49,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // ユーザー情報の反映
     const userInfoStr = localStorage.getItem('user_info');
     console.log('[App] Raw user_info from localStorage:', userInfoStr);
-    
+
     if (userInfoStr) {
         const userInfo = JSON.parse(userInfoStr);
         console.log('[App] Parsed user info:', userInfo);
         console.log('[App] User role:', userInfo.role);
         console.log('[App] Role type:', typeof userInfo.role);
-        
+
         const headerUserName = document.getElementById('header-user-name');
         const headerAvatar = document.getElementById('header-avatar');
 
@@ -63,20 +63,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const footerNav = document.querySelector('.footer-nav');
         console.log('[App] Footer nav found:', !!footerNav);
         console.log('[App] Footer nav element:', footerNav);
-        
+
         const adminLink = footerNav ? footerNav.querySelector('a[href="/admin.html"]') : null;
         console.log('[App] Admin link found:', !!adminLink);
         console.log('[App] Admin link element:', adminLink);
-        
+
         if (adminLink) {
             const currentDisplay = window.getComputedStyle(adminLink).display;
             console.log('[App] Current computed display style:', currentDisplay);
             console.log('[App] Current inline display style:', adminLink.style.display);
-            
+
             console.log('[App] Checking role... system_admin?', userInfo.role === 'system_admin');
             console.log('[App] Checking role... operation_admin?', userInfo.role === 'operation_admin');
             console.log('[App] Checking role... admin?', userInfo.role === 'admin');
-            
+
             // admin, system_admin, operation_admin のいずれかであれば表示
             if (userInfo.role === 'system_admin' || userInfo.role === 'operation_admin' || userInfo.role === 'admin') {
                 // システム管理者・運用管理者には表示
@@ -158,10 +158,10 @@ document.addEventListener('DOMContentLoaded', () => {
         tooltipTitle.textContent = app.title;
         tooltipDesc.textContent = app.description;
 
-        // 位置の計算
+        // 位置の計算（position: fixed のためビューポート基準）
         const rect = event.currentTarget.getBoundingClientRect();
         const tooltipX = rect.left + (rect.width / 2) - 160; // 320pxの半分を引く
-        const tooltipY = rect.top + window.scrollY - 180; // カードの上部に表示
+        const tooltipY = rect.top - 180; // カードの上部に表示（scrollYは不要）
 
         tooltip.style.left = `${tooltipX}px`;
         tooltip.style.top = `${tooltipY}px`;
@@ -181,7 +181,7 @@ document.addEventListener('DOMContentLoaded', () => {
     launchBtn.addEventListener('click', () => {
         console.log('currentAppId:', currentAppId);
         console.log('AppConfig.endpoints:', AppConfig.endpoints);
-        
+
         const baseUrl = AppConfig.endpoints[currentAppId];
         console.log('baseUrl:', baseUrl);
 
@@ -206,7 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // ローカルストレージからトークンを取得
         const token = localStorage.getItem('user_token');
-        
+
         // URLにトークンをクエリパラメータとして追加
         let finalUrl = baseUrl;
         if (token) {
@@ -247,7 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (confirm('ダッシュボード画面を閉じますか？')) {
                 // ウィンドウを閉じる（ブラウザによっては機能しない場合がある）
                 window.close();
-                
+
                 // window.close()が機能しない場合の代替処理
                 // 500ms後に確認してまだ開いている場合はメッセージを表示
                 setTimeout(() => {
