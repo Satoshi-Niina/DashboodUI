@@ -2587,13 +2587,15 @@ async function loadInspectionTypes() {
 
         if (!response.ok) throw new Error(`Failed to load: ${response.statusText}`);
 
-        const data = await response.json();
-        console.log('[Admin] Inspection types loaded:', data.length);
+        const result = await response.json();
+        console.log('[Admin] Inspection types response:', result);
 
-        if (!data || data.length === 0) {
+        if (!result.success || !result.data || result.data.length === 0) {
             listEl.innerHTML = '<p class="no-data">検修種別が登録されていません</p>';
             return;
         }
+
+        const data = result.data;
 
         let html = `
             <table class="data-table">
@@ -2776,13 +2778,16 @@ async function loadInspectionSchedules() {
 
         if (!response.ok) throw new Error(`Failed to load: ${response.statusText}`);
 
-        const data = await response.json();
-        console.log('[Admin] Inspection schedules loaded:', data.length);
 
-        if (!data || data.length === 0) {
+        const result = await response.json();
+        console.log('[Admin] Inspection schedules response:', result);
+
+        if (!result.success || !result.data || result.data.length === 0) {
             listEl.innerHTML = '<p class="no-data">検修設定が登録されていません</p>';
             return;
         }
+
+        const data = result.data;
 
         let html = `
             <table class="data-table">
