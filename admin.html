@@ -51,6 +51,10 @@
                 <span class="tab-icon">🌐</span>
                 <span class="tab-label">CORS設定</span>
             </button>
+            <button class="tab-button" data-tab="ai-management">
+                <span class="tab-icon">🤖</span>
+                <span class="tab-label">AI管理</span>
+            </button>
         </div>
 
         <div class="admin-content">
@@ -383,6 +387,242 @@
                         </button>
                     </div>
                 </section>
+            </div>
+
+            <!-- AI管理タブ -->
+            <div id="ai-management-tab" class="tab-content" style="display: none;">
+                <div class="info-banner">
+                    <p>💡 Gemini AIのナレッジデータインポート、RAG設定、AI支援調整を行います</p>
+                </div>
+
+                <!-- サブタブメニュー -->
+                <div class="sub-tab-menu">
+                    <button class="sub-tab-button active" data-subtab="ai-import">
+                        📥 データインポート
+                    </button>
+                    <button class="sub-tab-button" data-subtab="ai-knowledge">
+                        📚 ナレッジ管理
+                    </button>
+                    <button class="sub-tab-button" data-subtab="ai-assist">
+                        🎯 AI支援調整
+                    </button>
+                    <button class="sub-tab-button" data-subtab="ai-rag">
+                        ⚙️ RAG詳細設定
+                    </button>
+                </div>
+
+                <!-- データインポートサブタブ -->
+                <div id="ai-import-subtab" class="sub-tab-content">
+                    <section class="config-section">
+                        <h3>📥 機械故障情報インポート</h3>
+                        <p class="section-desc">チャット履歴から保存されたJSONファイルをインポートし、AIの知識に加えます</p>
+                        
+                        <div class="form-group">
+                            <label for="fault-json-file">エクスポート済みJSONファイルを選択</label>
+                            <input type="file" id="fault-json-file" accept=".json" class="file-input">
+                        </div>
+                        
+                        <button type="button" id="import-fault-json-btn" class="btn-primary">
+                            📤 機械故障報告をインポート
+                        </button>
+                    </section>
+
+                    <section class="config-section">
+                        <h3>📄 基礎マニュアルファイルインポート</h3>
+                        <p class="section-desc">PDF、TXT、XLSX形式のマニュアルファイルをインポートします（複数選択可能）</p>
+                        
+                        <div class="upload-area" id="manual-upload-area">
+                            <input type="file" id="manual-files" multiple accept=".pdf,.txt,.xlsx,.docx,.md" class="file-input" style="display: none;">
+                            <label for="manual-files" class="upload-label">
+                                <div class="upload-content">
+                                    <span class="upload-icon">📁</span>
+                                    <p>クリックしてファイルを選択 (PDF, TXT, XLSX, DOCX, MD)</p>
+                                    <p class="upload-hint">複数選択可能 | 最大100MB</p>
+                                </div>
+                            </label>
+                        </div>
+                        
+                        <div id="manual-file-list" class="file-list"></div>
+                        
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="save-original-file">
+                                元のファイルをアーカイブ保存する（通常不要）
+                            </label>
+                        </div>
+                        
+                        <button type="button" id="import-manuals-btn" class="btn-primary">
+                            📤 インポート実行
+                        </button>
+                    </section>
+
+                    <section class="config-section">
+                        <h3>☁️ GCSストレージからインポート</h3>
+                        <p class="section-desc">Google Cloud Storageに既存のファイルを直接インポートします</p>
+                        
+                        <div class="form-group">
+                            <label for="gcs-file-path">GCSファイルパス</label>
+                            <input type="text" id="gcs-file-path" placeholder="knowledge-data/manual-2024.pdf">
+                            <small>バケット内のファイルパスを入力してください</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="gcs-description">説明</label>
+                            <textarea id="gcs-description" cols="40" rows="6" placeholder="このファイルの内容を簡単に説明してください"></textarea>
+                        </div>
+                        
+                        <button type="button" id="import-gcs-btn" class="btn-primary">
+                            ☁️ GCSからインポート
+                        </button>
+                    </section>
+                </div>
+
+                <!-- ナレッジ管理サブタブ -->
+                <div id="ai-knowledge-subtab" class="sub-tab-content" style="display: none;">
+                    <section class="config-section">
+                        <h3>📊 ストレージ統計</h3>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-label">総ファイル数</div>
+                                <div class="stat-value" id="stat-total-files">0</div>
+                                <div class="stat-unit">件</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">総容量</div>
+                                <div class="stat-value" id="stat-total-size">0</div>
+                                <div class="stat-unit">MB</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">アクティブファイル</div>
+                                <div class="stat-value" id="stat-active-files">0</div>
+                                <div class="stat-unit">件</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">ローカルアップロード</div>
+                                <div class="stat-value" id="stat-local-uploads">0</div>
+                                <div class="stat-unit">件</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="config-section">
+                        <h3>📚 ナレッジデータ一覧</h3>
+                        <div class="knowledge-actions">
+                            <button type="button" id="refresh-knowledge-btn" class="btn-secondary">
+                                🔄 更新
+                            </button>
+                        </div>
+                        <div id="knowledge-data-list" class="knowledge-list">
+                            <p class="loading">読み込み中...</p>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- AI支援調整サブタブ -->
+                <div id="ai-assist-subtab" class="sub-tab-content" style="display: none;">
+                    <section class="config-section">
+                        <h3>🗣️ 初期対話・会話スタイル</h3>
+                        
+                        <div class="form-group">
+                            <label for="ai-initial-prompt">初期メッセージ</label>
+                            <textarea id="ai-initial-prompt" cols="40" rows="6">何か問題がありましたか？お困りの事象を教えてください！</textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>会話スタイル</label>
+                            <div class="style-buttons">
+                                <button type="button" class="style-btn" data-style="frank">フランク（親しみやすい）</button>
+                                <button type="button" class="style-btn active" data-style="business">ビジネス（丁寧正式）</button>
+                                <button type="button" class="style-btn" data-style="technical">技術的（専門用語中心）</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="config-section">
+                        <h3>❓ 質問の流れ（ヒアリングステップ）</h3>
+                        <div id="question-flow-container">
+                            <div class="flow-step">
+                                <span class="step-badge">Step 1</span>
+                                <input type="text" class="flow-input" data-step="1" value="具体的な症状を教えてください">
+                            </div>
+                            <div class="flow-step">
+                                <span class="step-badge">Step 2</span>
+                                <input type="text" class="flow-input" data-step="2" value="いつ頃から発生していますか？">
+                            </div>
+                            <div class="flow-step">
+                                <span class="step-badge">Step 3</span>
+                                <input type="text" class="flow-input" data-step="3" value="作業環境や状況を教えてください">
+                            </div>
+                            <div class="flow-step">
+                                <span class="step-badge">Step 4</span>
+                                <input type="text" class="flow-input" data-step="4" value="他に気になることはありますか？">
+                            </div>
+                            <div class="flow-step">
+                                <span class="step-badge">Step 5</span>
+                                <input type="text" class="flow-input" data-step="5" value="緊急度を教えてください">
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="config-section">
+                        <div class="form-actions">
+                            <button type="button" id="save-ai-assist-btn" class="btn-primary">
+                                💾 AI支援設定を保存
+                            </button>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- RAG詳細設定サブタブ -->
+                <div id="ai-rag-subtab" class="sub-tab-content" style="display: none;">
+                    <section class="config-section">
+                        <h3>🔍 テキスト分割・検索精度</h3>
+                        
+                        <div class="form-group">
+                            <label for="rag-chunk-size">
+                                チャンクサイズ: <span id="chunk-size-value">500</span>文字
+                            </label>
+                            <input type="range" id="rag-chunk-size" min="200" max="2000" step="100" value="500" class="slider">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="rag-similarity">
+                                類似度閾値: <span id="similarity-value">0.7</span>
+                            </label>
+                            <input type="range" id="rag-similarity" min="0" max="100" step="5" value="70" class="slider">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="rag-max-results">
+                                最大検索結果数
+                            </label>
+                            <input type="number" id="rag-max-results" value="5" min="1" max="20">
+                        </div>
+                    </section>
+
+                    <section class="config-section">
+                        <h3>📝 システムプロンプト（AI回答ルール）</h3>
+                        
+                        <div class="form-group">
+                            <textarea id="rag-system-prompt" cols="40" rows="8">【回答ルール】
+1. ユーザーの質問に対して1問1答形式で回答する
+2. 専門的な内容も分かりやすく説明する
+3. 安全に関わる情報は特に慎重に扱う
+4. 不明な点は推測せず、正直に分からないと伝える</textarea>
+                        </div>
+                    </section>
+
+                    <section class="config-section">
+                        <div class="form-actions">
+                            <button type="button" id="save-rag-settings-btn" class="btn-primary">
+                                💾 RAG設定を保存
+                            </button>
+                            <button type="button" id="test-rag-btn" class="btn-secondary">
+                                🧪 パフォーマンステスト実行
+                            </button>
+                        </div>
+                    </section>
+                </div>
             </div>
 
             <section class="config-section" style="display: none;">

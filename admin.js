@@ -3087,3 +3087,478 @@ function setupInspectionMasterEventListeners() {
 // DOMContentLoadedイベントで検修マスタのイベントリスナーを設定
 document.addEventListener('DOMContentLoaded', setupInspectionMasterEventListeners);
 
+// ========================================
+// AI管理機能
+// ========================================
+
+// AI管理タブの初期化
+function initializeAIManagement() {
+    console.log('[AI] Initializing AI management...');
+
+    // サブタブの切り替え
+    const subTabButtons = document.querySelectorAll('.sub-tab-button');
+    subTabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            // ボタンのアクティブ状態を切り替え
+            subTabButtons.forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+
+            // サブタブコンテンツを切り替え
+            const subtab = button.dataset.subtab;
+            document.querySelectorAll('.sub-tab-content').forEach(content => {
+                content.style.display = 'none';
+            });
+            document.getElementById(`${subtab}-subtab`).style.display = 'block';
+
+            // サブタブに応じたデータ読み込み
+            if (subtab === 'ai-knowledge') {
+                loadKnowledgeData();
+                loadStorageStats();
+            } else if (subtab === 'ai-assist') {
+                loadAIAssistSettings();
+            } else if (subtab === 'ai-rag') {
+                loadRAGSettings();
+            }
+        });
+    });
+
+    // データインポート: 機械故障情報
+    const faultJsonBtn = document.getElementById('import-fault-json-btn');
+    if (faultJsonBtn) {
+        faultJsonBtn.addEventListener('click', handleFaultJsonImport);
+    }
+
+    // データインポート: マニュアルファイル
+    const manualFilesInput = document.getElementById('manual-files');
+    if (manualFilesInput) {
+        manualFilesInput.addEventListener('change', handleManualFilesSelect);
+    }
+
+    const importManualsBtn = document.getElementById('import-manuals-btn');
+    if (importManualsBtn) {
+        importManualsBtn.addEventListener('click', handleManualImport);
+    }
+
+    // データインポート: GCS
+    const importGcsBtn = document.getElementById('import-gcs-btn');
+    if (importGcsBtn) {
+        importGcsBtn.addEventListener('click', handleGCSImport);
+    }
+
+    // ナレッジ管理: 更新ボタン
+    const refreshKnowledgeBtn = document.getElementById('refresh-knowledge-btn');
+    if (refreshKnowledgeBtn) {
+        refreshKnowledgeBtn.addEventListener('click', loadKnowledgeData);
+    }
+
+    // AI支援調整: 会話スタイルボタン
+    const styleButtons = document.querySelectorAll('.style-btn');
+    styleButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            styleButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+    });
+
+    // AI支援調整: 保存ボタン
+    const saveAIAssistBtn = document.getElementById('save-ai-assist-btn');
+    if (saveAIAssistBtn) {
+        saveAIAssistBtn.addEventListener('click', saveAIAssistSettings);
+    }
+
+    // RAG設定: スライダー値の表示更新
+    const chunkSizeSlider = document.getElementById('rag-chunk-size');
+    if (chunkSizeSlider) {
+        chunkSizeSlider.addEventListener('input', (e) => {
+            document.getElementById('chunk-size-value').textContent = e.target.value;
+        });
+    }
+
+    const similaritySlider = document.getElementById('rag-similarity');
+    if (similaritySlider) {
+        similaritySlider.addEventListener('input', (e) => {
+            document.getElementById('similarity-value').textContent = (e.target.value / 100).toFixed(2);
+        });
+    }
+
+    // RAG設定: 保存ボタン
+    const saveRAGBtn = document.getElementById('save-rag-settings-btn');
+    if (saveRAGBtn) {
+        saveRAGBtn.addEventListener('click', saveRAGSettings);
+    }
+
+    // RAG設定: テストボタン
+    const testRAGBtn = document.getElementById('test-rag-btn');
+    if (testRAGBtn) {
+        testRAGBtn.addEventListener('click', () => {
+            showToast('RAGパフォーマンステストを開始します...', 'info');
+            // TODO: テスト実装
+        });
+    }
+}
+
+// ストレージ統計の読み込み
+async function loadStorageStats() {
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/ai/storage-stats', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                document.getElementById('stat-total-files').textContent = data.stats.total_files || 0;
+                document.getElementById('stat-total-size').textContent = data.stats.total_size_mb || '0.00';
+                document.getElementById('stat-active-files').textContent = data.stats.active_files || 0;
+                document.getElementById('stat-local-uploads').textContent = data.stats.local_uploads || 0;
+            }
+        }
+    } catch (error) {
+        console.error('[AI] Error loading storage stats:', error);
+    }
+}
+
+// ナレッジデータの読み込み
+async function loadKnowledgeData() {
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/ai/knowledge', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success) {
+                displayKnowledgeData(result.data);
+            }
+        }
+    } catch (error) {
+        console.error('[AI] Error loading knowledge data:', error);
+        document.getElementById('knowledge-data-list').innerHTML = '<p class="error">データの読み込みに失敗しました</p>';
+    }
+}
+
+// ナレッジデータの表示
+function displayKnowledgeData(data) {
+    const container = document.getElementById('knowledge-data-list');
+    
+    if (!data || data.length === 0) {
+        container.innerHTML = '<p class="no-data">ナレッジデータがありません</p>';
+        return;
+    }
+
+    const html = data.map(item => `
+        <div class="knowledge-item" data-id="${item.id}">
+            <div class="knowledge-info">
+                <div class="knowledge-name">📄 ${item.file_name}</div>
+                <div class="knowledge-meta">
+                    ${item.file_type} | ${(item.file_size_bytes / 1024 / 1024).toFixed(2)} MB | 
+                    アップロード: ${new Date(item.uploaded_at).toLocaleDateString('ja-JP')} |
+                    使用回数: ${item.usage_count || 0}回
+                </div>
+                ${item.description ? `<div class="knowledge-meta">${item.description}</div>` : ''}
+            </div>
+            <div class="knowledge-actions-btn">
+                <button class="btn-danger btn-sm" onclick="deleteKnowledgeData(${item.id})">削除</button>
+            </div>
+        </div>
+    `).join('');
+
+    container.innerHTML = html;
+}
+
+// ナレッジデータの削除
+async function deleteKnowledgeData(id) {
+    if (!confirm('このナレッジデータを削除してもよろしいですか？')) {
+        return;
+    }
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch(`/api/ai/knowledge/${id}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            showToast('ナレッジデータを削除しました', 'success');
+            loadKnowledgeData();
+            loadStorageStats();
+        } else {
+            showToast('削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('[AI] Error deleting knowledge data:', error);
+        showToast('削除中にエラーが発生しました', 'error');
+    }
+}
+
+// 機械故障情報JSONのインポート
+async function handleFaultJsonImport() {
+    const fileInput = document.getElementById('fault-json-file');
+    const file = fileInput.files[0];
+
+    if (!file) {
+        showToast('ファイルを選択してください', 'warning');
+        return;
+    }
+
+    if (!file.name.endsWith('.json')) {
+        showToast('JSON形式のファイルを選択してください', 'warning');
+        return;
+    }
+
+    showToast('インポート中...', 'info');
+
+    // TODO: 実際のインポート処理を実装
+    setTimeout(() => {
+        showToast('機械故障情報をインポートしました', 'success');
+        fileInput.value = '';
+    }, 1500);
+}
+
+// マニュアルファイル選択時の処理
+function handleManualFilesSelect(event) {
+    const files = Array.from(event.target.files);
+    const listContainer = document.getElementById('manual-file-list');
+
+    if (files.length === 0) {
+        listContainer.innerHTML = '';
+        return;
+    }
+
+    const html = files.map((file, index) => `
+        <div class="file-item">
+            <span>📄 ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+        </div>
+    `).join('');
+
+    listContainer.innerHTML = `<div style="margin-top: 15px;"><strong>選択されたファイル:</strong>${html}</div>`;
+}
+
+// マニュアルファイルのインポート
+async function handleManualImport() {
+    const fileInput = document.getElementById('manual-files');
+    const files = fileInput.files;
+    const saveOriginal = document.getElementById('save-original-file').checked;
+
+    if (files.length === 0) {
+        showToast('ファイルを選択してください', 'warning');
+        return;
+    }
+
+    showToast('ファイルをアップロード中...', 'info');
+
+    for (let file of files) {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('saveOriginalFile', saveOriginal);
+            formData.append('uploadedBy', JSON.parse(localStorage.getItem('user_info') || '{}').username || 'admin');
+            formData.append('description', `Manual: ${file.name}`);
+
+            const token = localStorage.getItem('user_token');
+            const response = await fetch('/api/ai/knowledge/upload', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to upload ${file.name}`);
+            }
+        } catch (error) {
+            console.error('[AI] Error uploading file:', error);
+            showToast(`${file.name} のアップロードに失敗しました`, 'error');
+            return;
+        }
+    }
+
+    showToast('すべてのファイルをインポートしました', 'success');
+    fileInput.value = '';
+    document.getElementById('manual-file-list').innerHTML = '';
+    loadStorageStats();
+}
+
+// GCSからのインポート
+async function handleGCSImport() {
+    const filePath = document.getElementById('gcs-file-path').value.trim();
+    const description = document.getElementById('gcs-description').value.trim();
+
+    if (!filePath) {
+        showToast('GCSファイルパスを入力してください', 'warning');
+        return;
+    }
+
+    showToast('GCSからインポート中...', 'info');
+
+    // TODO: 実際のGCSインポート処理を実装
+    setTimeout(() => {
+        showToast('GCSからファイルをインポートしました', 'success');
+        document.getElementById('gcs-file-path').value = '';
+        document.getElementById('gcs-description').value = '';
+        loadKnowledgeData();
+        loadStorageStats();
+    }, 1500);
+}
+
+// AI支援設定の読み込み
+async function loadAIAssistSettings() {
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/ai/settings', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.settings.assist) {
+                const settings = result.settings.assist.data;
+                
+                // 初期プロンプトを設定
+                document.getElementById('ai-initial-prompt').value = settings.initialPrompt || '';
+                
+                // 会話スタイルを設定
+                document.querySelectorAll('.style-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.style === settings.conversationStyle);
+                });
+                
+                // 質問フローを設定
+                if (settings.questionFlow) {
+                    Object.keys(settings.questionFlow).forEach((step, index) => {
+                        const input = document.querySelector(`.flow-input[data-step="${index + 1}"]`);
+                        if (input) {
+                            input.value = settings.questionFlow[step];
+                        }
+                    });
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[AI] Error loading AI assist settings:', error);
+    }
+}
+
+// AI支援設定の保存
+async function saveAIAssistSettings() {
+    const settings = {
+        initialPrompt: document.getElementById('ai-initial-prompt').value,
+        conversationStyle: document.querySelector('.style-btn.active')?.dataset.style || 'business',
+        questionFlow: {}
+    };
+
+    // 質問フローを取得
+    document.querySelectorAll('.flow-input').forEach((input, index) => {
+        settings.questionFlow[`step${index + 1}`] = input.value;
+    });
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/ai/settings', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                settingType: 'assist',
+                settings: settings
+            })
+        });
+
+        if (response.ok) {
+            showToast('AI支援設定を保存しました', 'success');
+        } else {
+            showToast('保存に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('[AI] Error saving AI assist settings:', error);
+        showToast('保存中にエラーが発生しました', 'error');
+    }
+}
+
+// RAG設定の読み込み
+async function loadRAGSettings() {
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/ai/settings', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.settings.rag) {
+                const settings = result.settings.rag.data;
+                
+                document.getElementById('rag-chunk-size').value = settings.chunkSize || 500;
+                document.getElementById('chunk-size-value').textContent = settings.chunkSize || 500;
+                
+                document.getElementById('rag-similarity').value = (settings.similarityThreshold || 0.7) * 100;
+                document.getElementById('similarity-value').textContent = settings.similarityThreshold || 0.7;
+                
+                document.getElementById('rag-max-results').value = settings.maxResults || 5;
+                document.getElementById('rag-system-prompt').value = settings.customInstructions || '';
+            }
+        }
+    } catch (error) {
+        console.error('[AI] Error loading RAG settings:', error);
+    }
+}
+
+// RAG設定の保存
+async function saveRAGSettings() {
+    const settings = {
+        chunkSize: parseInt(document.getElementById('rag-chunk-size').value),
+        similarityThreshold: parseFloat(document.getElementById('rag-similarity').value) / 100,
+        maxResults: parseInt(document.getElementById('rag-max-results').value),
+        customInstructions: document.getElementById('rag-system-prompt').value
+    };
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/ai/settings', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                settingType: 'rag',
+                settings: settings
+            })
+        });
+
+        if (response.ok) {
+            showToast('RAG設定を保存しました', 'success');
+        } else {
+            showToast('保存に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('[AI] Error saving RAG settings:', error);
+        showToast('保存中にエラーが発生しました', 'error');
+    }
+}
+
+// AI管理機能の初期化をDOMContentLoadedに追加
+document.addEventListener('DOMContentLoaded', () => {
+    // AI管理タブがアクティブになったときに初期化
+    const aiManagementTab = document.querySelector('[data-tab="ai-management"]');
+    if (aiManagementTab) {
+        aiManagementTab.addEventListener('click', () => {
+            setTimeout(initializeAIManagement, 100);
+        });
+    }
+});

@@ -4,7 +4,14 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const path = require('path');
+const multer = require('multer');
 require('dotenv').config();
+
+// Multer設定（ファイルアップロード用）
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 } // 100MB
+});
 
 console.log('🚀 Starting server...');
 console.log('Node version:', process.version);
@@ -1880,6 +1887,183 @@ app.get('/admin', (req, res) => {
 app.get('/user-management', (req, res) => {
   res.sendFile(path.join(__dirname, 'user-management.html'));
 });
+
+// ========================================
+// AI管理API
+// ========================================
+
+// AI設定取得
+app.get('/api/ai/settings', requireAdmin, async (req, res) => {
+  try {
+    const query = `
+      SELECT app_id, setting_type, settings_json, updated_at
+      FROM master_data.ai_settings
+      WHERE app_id = 'common'
+      ORDER BY setting_type
+    `;
+    const result = await pool.query(query);
+    
+    const settings = {};
+    result.rows.forEach(row => {
+      settings[row.setting_type] = {
+        data: row.settings_json,
+        updated_at: row.updated_at
+      };
+    });
+    
+    res.json({ success: true, settings });
+  } catch (err) {
+    console.error('Error getting AI settings:', err);
+    res.status(500).json({ success: false, message: 'AI設定の取得に失敗しました' });
+  }
+});
+
+// AI設定保存
+app.post('/api/ai/settings', requireAdmin, async (req, res) => {
+  try {
+    const { settingType, settings } = req.body;
+    
+    if (!settingType || !settings) {
+      return res.status(400).json({ success: false, message: '必須パラメータが不足しています' });
+    }
+    
+    const query = `
+      INSERT INTO master_data.ai_settings (app_id, setting_type, settings_json)
+      VALUES ('common', $1, $2)
+      ON CONFLICT (app_id, setting_type)
+      DO UPDATE SET settings_json = $2, updated_at = CURRENT_TIMESTAMP
+    `;
+    
+    await pool.query(query, [settingType, JSON.stringify(settings)]);
+    
+    res.json({ success: true, message: 'AI設定を保存しました' });
+  } catch (err) {
+    console.error('Error saving AI settings:', err);
+    res.status(500).json({ success: false, message: 'AI設定の保存に失敗しました' });
+  }
+});
+
+// ナレッジデータ一覧取得
+app.get('/api/ai/knowledge', requireAdmin, async (req, res) => {
+  try {
+    const query = `
+      SELECT id, file_name, file_path, file_size_bytes, file_type,
+             upload_source, description, tags, is_active, uploaded_by,
+             uploaded_at, last_used_at, usage_count
+      FROM master_data.ai_knowledge_data
+      WHERE is_active = true
+      ORDER BY uploaded_at DESC
+    `;
+    const result = await pool.query(query);
+    
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    console.error('Error getting knowledge data:', err);
+    res.status(500).json({ success: false, message: 'ナレッジデータの取得に失敗しました' });
+  }
+});
+
+// ファイルアップロード
+app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'ファイルが選択されていません' });
+    }
+    
+    const { description, tags, uploadedBy } = req.body;
+    const file = req.file;
+    
+    // GCS設定を取得
+    const settingsQuery = `
+      SELECT settings_json FROM master_data.ai_settings
+      WHERE app_id = 'common' AND setting_type = 'storage'
+    `;
+    const settingsResult = await pool.query(settingsQuery);
+    const storageSettings = settingsResult.rows[0]?.settings_json || {};
+    
+    const bucketName = storageSettings.gcsBucketName || process.env.GCS_BUCKET_NAME;
+    const folderPath = storageSettings.gcsKnowledgeFolder || 'knowledge-data';
+    
+    if (!bucketName) {
+      return res.status(400).json({ success: false, message: 'GCSバケット名が設定されていません' });
+    }
+    
+    // ファイル名生成
+    const fileName = `${folderPath}/${Date.now()}_${file.originalname}`;
+    const fileSize = file.buffer.length;
+    const fileType = path.extname(file.originalname).slice(1);
+    
+    // TODO: GCSへのアップロード処理を実装
+    // const { Storage } = require('@google-cloud/storage');
+    // const storage = new Storage();
+    // await storage.bucket(bucketName).file(fileName).save(file.buffer);
+    
+    // DBに記録
+    const insertQuery = `
+      INSERT INTO master_data.ai_knowledge_data
+      (file_name, file_path, file_size_bytes, file_type, upload_source, description, tags, uploaded_by)
+      VALUES ($1, $2, $3, $4, 'local', $5, $6, $7)
+      RETURNING id
+    `;
+    const result = await pool.query(insertQuery, [
+      file.originalname,
+      fileName,
+      fileSize,
+      fileType,
+      description || '',
+      tags ? tags.split(',').map(t => t.trim()) : [],
+      uploadedBy || 'admin'
+    ]);
+    
+    res.json({ success: true, message: 'ファイルをアップロードしました', id: result.rows[0].id });
+  } catch (err) {
+    console.error('Error uploading file:', err);
+    res.status(500).json({ success: false, message: 'ファイルのアップロードに失敗しました' });
+  }
+});
+
+// ナレッジデータ削除
+app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const query = 'DELETE FROM master_data.ai_knowledge_data WHERE id = $1';
+    await pool.query(query, [id]);
+    
+    res.json({ success: true, message: 'データを削除しました' });
+  } catch (err) {
+    console.error('Error deleting knowledge data:', err);
+    res.status(500).json({ success: false, message: 'データの削除に失敗しました' });
+  }
+});
+
+// ストレージ統計情報取得
+app.get('/api/ai/storage-stats', requireAdmin, async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        COUNT(*) as total_files,
+        SUM(file_size_bytes) as total_size_bytes,
+        COUNT(CASE WHEN is_active = true THEN 1 END) as active_files,
+        COUNT(CASE WHEN upload_source = 'local' THEN 1 END) as local_uploads,
+        COUNT(CASE WHEN upload_source = 'gcs' THEN 1 END) as gcs_imports
+      FROM master_data.ai_knowledge_data
+    `;
+    const result = await pool.query(query);
+    
+    const stats = result.rows[0];
+    stats.total_size_mb = (parseFloat(stats.total_size_bytes || 0) / (1024 * 1024)).toFixed(2);
+    
+    res.json({ success: true, stats });
+  } catch (err) {
+    console.error('Error getting storage stats:', err);
+    res.status(500).json({ success: false, message: '統計情報の取得に失敗しました' });
+  }
+});
+
+// ========================================
+// END: AI管理API
+// ========================================
 
 // ヘルスチェックエンドポイント
 app.get('/health', async (req, res) => {
