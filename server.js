@@ -2675,11 +2675,11 @@ app.post('/api/inspection-schedules', requireAdmin, async (req, res) => {
     const { machine_id, inspection_type_id, cycle_months, duration_days, remarks, is_active } = req.body;
 
     if (!machine_id || !inspection_type_id || !cycle_months || !duration_days) {
-      return res.status(400).json({ error: '必須項目が入力されていません' });
+      return res.status(400).json({ success: false, error: '必須項目が入力されていません' });
     }
 
     const insertData = {
-      machine_id: machine_id,
+      machine_id: parseInt(machine_id),
       inspection_type_id: parseInt(inspection_type_id),
       cycle_months: parseInt(cycle_months),
       duration_days: parseInt(duration_days),
@@ -2694,9 +2694,9 @@ app.post('/api/inspection-schedules', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('❌ Inspection schedule create error:', err.message);
     if (err.message.includes('duplicate key')) {
-      return res.status(400).json({ error: 'この機械と検修種別の組み合わせは既に登録されています' });
+      return res.status(400).json({ success: false, error: 'この機械と検修種別の組み合わせは既に登録されています' });
     }
-    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -2707,11 +2707,11 @@ app.put('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
     const { machine_id, inspection_type_id, cycle_months, duration_days, remarks, is_active } = req.body;
 
     if (!machine_id || !inspection_type_id || !cycle_months || !duration_days) {
-      return res.status(400).json({ error: '必須項目が入力されていません' });
+      return res.status(400).json({ success: false, error: '必須項目が入力されていません' });
     }
 
     const updateData = {
-      machine_id: machine_id,
+      machine_id: parseInt(machine_id),
       inspection_type_id: parseInt(inspection_type_id),
       cycle_months: parseInt(cycle_months),
       duration_days: parseInt(duration_days),
@@ -2730,9 +2730,9 @@ app.put('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('❌ Inspection schedule update error:', err.message);
     if (err.message.includes('duplicate key')) {
-      return res.status(400).json({ error: 'この機械と検修種別の組み合わせは既に登録されています' });
+      return res.status(400).json({ success: false, error: 'この機械と検修種別の組み合わせは既に登録されています' });
     }
-    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, error: 'サーバーエラーが発生しました' });
   }
 });
 

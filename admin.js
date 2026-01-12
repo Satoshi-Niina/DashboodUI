@@ -1528,11 +1528,11 @@ async function saveInspectionSchedule() {
     const isActive = document.getElementById('inspection-schedule-active').checked;
 
     const scheduleData = {
-        machine_id: machineId,
-        inspection_type_id: inspectionTypeId,
+        machine_id: machineId ? parseInt(machineId) : null,
+        inspection_type_id: inspectionTypeId ? parseInt(inspectionTypeId) : null,
         cycle_months: parseInt(cycleMonths) || 0,
         duration_days: parseInt(durationDays) || 0,
-        remarks: remarks,
+        remarks: remarks || null,
         is_active: isActive
     };
 
