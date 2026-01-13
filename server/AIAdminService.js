@@ -145,7 +145,7 @@ class AIAdminService {
       // GCS設定を取得
       const settings = await this.getAISettings();
       const bucketName = settings.gcs_bucket_name?.value;
-      const folderPath = settings.gcs_knowledge_folder?.value || 'knowledge-data';
+      const folderPath = settings.gcs_knowledge_folder?.value || 'ai-knowledge';
 
       if (!bucketName) {
         throw new Error('GCSバケット名が設定されていません');

@@ -38,9 +38,10 @@ body {
 .tab-menu {
     display: flex;
     background: #f5f5f5;
-    border-bottom: 2px solid #e0e0e0;
+    border-bottom: 3px solid #1565c0;
     padding: 0;
     margin: 0;
+    box-shadow: 0 2px 8px rgba(21, 101, 192, 0.15);
 }
 
 .tab-button {
@@ -51,33 +52,46 @@ body {
     gap: 8px;
     padding: 16px 20px;
     background: none;
-    border: none;
+    border: 2px solid #1976d2;
+    border-bottom: none;
+    border-right: none;
+    border-radius: 8px 8px 0 0;
     cursor: pointer;
     transition: all 0.3s;
-    font-size: 16.8px; /* 14px * 1.2 = 16.8px */
-    font-weight: 500;
+    font-size: 22px; /* 20px * 1.1 = 22px */
+    font-weight: 700;
     color: #666;
-    border-bottom: 3px solid transparent;
+    box-shadow: inset 0 -3px 0 rgba(21, 101, 192, 0.1);
+    position: relative;
+}
+
+.tab-button:last-child {
+    border-right: 2px solid #1976d2;
 }
 
 .tab-button:hover {
-    background: #ebebeb;
-    color: #333;
+    background: #e3f2fd;
+    color: #1565c0;
+    box-shadow: inset 0 -3px 0 rgba(21, 101, 192, 0.2), 0 2px 4px rgba(21, 101, 192, 0.1);
 }
 
 .tab-button.active {
     background: white;
-    color: #667eea;
-    border-bottom-color: #667eea;
-    font-weight: 600;
+    color: #1565c0;
+    border-bottom: 4px solid #1565c0;
+    font-weight: 700;
+    box-shadow: 0 4px 12px rgba(21, 101, 192, 0.25), inset 0 2px 4px rgba(21, 101, 192, 0.1);
+    transform: translateY(-2px);
+    z-index: 1;
 }
 
 .tab-icon {
-    font-size: 18px;
+    font-size: 24px;
 }
 
 .tab-label {
-    font-size: 14px;
+    font-size: 19px;
+    font-weight: 700;
 }
 
 .tab-content {
@@ -135,9 +149,18 @@ body {
 }
 
 .config-section h2 {
-    font-size: 24px; /* 20px * 1.2 = 24px */
+    font-size: 26.4px; /* 22px * 1.2 = 26.4px - AI管理タブと統一 */
     color: #333;
     margin-bottom: 10px;
+}
+
+/* 全タブのh3見出しを統一 */
+.config-section h3,
+.tab-content h3 {
+    font-size: 21.6px; /* 18px * 1.2 - AI管理タブと同じサイズ */
+    color: #333;
+    margin-bottom: 15px;
+    font-weight: 600;
 }
 
 .search-wrapper {
@@ -164,7 +187,7 @@ body {
 
 .section-desc {
     color: #666;
-    font-size: 14px;
+    font-size: 16.8px; /* 14px * 1.2 - AI管理タブと統一 */
     margin-bottom: 25px;
 }
 
@@ -177,7 +200,7 @@ body {
     font-weight: 600;
     color: #333;
     margin-bottom: 8px;
-    font-size: 15px;
+    font-size: 16.8px; /* 15px → 16.8px に拡大 */
 }
 
 .form-group input {
@@ -185,7 +208,7 @@ body {
     padding: 12px 15px;
     border: 2px solid #e0e0e0;
     border-radius: 8px;
-    font-size: 14px;
+    font-size: 15.6px; /* 14px → 15.6px に拡大 */
     transition: all 0.3s;
 }
 
@@ -240,10 +263,15 @@ body {
     padding: 12px 24px;
     border: none;
     border-radius: 8px;
-    font-size: 14px;
+    font-size: 15.6px; /* 14px → 15.6px に拡大 */
     font-weight: 600;
     cursor: pointer;
     transition: all 0.3s;
+}
+
+#back-to-main-btn {
+    font-size: 21px; /* 14px * 1.5 = 21px */
+    font-weight: 700;
 }
 
 .btn-primary {
@@ -651,7 +679,7 @@ body {
 
 .users-table td {
     padding: 15px;
-    font-size: 14px;
+    font-size: 15.6px; /* 14px → 15.6px に拡大 */
     color: #333;
 }
 
@@ -664,7 +692,7 @@ body {
     display: inline-block;
     padding: 4px 12px;
     border-radius: 12px;
-    font-size: 12px;
+    font-size: 13.2px; /* 12px → 13.2px に拡大 */
     font-weight: 600;
 }
 
@@ -960,13 +988,13 @@ body {
     padding: 12px;
     text-align: left;
     font-weight: 600;
-    font-size: 13px;
+    font-size: 14.4px; /* 13px → 14.4px に拡大 */
 }
 
 .data-table td {
     padding: 12px;
     border-bottom: 1px solid #e0e0e0;
-    font-size: 13px;
+    font-size: 14.4px; /* 13px → 14.4px に拡大 */
 }
 
 .data-table tbody tr:hover {
@@ -981,7 +1009,7 @@ body {
 .data-table .btn-edit,
 .data-table .btn-delete {
     padding: 6px 12px;
-    font-size: 12px;
+    font-size: 13.2px; /* 12px → 13.2px に拡大 */
     border: none;
     border-radius: 4px;
     cursor: pointer;
@@ -1285,26 +1313,30 @@ body {
 
 .sub-tab-button {
     padding: 10px 20px;
-    background: white;
+    background: linear-gradient(145deg, #ffffff, #f0f0f0);
     border: 1px solid #e0e0e0;
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.3s;
-    font-size: 16.8px; /* 14px * 1.2 */
-    font-weight: 500;
+    font-size: 20px; /* 16.8px * 1.2 = 20.16px */
+    font-weight: 600;
     color: #666;
+    box-shadow: 3px 3px 6px rgba(0, 0, 0, 0.15), -2px -2px 4px rgba(255, 255, 255, 0.8);
 }
 
 .sub-tab-button:hover {
-    background: #f5f5f5;
+    background: linear-gradient(145deg, #f5f5f5, #e8e8e8);
     border-color: #667eea;
     color: #667eea;
+    box-shadow: 2px 2px 4px rgba(102, 126, 234, 0.3), -1px -1px 3px rgba(255, 255, 255, 0.8);
+    transform: translateY(-1px);
 }
 
 .sub-tab-button.active {
-    background: #667eea;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     color: white;
     border-color: #667eea;
+    box-shadow: inset 2px 2px 4px rgba(0, 0, 0, 0.2), inset -1px -1px 2px rgba(255, 255, 255, 0.1);
 }
 
 .sub-tab-content {
@@ -1525,32 +1557,73 @@ body {
 
 /* スライダー */
 .slider {
-    width: 100%;
-    height: 8px;
-    border-radius: 4px;
+    width: 11%;
+    height: 20px;
+    border-radius: 10px;
     outline: none;
     -webkit-appearance: none;
     appearance: none;
     background: #e0e0e0;
 }
 
+/* RAG設定のスライダーを長く */
+#rag-chunk-size,
+#rag-similarity {
+    width: 420px !important;
+    max-width: 420px !important;
+    height: 20px !important;
+}
+
 .slider::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 20px;
-    height: 20px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     background: #667eea;
     cursor: pointer;
 }
 
 .slider::-moz-range-thumb {
-    width: 20px;
-    height: 20px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     background: #667eea;
     cursor: pointer;
     border: none;
+}
+
+/* RAGテスト結果モーダル */
+#rag-test-result-modal .modal-content {
+    max-width: 600px;
+    padding: 0;
+}
+
+#rag-test-result-modal .modal-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px 30px;
+    border-radius: 12px 12px 0 0;
+}
+
+#rag-test-result-modal .modal-header h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+#rag-test-result-modal .modal-body {
+    padding: 30px;
+    white-space: pre-wrap;
+    font-family: 'Segoe UI', sans-serif;
+    line-height: 1.8;
+    font-size: 15px;
+}
+
+#rag-test-result-modal .modal-footer {
+    padding: 20px 30px;
+    border-top: 1px solid #e0e0e0;
+    text-align: right;
 }
 
 /* AI管理タブのh3スタイル */
@@ -1566,4 +1639,158 @@ body {
     font-size: 16.8px; /* 14px * 1.2 */
     color: #666;
     margin-bottom: 20px;
+}
+
+/* 横並びチェックボックス */
+.checkbox-inline-label {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    gap: 10px;
+    white-space: nowrap;
+}
+
+.checkbox-compact {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 20px !important;
+    height: 20px !important;
+    min-width: 20px;
+    min-height: 20px;
+    max-width: 20px;
+    max-height: 20px;
+    border: 2px solid #444;
+    border-radius: 4px;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    margin: 0;
+    padding: 0;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.checkbox-compact:hover {
+    border-color: #222;
+    background: #f5f5f5;
+}
+
+.checkbox-compact:checked {
+    background: #667eea;
+    border-color: #667eea;
+}
+
+.checkbox-compact:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 14px;
+    font-weight: bold;
+    line-height: 1;
+}
+
+.checkbox-text {
+    font-size: 16px;
+    color: #333;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+/* RAG詳細設定: ラジオオプションとチェックボックスオプション */
+.radio-option,
+.checkbox-option {
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.radio-option:hover,
+.checkbox-option:hover {
+    border-color: #667eea !important;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2);
+    transform: translateY(-2px);
+}
+
+.radio-option input[type="radio"]:checked ~ span,
+.checkbox-option input[type="checkbox"]:checked ~ span {
+    color: #667eea;
+}
+
+/* 現在のRAG設定表示エリア */
+#current-rag-settings {
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+#current-rag-settings strong {
+    color: #333;
+    font-weight: 600;
+}
+
+#current-rag-settings span {
+    color: #667eea;
+    font-weight: 500;
+}
+
+/* GCS診断結果エリア */
+#gcs-diagnosis-result {
+    animation: slideDown 0.4s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        max-height: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        max-height: 1000px;
+        transform: translateY(0);
+    }
+}
+
+#gcs-diagnosis-content code {
+    background: #f4f4f4;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-family: 'Courier New', monospace;
+    font-size: 0.9em;
+}
+
+/* スライダーの追加スタイル（オーバーラップ用） */
+#rag-overlap {
+    width: 420px !important;
+    max-width: 420px !important;
+    height: 20px !important;
+}
+
+/* セクション区切り */
+.config-section + .config-section {
+    margin-top: 30px;
+}
+
+/* テスト入力フィールド */
+#test-query {
+    transition: border-color 0.3s ease;
+}
+
+#test-query:focus {
+    border-color: #667eea !important;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }

@@ -8,7 +8,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>設定管理 - Dashboard Admin</title>
-    <link rel="stylesheet" href="admin.css?v=20260107-1715">
+    <link rel="stylesheet" href="admin.css?v=20260112-1930">
 </head>
 
 <body>
@@ -47,13 +47,13 @@
                 <span class="tab-icon">💾</span>
                 <span class="tab-label">データベース管理</span>
             </button>
-            <button class="tab-button" data-tab="cors-settings">
-                <span class="tab-icon">🌐</span>
-                <span class="tab-label">CORS設定</span>
-            </button>
             <button class="tab-button" data-tab="ai-management">
                 <span class="tab-icon">🤖</span>
                 <span class="tab-label">AI管理</span>
+            </button>
+            <button class="tab-button" data-tab="cors-settings">
+                <span class="tab-icon">🌐</span>
+                <span class="tab-label">CORS設定</span>
             </button>
         </div>
 
@@ -403,9 +403,7 @@
                     <button class="sub-tab-button" data-subtab="ai-knowledge">
                         📚 ナレッジ管理
                     </button>
-                    <button class="sub-tab-button" data-subtab="ai-assist">
-                        🎯 AI支援調整
-                    </button>
+                    <!-- AI支援調整は応急復旧支援アプリへ移動 -->
                     <button class="sub-tab-button" data-subtab="ai-rag">
                         ⚙️ RAG詳細設定
                     </button>
@@ -418,8 +416,8 @@
                         <p class="section-desc">チャット履歴から保存されたJSONファイルをインポートし、AIの知識に加えます</p>
                         
                         <div class="form-group">
-                            <label for="fault-json-file">エクスポート済みJSONファイルを選択</label>
-                            <input type="file" id="fault-json-file" accept=".json" class="file-input">
+                            <label for="fault-json-file" style="font-size: 1.2em;">エクスポート済みJSONファイルを選択</label>
+                            <input type="file" id="fault-json-file" accept=".json" class="file-input" style="font-size: 1.2em; border: 2px dashed #333;">
                         </div>
                         
                         <button type="button" id="import-fault-json-btn" class="btn-primary">
@@ -445,9 +443,9 @@
                         <div id="manual-file-list" class="file-list"></div>
                         
                         <div class="form-group">
-                            <label>
-                                <input type="checkbox" id="save-original-file">
-                                元のファイルをアーカイブ保存する（通常不要）
+                            <label class="checkbox-inline-label">
+                                <span class="checkbox-text">元のファイルをアーカイブ保存する（通常不要）</span>
+                                <input type="checkbox" id="save-original-file" class="checkbox-compact">
                             </label>
                         </div>
                         
@@ -468,7 +466,7 @@
                         
                         <div class="form-group">
                             <label for="gcs-description">説明</label>
-                            <textarea id="gcs-description" cols="40" rows="6" placeholder="このファイルの内容を簡単に説明してください"></textarea>
+                            <textarea id="gcs-description" cols="70" rows="6" placeholder="このファイルの内容を簡単に説明してください" style="resize: both; width: 100%; min-width: 600px; font-size: 14px; padding: 10px;"></textarea>
                         </div>
                         
                         <button type="button" id="import-gcs-btn" class="btn-primary">
@@ -507,7 +505,7 @@
 
                     <section class="config-section">
                         <h3>📚 ナレッジデータ一覧</h3>
-                        <div class="knowledge-actions">
+                        <div class="knowledge-actions" style="display: flex; gap: 10px; margin-bottom: 15px;">
                             <button type="button" id="refresh-knowledge-btn" class="btn-secondary">
                                 🔄 更新
                             </button>
@@ -517,86 +515,129 @@
                         </div>
                     </section>
                 </div>
-
-                <!-- AI支援調整サブタブ -->
-                <div id="ai-assist-subtab" class="sub-tab-content" style="display: none;">
-                    <section class="config-section">
-                        <h3>🗣️ 初期対話・会話スタイル</h3>
-                        
-                        <div class="form-group">
-                            <label for="ai-initial-prompt">初期メッセージ</label>
-                            <textarea id="ai-initial-prompt" cols="40" rows="6">何か問題がありましたか？お困りの事象を教えてください！</textarea>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label>会話スタイル</label>
-                            <div class="style-buttons">
-                                <button type="button" class="style-btn" data-style="frank">フランク（親しみやすい）</button>
-                                <button type="button" class="style-btn active" data-style="business">ビジネス（丁寧正式）</button>
-                                <button type="button" class="style-btn" data-style="technical">技術的（専門用語中心）</button>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section class="config-section">
-                        <h3>❓ 質問の流れ（ヒアリングステップ）</h3>
-                        <div id="question-flow-container">
-                            <div class="flow-step">
-                                <span class="step-badge">Step 1</span>
-                                <input type="text" class="flow-input" data-step="1" value="具体的な症状を教えてください">
-                            </div>
-                            <div class="flow-step">
-                                <span class="step-badge">Step 2</span>
-                                <input type="text" class="flow-input" data-step="2" value="いつ頃から発生していますか？">
-                            </div>
-                            <div class="flow-step">
-                                <span class="step-badge">Step 3</span>
-                                <input type="text" class="flow-input" data-step="3" value="作業環境や状況を教えてください">
-                            </div>
-                            <div class="flow-step">
-                                <span class="step-badge">Step 4</span>
-                                <input type="text" class="flow-input" data-step="4" value="他に気になることはありますか？">
-                            </div>
-                            <div class="flow-step">
-                                <span class="step-badge">Step 5</span>
-                                <input type="text" class="flow-input" data-step="5" value="緊急度を教えてください">
-                            </div>
-                        </div>
-                    </section>
-
-                    <section class="config-section">
-                        <div class="form-actions">
-                            <button type="button" id="save-ai-assist-btn" class="btn-primary">
-                                💾 AI支援設定を保存
-                            </button>
-                        </div>
-                    </section>
-                </div>
+                <!-- AI支援調整サブタブ削除 -->
 
                 <!-- RAG詳細設定サブタブ -->
                 <div id="ai-rag-subtab" class="sub-tab-content" style="display: none;">
+                    <!-- RAG (Retrieval-Augmented Generation) 設定 -->
+                    <section class="config-section" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                        <h3 style="color: white; margin: 0;">⚙️ RAG (Retrieval-Augmented Generation) 設定</h3>
+                        <p style="margin: 10px 0 0 0; font-size: 0.9em; opacity: 0.95;">AIがナレッジベースから情報を取得し、精度の高い回答を生成するための設定を行います</p>
+                    </section>
+
+                    <!-- テキスト分割設定 -->
                     <section class="config-section">
-                        <h3>🔍 テキスト分割・検索精度</h3>
+                        <h3>📄 テキスト分割設定</h3>
+                        <p class="section-desc" style="color: #666; margin-bottom: 15px;">ナレッジデータを適切なサイズに分割し、検索精度を向上させます</p>
                         
-                        <div class="form-group">
-                            <label for="rag-chunk-size">
-                                チャンクサイズ: <span id="chunk-size-value">500</span>文字
-                            </label>
-                            <input type="range" id="rag-chunk-size" min="200" max="2000" step="100" value="500" class="slider">
+                        <div class="form-group" style="display: flex !important; gap: 40px !important; align-items: flex-start !important;">
+                            <div style="width: 420px !important;">
+                                <label for="rag-chunk-size" style="font-size: 1.2em !important; font-weight: 600 !important; display: block !important;">
+                                    チャンクサイズ: <span id="chunk-size-value">500</span>文字
+                                </label>
+                                <input type="range" id="rag-chunk-size" min="200" max="2000" step="100" value="500" class="slider" style="width: 420px !important; display: block !important;">
+                                <p style="font-size: 0.85em; color: #666; margin-top: 5px;">各テキストチャンクの最大文字数（200〜2000文字）</p>
+                            </div>
+                            
+                            <div style="width: 420px !important;">
+                                <label for="rag-overlap" style="font-size: 1.2em !important; font-weight: 600 !important; display: block !important;">
+                                    オーバーラップ: <span id="overlap-value">100</span>文字
+                                </label>
+                                <input type="range" id="rag-overlap" min="0" max="500" step="50" value="100" class="slider" style="width: 420px !important; display: block !important;">
+                                <p style="font-size: 0.85em; color: #666; margin-top: 5px;">チャンク間で重複させる文字数（0〜500文字）</p>
+                            </div>
                         </div>
+                    </section>
+
+                    <!-- 検索精度設定 -->
+                    <section class="config-section">
+                        <h3>🎯 検索精度設定</h3>
+                        <p class="section-desc" style="color: #666; margin-bottom: 15px;">AI検索の精度と結果数を調整します</p>
                         
-                        <div class="form-group">
-                            <label for="rag-similarity">
-                                類似度閾値: <span id="similarity-value">0.7</span>
-                            </label>
-                            <input type="range" id="rag-similarity" min="0" max="100" step="5" value="70" class="slider">
+                        <div class="form-group" style="display: flex !important; gap: 40px !important; align-items: flex-start !important;">
+                            <div style="width: 420px !important;">
+                                <label for="rag-similarity" style="font-size: 1.2em !important; font-weight: 600 !important; display: block !important;">
+                                    類似度閾値: <span id="similarity-value">0.7</span>
+                                </label>
+                                <input type="range" id="rag-similarity" min="0" max="100" step="5" value="70" class="slider" style="width: 420px !important; display: block !important;">
+                                <p style="font-size: 0.85em; color: #666; margin-top: 5px;">検索結果として採用する最低類似度（0.0〜1.0）</p>
+                            </div>
+                            
+                            <div style="width: auto !important;">
+                                <label for="rag-max-results" style="font-size: 1.2em !important; font-weight: 600 !important; display: block !important;">
+                                    最大取得件数
+                                </label>
+                                <input type="number" id="rag-max-results" value="5" min="1" max="20" style="width: 5em !important; display: block !important; font-size: 1.5em !important;">
+                                <p style="font-size: 0.85em; color: #666; margin-top: 5px;">AIに提供する検索結果の最大数（1〜20件）</p>
+                            </div>
                         </div>
+                    </section>
+
+                    <!-- 検索手法 -->
+                    <section class="config-section">
+                        <h3>🔍 検索手法</h3>
+                        <p class="section-desc" style="color: #666; margin-bottom: 15px; font-size: 1.1em;">ナレッジ検索に使用するアルゴリズムを選択します</p>
                         
                         <div class="form-group">
-                            <label for="rag-max-results">
-                                最大検索結果数
-                            </label>
-                            <input type="number" id="rag-max-results" value="5" min="1" max="20">
+                            <div style="display: flex; gap: 26px; flex-wrap: wrap;">
+                                <label class="radio-option" style="display: flex; align-items: center; padding: 16px 20px; border: 2px solid #ddd; border-radius: 10px; cursor: pointer; transition: all 0.2s;">
+                                    <input type="radio" name="search-method" value="vector" checked style="margin-right: 13px; width: 20px; height: 20px;">
+                                    <span style="font-size: 1.15em;">
+                                        <strong style="font-size: 1.2em;">ベクトル検索</strong><br>
+                                        <small style="color: #666; font-size: 0.9em;">意味が似ている内容を探す（AIが文章の意味を理解）</small>
+                                    </span>
+                                </label>
+                                <label class="radio-option" style="display: flex; align-items: center; padding: 16px 20px; border: 2px solid #ddd; border-radius: 10px; cursor: pointer; transition: all 0.2s;">
+                                    <input type="radio" name="search-method" value="keyword" style="margin-right: 13px; width: 20px; height: 20px;">
+                                    <span style="font-size: 1.15em;">
+                                        <strong style="font-size: 1.2em;">キーワード検索</strong><br>
+                                        <small style="color: #666; font-size: 0.9em;">完全一致・部分一致で探す（入力した単語と同じ単語を検索）</small>
+                                    </span>
+                                </label>
+                                <label class="radio-option" style="display: flex; align-items: center; padding: 16px 20px; border: 2px solid #ddd; border-radius: 10px; cursor: pointer; transition: all 0.2s;">
+                                    <input type="radio" name="search-method" value="hybrid" style="margin-right: 13px; width: 20px; height: 20px;">
+                                    <span style="font-size: 1.15em;">
+                                        <strong style="font-size: 1.2em;">ハイブリッド検索</strong><br>
+                                        <small style="color: #666; font-size: 0.9em;">ベクトル + キーワードの両方を使う（精度が高い）</small>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <h4 style="margin-top: 32px; margin-bottom: 13px; font-size: 1.3em;">📝 テキスト前処理</h4>
+                        <p class="section-desc" style="color: #666; margin-bottom: 15px; font-size: 1.1em;">検索前にテキストに適用する前処理を選択します</p>
+                        
+                        <div class="form-group">
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+                                <label class="checkbox-option" style="display: flex; align-items: center; padding: 16px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="preprocessing-stopwords" checked style="margin-right: 13px; width: 20px; height: 20px;">
+                                    <span style="font-size: 1.1em;">
+                                        <strong style="font-size: 1.15em;">ストップワード除去</strong><br>
+                                        <small style="color: #666; font-size: 0.9em;">「の」「は」など意味のない単語を自動で削除</small>
+                                    </span>
+                                </label>
+                                <label class="checkbox-option" style="display: flex; align-items: center; padding: 16px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="preprocessing-stemming" style="margin-right: 13px; width: 20px; height: 20px;">
+                                    <span style="font-size: 1.1em;">
+                                        <strong style="font-size: 1.15em;">ステミング処理</strong><br>
+                                        <small style="color: #666; font-size: 0.9em;">語幹を抽出して同じ意味の言葉をまとめる（例：走る→走）</small>
+                                    </span>
+                                </label>
+                                <label class="checkbox-option" style="display: flex; align-items: center; padding: 16px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="preprocessing-lowercase" checked style="margin-right: 13px; width: 20px; height: 20px;">
+                                    <span style="font-size: 1.1em;">
+                                        <strong style="font-size: 1.15em;">小文字変換</strong><br>
+                                        <small style="color: #666; font-size: 0.9em;">全て小文字に統一（ABC→abc）</small>
+                                    </span>
+                                </label>
+                                <label class="checkbox-option" style="display: flex; align-items: center; padding: 16px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="preprocessing-normalize" checked style="margin-right: 13px; width: 20px; height: 20px;">
+                                    <span style="font-size: 1.1em;">
+                                        <strong style="font-size: 1.15em;">文字正規化</strong><br>
+                                        <small style="color: #666; font-size: 0.9em;">全角/半角、旧字体を統一（１→1、髙→高など）</small>
+                                    </span>
+                                </label>
+                            </div>
                         </div>
                     </section>
 
@@ -604,7 +645,7 @@
                         <h3>📝 システムプロンプト（AI回答ルール）</h3>
                         
                         <div class="form-group">
-                            <textarea id="rag-system-prompt" cols="40" rows="8">【回答ルール】
+                            <textarea id="rag-system-prompt" cols="150" rows="12" style="resize: both; width: 100%; min-width: 600px; min-height: 280px; max-width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 18px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">【回答ルール】
 1. ユーザーの質問に対して1問1答形式で回答する
 2. 専門的な内容も分かりやすく説明する
 3. 安全に関わる情報は特に慎重に扱う
@@ -617,11 +658,114 @@
                             <button type="button" id="save-rag-settings-btn" class="btn-primary">
                                 💾 RAG設定を保存
                             </button>
-                            <button type="button" id="test-rag-btn" class="btn-secondary">
+                        </div>
+                    </section>
+
+                    <!-- 現在のRAG設定 -->
+                    <section class="config-section" style="background-color: #f8f9fa; border-left: 4px solid #667eea;">
+                        <h3>📊 現在のRAG設定</h3>
+                        <div id="current-rag-settings" style="font-family: 'Courier New', monospace; background: white; padding: 15px; border-radius: 6px; margin-top: 10px;">
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
+                                <div>
+                                    <strong>チャンクサイズ:</strong> <span id="display-chunk-size">-</span>文字
+                                </div>
+                                <div>
+                                    <strong>オーバーラップ:</strong> <span id="display-overlap">-</span>文字
+                                </div>
+                                <div>
+                                    <strong>類似度閾値:</strong> <span id="display-similarity">-</span>
+                                </div>
+                                <div>
+                                    <strong>最大取得件数:</strong> <span id="display-max-results">-</span>件
+                                </div>
+                                <div>
+                                    <strong>検索手法:</strong> <span id="display-search-method">-</span>
+                                </div>
+                                <div>
+                                    <strong>テキスト前処理:</strong> <span id="display-preprocessing">-</span>
+                                </div>
+                            </div>
+                            <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #ddd;">
+                                <strong>最終更新:</strong> <span id="display-last-updated">-</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- RAGパフォーマンステスト -->
+                    <section class="config-section">
+                        <h3>🧪 RAGパフォーマンステスト</h3>
+                        <p class="section-desc" style="color: #666; margin-bottom: 15px;">現在の設定でRAGシステムの動作を検証します</p>
+                        
+                        <div class="form-group">
+                            <label for="test-query" style="display: block; margin-bottom: 8px; font-weight: 600;">テストクエリ（質問）:</label>
+                            <input type="text" id="test-query" placeholder="例: 保守用車の点検方法について教えてください" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em;">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="display: block; margin-bottom: 8px; font-weight: 600;">検証項目:</label>
+                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                                <label class="checkbox-option" style="display: flex; align-items: center; justify-content: space-between;">
+                                    <span style="font-size: 1.4em; white-space: nowrap;">検索速度測定</span>
+                                    <input type="checkbox" checked disabled style="margin-left: 8px;">
+                                </label>
+                                <label class="checkbox-option" style="display: flex; align-items: center; justify-content: space-between;">
+                                    <span style="font-size: 1.4em; white-space: nowrap;">関連性スコア分析</span>
+                                    <input type="checkbox" checked disabled style="margin-left: 8px;">
+                                </label>
+                                <label class="checkbox-option" style="display: flex; align-items: center; justify-content: space-between;">
+                                    <span style="font-size: 1.4em; white-space: nowrap;">取得チャンク確認</span>
+                                    <input type="checkbox" checked disabled style="margin-left: 8px;">
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="button" id="test-rag-btn" class="btn-secondary" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                                 🧪 パフォーマンステスト実行
                             </button>
                         </div>
                     </section>
+
+                    <!-- GCS接続診断 -->
+                    <section class="config-section" style="border: 2px solid #34a853;">
+                        <h3>☁️ GCS接続診断</h3>
+                        <p class="section-desc" style="color: #666; margin-bottom: 15px;">Google Cloud Storageへの接続状態とバケット構成を診断します</p>
+                        
+                        <div id="gcs-diagnosis-result" style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 15px; display: none;">
+                            <div id="gcs-diagnosis-content"></div>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="button" id="diagnose-gcs-btn" class="btn-secondary" style="background: linear-gradient(135deg, #34a853 0%, #0f9d58 100%); color: white;">
+                                🔍 GCS接続診断を実行
+                            </button>
+                        </div>
+                        
+                        <div style="margin-top: 15px; padding: 12px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
+                            <strong>💡 診断内容:</strong>
+                            <ul style="margin: 8px 0 0 20px; font-size: 0.9em;">
+                                <li>GCSバケットへの接続確認</li>
+                                <li>必要なフォルダ構造の検証（manuals/processed/, chat-exports/json/）</li>
+                                <li>アクセス権限の確認</li>
+                                <li>ストレージ使用状況の取得</li>
+                            </ul>
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            <!-- RAGテスト結果モーダル -->
+            <div id="rag-test-result-modal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>🧪 RAGパフォーマンステスト結果</h3>
+                    </div>
+                    <div class="modal-body" id="rag-test-result-body">
+                        <!-- テスト結果がここに表示されます -->
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" id="close-rag-test-modal" class="btn-secondary">✖ 終了</button>
+                    </div>
                 </div>
             </div>
 
