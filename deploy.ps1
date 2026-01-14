@@ -32,6 +32,10 @@ gcloud run deploy $SERVICE_NAME `
   --set-env-vars DB_PASSWORD=$DB_PASSWORD `
   --set-env-vars JWT_SECRET=$JWT_SECRET `
   --set-env-vars CORS_ORIGIN=* `
+  --set-env-vars GOOGLE_CLOUD_STORAGE_BUCKET=maint-vehicle-management-storage `
+  --set-env-vars GCS_BUCKET_NAME=maint-vehicle-management-storage `
+  --set-env-vars GOOGLE_GEMINI_API_KEY=AIzaSyCQa-KuQgbUlpJd1GHtNyf1PuOOWQIuF0M `
+  --set-env-vars GEMINI_MODEL=gemini-2.0-flash-exp `
   --add-cloudsql-instances $CLOUD_SQL_INSTANCE
 
 if ($LASTEXITCODE -eq 0) {
