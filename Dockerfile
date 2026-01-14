@@ -12,7 +12,7 @@ RUN npm ci --only=production
 
 # アプリケーションファイルをコピー
 # キャッシュバスティング: ビルド時に必ず最新ファイルを使用
-ARG CACHEBUST=1
+ARG CACHEBUST=20260114-1650
 ARG BUILDTIME=unknown
 ENV BUILD_TIMESTAMP=${CACHEBUST}
 ENV BUILD_TIME=${BUILDTIME}
