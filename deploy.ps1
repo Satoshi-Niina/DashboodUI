@@ -9,7 +9,6 @@ $DB_NAME = "webappdb"
 $DB_USER = "postgres"
 $DB_PASSWORD = "Takabeni"  # 本番環境では必ず変更してください
 $JWT_SECRET = "supersecretkey123"  # 本番環境では必ず変更してください
-$BUCKET_NAME = "maint-vehicle-management-storage" # GCSバケット名
 
 # サービス名
 $SERVICE_NAME = "dashboard-ui"
@@ -18,7 +17,6 @@ Write-Host "🚀 Cloud Runにデプロイします..." -ForegroundColor Green
 Write-Host "プロジェクト: $PROJECT_ID"
 Write-Host "リージョン: $REGION"
 Write-Host "Cloud SQLインスタンス: $CLOUD_SQL_INSTANCE"
-Write-Host "GCSバケット: $BUCKET_NAME"
 
 # デプロイ実行
 gcloud run deploy $SERVICE_NAME `
@@ -34,7 +32,6 @@ gcloud run deploy $SERVICE_NAME `
   --set-env-vars DB_PASSWORD=$DB_PASSWORD `
   --set-env-vars JWT_SECRET=$JWT_SECRET `
   --set-env-vars CORS_ORIGIN=* `
-  --set-env-vars GOOGLE_CLOUD_STORAGE_BUCKET=$BUCKET_NAME `
   --add-cloudsql-instances $CLOUD_SQL_INSTANCE
 
 if ($LASTEXITCODE -eq 0) {
