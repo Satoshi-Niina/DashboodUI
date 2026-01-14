@@ -1408,15 +1408,17 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
 
     const insertQuery = `
       INSERT INTO master_data.bases 
-      (base_name, base_type, location, management_office_id)
-      VALUES ($1, $2, $3, $4)
+      (base_code, base_name, location, office_id, address, postal_code)
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
     `;
     const result = await pool.query(insertQuery, [
+      base_code,
       base_name,
-      'maintenance',
       location || null,
-      management_office_id || null
+      management_office_id || null,
+      address || null,
+      postal_code || null
     ]);
 
     res.json({ success: true, base: result.rows[0], message: '保守基地を追加しました' });
@@ -1444,16 +1446,17 @@ app.put('/api/bases/:id', requireAdmin, async (req, res) => {
   try {
     const updateQuery = `
       UPDATE master_data.bases 
-      SET base_name = $1, base_type = $2, location = $3, management_office_id = $4,
+      SET base_name = $1, location = $2, office_id = $3, address = $4, postal_code = $5,
           updated_at = CURRENT_TIMESTAMP
-      WHERE id = $5
+      WHERE base_id = $6
       RETURNING *
     `;
     const result = await pool.query(updateQuery, [
       base_name,
-      'maintenance',
       location || null,
       management_office_id || null,
+      address || null,
+      postal_code || null,
       baseId
     ]);
 
@@ -2045,7 +2048,7 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
     const settingsResult = await pool.query(settingsQuery);
     const storageSettings = settingsResult.rows[0]?.settings_json || {};
     
-    const bucketName = storageSettings.gcsBucketName || process.env.GCS_BUCKET_NAME;
+    const bucketName = storageSettings.gcsBucketName || process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET;
     const folderPath = storageSettings.gcsKnowledgeFolder || process.env.GCS_KNOWLEDGE_FOLDER || 'ai-knowledge';
     
     console.log('[AI Upload] GCS Bucket:', bucketName);
@@ -2054,7 +2057,7 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
     if (!bucketName) {
       return res.status(400).json({ 
         success: false, 
-        message: 'GCSバケット名が設定されていません。.envファイルでGCS_BUCKET_NAMEを設定してください。' 
+        message: 'GCSバケット名が設定されていません。.envファイルでGCS_BUCKET_NAMEまたはGOOGLE_CLOUD_STORAGE_BUCKETを設定してください。' 
       });
     }
     
@@ -2308,7 +2311,7 @@ app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
     
     // 4. GCSファイルの削除（3つのファイルすべて - エラーでもロールバックしない）
     try {
-      const bucketName = process.env.GCS_BUCKET_NAME;
+      const bucketName = process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET;
       
       if (bucketName && storage) {
         const bucket = storage.bucket(bucketName);
@@ -2403,7 +2406,7 @@ app.get('/api/ai/diagnose-gcs', requireAdmin, async (req, res) => {
     console.log('[GCS Diagnosis] Starting diagnosis...');
     
     // GCS設定の確認
-    const bucketName = process.env.GCS_BUCKET_NAME || 'vehicle-management-storage';
+    const bucketName = process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET || 'vehicle-management-storage';
     
     if (!bucketName) {
       return res.status(500).json({
@@ -2412,13 +2415,42 @@ app.get('/api/ai/diagnose-gcs', requireAdmin, async (req, res) => {
       });
     }
 
+    // 認証キーファイルの存在チェック
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+      const fs = require('fs');
+      if (!fs.existsSync(process.env.GOOGLE_APPLICATION_CREDENTIALS)) {
+        return res.status(500).json({
+          success: false,
+          error: `認証キーファイルが見つかりません: ${process.env.GOOGLE_APPLICATION_CREDENTIALS}`
+        });
+      }
+    }
+
     // Storage clientの初期化確認
     const { Storage } = require('@google-cloud/storage');
-    const storage = new Storage();
+    let storage;
+    try {
+      storage = new Storage();
+    } catch (initError) {
+      return res.status(500).json({
+        success: false,
+        error: `GCSクライアントの初期化に失敗しました: ${initError.message}`
+      });
+    }
+
     const bucket = storage.bucket(bucketName);
 
     // バケット存在確認
-    const [exists] = await bucket.exists();
+    let exists = false;
+    try {
+      [exists] = await bucket.exists();
+    } catch (bucketError) {
+      return res.status(500).json({
+        success: false,
+        error: `バケットへのアクセスに失敗しました: ${bucketError.message}`
+      });
+    }
+
     if (!exists) {
       return res.status(500).json({
         success: false,
@@ -3217,6 +3249,7 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
       SELECT 
         s.id,
         s.machine_id,
+        s.target_category,
         s.inspection_type_id,
         s.cycle_months,
         s.duration_days,
@@ -3230,11 +3263,11 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
         it.type_name,
         it.type_code
       FROM ${inspectionSchedulesRoute.fullPath} s
-      LEFT JOIN ${machinesRoute.fullPath} m ON s.machine_id = m.id
+      LEFT JOIN ${machinesRoute.fullPath} m ON s.machine_id = m.id::text
       LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id = mt.id
       LEFT JOIN ${officesRoute.fullPath} o ON m.office_id::integer = o.office_id
       LEFT JOIN ${inspectionTypesRoute.fullPath} it ON s.inspection_type_id = it.id
-      ORDER BY o.office_name, mt.model_name, m.machine_number, it.display_order
+      ORDER BY s.target_category, o.office_name, mt.model_name, m.machine_number, it.display_order
     `;
 
     console.log('[GET /api/inspection-schedules] Executing SQL...');
@@ -3268,14 +3301,16 @@ app.get('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
 // 検修周期・期間設定追加
 app.post('/api/inspection-schedules', requireAdmin, async (req, res) => {
   try {
-    const { machine_id, inspection_type_id, cycle_months, duration_days, remarks, is_active } = req.body;
+    const { machine_id, target_category, inspection_type_id, cycle_months, duration_days, remarks, is_active } = req.body;
 
-    if (!machine_id || !inspection_type_id || !cycle_months || !duration_days) {
+    // machine_id または target_category のどちらかは必須
+    if ((!machine_id && !target_category) || !inspection_type_id || !cycle_months || !duration_days) {
       return res.status(400).json({ success: false, error: '必須項目が入力されていません' });
     }
 
     const insertData = {
-      machine_id: parseInt(machine_id),
+      machine_id: machine_id ? String(machine_id) : null,
+      target_category: target_category || null,
       inspection_type_id: parseInt(inspection_type_id),
       cycle_months: parseInt(cycle_months),
       duration_days: parseInt(duration_days),
@@ -3290,7 +3325,7 @@ app.post('/api/inspection-schedules', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('❌ Inspection schedule create error:', err.message);
     if (err.message.includes('duplicate key')) {
-      return res.status(400).json({ success: false, error: 'この機械と検修種別の組み合わせは既に登録されています' });
+      return res.status(400).json({ success: false, error: 'この組み合わせは既に登録されています' });
     }
     res.status(500).json({ success: false, error: 'サーバーエラーが発生しました' });
   }
@@ -3300,14 +3335,15 @@ app.post('/api/inspection-schedules', requireAdmin, async (req, res) => {
 app.put('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
   try {
     const scheduleId = req.params.id;
-    const { machine_id, inspection_type_id, cycle_months, duration_days, remarks, is_active } = req.body;
+    const { machine_id, target_category, inspection_type_id, cycle_months, duration_days, remarks, is_active } = req.body;
 
-    if (!machine_id || !inspection_type_id || !cycle_months || !duration_days) {
+    if ((!machine_id && !target_category) || !inspection_type_id || !cycle_months || !duration_days) {
       return res.status(400).json({ success: false, error: '必須項目が入力されていません' });
     }
 
     const updateData = {
-      machine_id: parseInt(machine_id),
+      machine_id: machine_id ? String(machine_id) : null,
+      target_category: target_category || null,
       inspection_type_id: parseInt(inspection_type_id),
       cycle_months: parseInt(cycle_months),
       duration_days: parseInt(duration_days),

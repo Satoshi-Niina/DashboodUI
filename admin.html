@@ -865,6 +865,11 @@
                     </select>
                 </div>
 
+                <div class="form-group">
+                    <label for="machine-type-description">説明</label>
+                    <textarea id="machine-type-description" name="description" rows="3" placeholder="説明文を入力"></textarea>
+                </div>
+
                 <div class="form-actions">
                     <button type="submit" class="btn-primary">保存</button>
                     <button type="button" class="btn-secondary" id="cancel-machine-type-btn">キャンセル</button>
@@ -945,7 +950,12 @@
             </div>
             <form id="inspection-type-form">
                 <input type="hidden" id="inspection-type-id" name="id">
-                <input type="hidden" id="inspection-type-code" name="type_code">
+                
+                <div class="form-group">
+                    <label for="inspection-type-code">種別コード</label>
+                    <input type="text" id="inspection-type-code" name="type_code" placeholder="自動採番（変更可）">
+                    <small>空欄の場合は自動で生成されます</small>
+                </div>
 
                 <div class="form-group">
                     <label for="inspection-type-name">検修種別名 *</label>
@@ -989,10 +999,26 @@
                 <input type="hidden" id="inspection-schedule-id" name="id">
 
                 <div class="form-group">
-                    <label for="inspection-schedule-machine">保守用車 *</label>
-                    <select id="inspection-schedule-machine" name="machine_id" required>
+                    <label for="inspection-schedule-category">カテゴリー (機種個別設定でない場合)</label>
+                    <select id="inspection-schedule-category" name="target_category">
+                        <option value="">-- カテゴリーを選択 --</option>
+                        <option value="軌道モータカー">軌道モータカー</option>
+                        <option value="箱トロ">箱トロ</option>
+                        <option value="鉄トロ">鉄トロ</option>
+                        <option value="レールカッター">レールカッター</option>
+                        <option value="油圧ショベル">油圧ショベル</option>
+                        <option value="クレーン">クレーン</option>
+                        <option value="その他">その他</option>
+                    </select>
+                    <small>カテゴリー単位で設定する場合に選択してください</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="inspection-schedule-machine">保守用車 (個別設定)</label>
+                    <select id="inspection-schedule-machine" name="machine_id">
                         <option value="">-- 保守用車を選択 --</option>
                     </select>
+                    <small>特定の保守用車に設定する場合に選択してください（カテゴリーより優先されます）</small>
                 </div>
 
                 <div class="form-group">
