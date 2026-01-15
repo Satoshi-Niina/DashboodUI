@@ -36,7 +36,7 @@ gcloud run deploy $SERVICE_NAME `
   --set-env-vars GCS_BUCKET_NAME=maint-vehicle-management-storage `
   --set-env-vars GOOGLE_GEMINI_API_KEY=AIzaSyCQa-KuQgbUlpJd1GHtNyf1PuOOWQIuF0M `
   --set-env-vars GEMINI_MODEL=gemini-2.0-flash-exp `
-  --set-env-vars URL_PLANNING=https://railway-server-800711608362.asia-northeast2.run.app/index.html `
+  --set-env-vars URL_PLANNING=https://railway-client-800711608362.asia-northeast2.run.app/ `
   --add-cloudsql-instances $CLOUD_SQL_INSTANCE
 
 if ($LASTEXITCODE -eq 0) {
