@@ -12,7 +12,7 @@ const AppConfig = {
         emergency: 'https://emergency-client-u3tejuflja-dt.a.run.app/',
 
         // 計画・実績管理システム
-        planning: 'http://localhost:3002',
+        planning: 'https://railway-server-800711608362.asia-northeast2.run.app',
 
         // 保守用車管理システム
         equipment: 'http://localhost:3003',

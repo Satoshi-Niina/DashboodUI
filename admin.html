@@ -47,6 +47,10 @@
                 <span class="tab-icon">💾</span>
                 <span class="tab-label">データベース管理</span>
             </button>
+            <button class="tab-button" data-tab="system-operations">
+                <span class="tab-icon">🛠️</span>
+                <span class="tab-label">システム運用</span>
+            </button>
             <button class="tab-button" data-tab="ai-management">
                 <span class="tab-icon">🤖</span>
                 <span class="tab-label">AI管理</span>
@@ -302,6 +306,174 @@
                     </div>
                     <p class="info-text">※ テーブルを選択すると使用できます</p>
                 </section>
+            </div>
+
+            <!-- システム運用タブ -->
+            <div id="system-operations-tab" class="tab-content" style="display: none;">
+                <div class="info-banner">
+                    <p>💡 システムの健全性監視、メンテナンス、セキュリティ状態を一元管理します</p>
+                </div>
+                
+                <div class="system-dashboard-grid">
+                    <!-- 左側：セキュリティ (GCP連携) -->
+                    <section class="config-section security-panel">
+                        <h3>🔐 セキュリティ監視 <span class="badge-alert">3件</span></h3>
+                        
+                        <div class="security-card-content">
+                            <div class="alert-summary">
+                                <div class="alert-icon-box">
+                                    <span class="icon">⚠️</span>
+                                </div>
+                                <div class="alert-text">
+                                    <h4>今日のアラート</h4>
+                                    <p class="alert-count"><span class="text-danger">3件</span></p>
+                                    <ul class="alert-details">
+                                        <li>・不正アクセス試行: 2回</li>
+                                        <li>・未登録デバイス: 1台</li>
+                                    </ul>
+                                </div>
+                            </div>
+            
+                            <div class="security-list-section">
+                                <h4>ブロックされたアクセス</h4>
+                                <table class="simple-table">
+                                    <tbody>
+                                        <tr>
+                                            <td>192.168.1.100 (中国)</td>
+                                            <td><span class="badge-gray">5回試行</span></td>
+                                        </tr>
+                                        <tr>
+                                            <td>203.0.113.50 (未登録)</td>
+                                            <td><span class="badge-gray">2回試行</span></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+            
+                            <div class="security-list-section">
+                                <h4>登録デバイス</h4>
+                                <div class="device-item">
+                                    <div class="device-info">
+                                        <span class="device-name">iPad-001 (山田太郎)</span>
+                                        <span class="device-meta">最終アクセス: 2時間前</span>
+                                    </div>
+                                    <span class="status-badge success">稼働中</span>
+                                </div>
+                                <div class="device-item">
+                                    <div class="device-info">
+                                        <span class="device-name">Tablet-002 (佐藤花子)</span>
+                                        <span class="device-meta">最終アクセス: 5分前</span>
+                                    </div>
+                                    <span class="status-badge success">稼働中</span>
+                                </div>
+                                <div class="panel-footer">
+                                    <button class="btn-outline-full">詳細を表示</button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+            
+                    <!-- 右側列 -->
+                    <div class="maintenance-column">
+                         <!-- システムメンテナンス -->
+                        <section class="config-section maintenance-panel">
+                            <h3>⚙️ システムメンテナンス</h3>
+                            
+                            <div class="maintenance-item">
+                                <div class="maint-header">
+                                    <span class="maint-icon">①</span>
+                                    <h4>一時ファイルとは？</h4>
+                                </div>
+                                <p class="maint-desc">ファイルアップロード時に作成される一時的なファイルです。処理完了後も残っている場合があり、ストレージ容量を圧迫します。</p>
+                                <button id="btn-clean-tmp" class="btn-danger-block">🗑️ 一時ファイルを削除</button>
+                            </div>
+            
+                            <div class="maintenance-item">
+                                <div class="maint-header">
+                                    <span class="maint-icon">①</span>
+                                    <h4>ログファイルバックアップ</h4>
+                                </div>
+                                <p class="maint-desc">システムログファイルをZIP形式でアーカイブします。バックアップ後、ダウンロードボタンからローカルに保存できます。</p>
+                                <button id="btn-backup-log" class="btn-warning-outline-block">📦 ログファイルバックアップ</button>
+                            </div>
+            
+                            <div class="maintenance-item">
+                                <div class="maint-header">
+                                    <span class="maint-icon">①</span>
+                                    <h4>孤立画像ファイルとは？</h4>
+                                </div>
+                                <p class="maint-desc">チャットで送信したがエクスポートしなかった画像や、削除された履歴に紐づいていた画像です。</p>
+                                <button id="btn-clean-images" class="btn-danger-block">🧹 孤立画像を削除</button>
+                            </div>
+                        </section>
+            
+                        <!-- 保守管理 -->
+                        <section class="config-section governance-panel">
+                            <h3>🏷️ 保守管理</h3>
+                            
+                            <div class="governance-item">
+                                <div class="gov-header">
+                                    <span class="gov-icon">📦</span>
+                                    <h4>モジュール更新</h4>
+                                </div>
+                                <div class="gov-status">
+                                    <div class="gov-warnings">
+                                        <span>⚠️ 脆弱性あり:</span> <span class="text-danger">2個 (重大:1, 高:1)</span><br>
+                                        <span>⏰ 更新可能:</span> <span>12パッケージ</span>
+                                    </div>
+                                </div>
+                                <button class="btn-outline-full">更新を確認</button>
+                            </div>
+            
+                            <hr class="divider">
+            
+                            <div class="governance-item">
+                                <div class="gov-header">
+                                    <span class="gov-icon">📅</span>
+                                    <h4>期限管理</h4>
+                                </div>
+                                <div class="expiry-list">
+                                    <div class="expiry-row">
+                                        <span class="expiry-label">SSL証明書</span>
+                                        <span class="badge-danger">15日後</span>
+                                    </div>
+                                    <div class="expiry-row">
+                                        <span class="expiry-label">APIキー</span>
+                                        <span class="badge-warning">45日後</span>
+                                    </div>
+                                    <div class="expiry-row">
+                                        <span class="expiry-label">データ保持</span>
+                                        <span class="badge-success">問題なし</span>
+                                    </div>
+                                </div>
+                            </div>
+            
+                            <hr class="divider">
+            
+                            <div class="governance-item">
+                                <div class="gov-header">
+                                    <span class="gov-icon">💾</span>
+                                    <h4>ストレージ使用状況</h4>
+                                </div>
+                                <div class="storage-stats">
+                                    <div class="storage-text">
+                                        <span>使用中: 3.4GB / 5GB</span>
+                                        <span class="percentage">68%</span>
+                                    </div>
+                                    <div class="progress-bar-bg">
+                                        <div class="progress-bar-fill warning" style="width: 68%;"></div>
+                                    </div>
+                                    <ul class="storage-details">
+                                        <li>・アップロード: 1.2GB</li>
+                                        <li>・ログファイル: 0.8GB</li>
+                                        <li>・一時ファイル: 1.4GB <span class="text-warning">⚠️</span></li>
+                                    </ul>
+                                </div>
+                                <button class="btn-outline-full">詳細を表示</button>
+                            </div>
+                        </section>
+                    </div>
+                </div>
             </div>
 
             <section class="config-section" style="display: none;">
@@ -1063,7 +1235,7 @@
     <!-- トースト通知 -->
     <div id="toast" class="toast"></div>
 
-    <script src="admin.js?v=20260114-1640"></script>
+    <script src="admin.js?v=20260115-1000"></script>
 </body>
 
 </html>

@@ -1,11 +1,12 @@
 const express = require('express');
 const { Pool } = require('pg');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const { Storage } = require('@google-cloud/storage');
+const configRoutes = require('./server/routes/config');
 require('dotenv').config();
 
 // Multer設定（ファイルアップロード用）
@@ -36,8 +37,12 @@ console.log(`✅ Will listen on port: ${PORT}`);
 
 console.log('Express app created');
 
+// APIルート定義
+app.use('/api/config', configRoutes);
+
 // CORS設定
 const corsOptions = {
+
   origin: process.env.CORS_ORIGIN === '*'
     ? '*'
     : process.env.CORS_ORIGIN

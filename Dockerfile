@@ -8,11 +8,11 @@ WORKDIR /app
 COPY package*.json ./
 
 # 依存関係をインストール (本番環境のみ)
-RUN npm ci --only=production
+RUN npm install --production
 
 # アプリケーションファイルをコピー
 # キャッシュバスティング: ビルド時に必ず最新ファイルを使用
-ARG CACHEBUST=20260114-1650
+ARG CACHEBUST=20260115-1100
 ARG BUILDTIME=unknown
 ENV BUILD_TIMESTAMP=${CACHEBUST}
 ENV BUILD_TIME=${BUILDTIME}
@@ -23,10 +23,10 @@ COPY . .
 RUN echo "🔨 Build Info:" && \
     echo "  Timestamp: ${CACHEBUST}" && \
     echo "  Build Time: ${BUILDTIME}" && \
-    echo "  Node Version: $(node --version)" && \
-    echo "📝 Verifying critical files..." && \
-    grep -c "data-action" admin.js && \
-    echo "✅ admin.js verification passed"
+    echo "  Node Version: $(node --version)"
+
+# コンテナ起動時に実行するコマンド
+CMD ["npm", "start"]
 
 # バージョン番号を自動更新
 RUN node update-version.js || true

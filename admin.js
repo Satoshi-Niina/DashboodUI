@@ -113,6 +113,7 @@ function applyRoleBasedTabVisibility(role) {
     // システム管理者専用のタブ
     const systemAdminOnlyTabs = [
         'database-management',
+        'system-operations',
         'cors-settings'
     ];
 

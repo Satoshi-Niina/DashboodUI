@@ -5,7 +5,7 @@
 const apps = [
     {
         id: 'planning',
-        title: '計画・実績管理',
+        title: '計画・運用管理',
         description: '保守用車の運用計画作成から運用の実績を管理できます。',
         image: 'assets/img/Operation Planning to Performance Management.png',
         url: '#planning',
@@ -37,7 +37,43 @@ const apps = [
     }
 ];
 
-document.addEventListener('DOMContentLoaded', () => {
+// 動的設定の読み込み
+async function loadDynamicConfig() {
+    try {
+        const response = await fetch('/api/config');
+        if (!response.ok) throw new Error('Failed to load config');
+        const config = await response.json();
+        
+        console.log('[App] Loaded dynamic config:', config);
+        
+        // エンドポイント情報を上書き
+        if (config.endpoints) {
+            Object.keys(config.endpoints).forEach(key => {
+                if (config.endpoints[key]) {
+                    AppConfig.endpoints[key] = config.endpoints[key];
+                }
+            });
+        }
+        
+       // 外部アプリ定義があれば追加（オプション）
+       if (config.externalApps && Array.isArray(config.externalApps)) {
+           config.externalApps.forEach(extApp => {
+               // 既存のIDと重複しない場合のみ追加
+               if (!apps.find(a => a.id === extApp.id)) {
+                   apps.push(extApp);
+               }
+           });
+       }
+
+    } catch (error) {
+        console.warn('[App] Failed to load dynamic config, using default:', error);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    // 設定をサーバーから読み込む
+    await loadDynamicConfig();
+    
     const appGrid = document.getElementById('app-grid');
     const tooltip = document.getElementById('app-tooltip');
     const tooltipTitle = document.getElementById('tooltip-title');

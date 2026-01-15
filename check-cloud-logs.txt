@@ -1,7 +1,0 @@
-# Cloud Runのログを確認するコマンド
-
-# PowerShellで実行
-gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=dashboodui" --limit 50 --format json
-
-# または、ブラウザでログを確認
-# https://console.cloud.google.com/run/detail/asia-northeast2/dashboodui/logs
