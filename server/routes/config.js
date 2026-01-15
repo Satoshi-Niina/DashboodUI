@@ -9,7 +9,7 @@ router.get('/', (req, res) => {
     // 環境変数から 'URL_' で始まるものを収集、または特定のキーを指定してマッピング
     const config = {
         endpoints: {
-            planning: process.env.URL_PLANNING || 'http://localhost:3002',
+            planning: process.env.URL_PLANNING || 'https://railway-server-800711608362.asia-northeast2.run.app',
             equipment: process.env.URL_EQUIPMENT || 'http://localhost:3003',
             emergency: process.env.URL_EMERGENCY || 'https://emergency-client-u3tejuflja-dt.a.run.app/',
             failure: process.env.URL_FAILURE || 'http://localhost:3004'
