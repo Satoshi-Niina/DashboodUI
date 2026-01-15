@@ -119,7 +119,7 @@ jobs:
             --set-env-vars="DB_NAME=${{ secrets.DB_NAME }}" \
             --set-env-vars="JWT_SECRET=${{ secrets.JWT_SECRET }}" \
             --set-env-vars="CORS_ORIGIN=*" \
-            --set-env-vars="URL_PLANNING=https://railway-server-800711608362.asia-northeast2.run.app" \
+            --set-env-vars="URL_PLANNING=https://railway-server-800711608362.asia-northeast2.run.app/index.html" \
             --set-env-vars="BUILD_TIMESTAMP=$TIMESTAMP" \
             --min-instances=0 \
             --max-instances=10 \
