@@ -375,6 +375,8 @@ body {
     border-radius: 8px;
     font-weight: 700;
     cursor: pointer;
+    white-space: nowrap;
+    min-width: fit-content;
 }
 
 .close-btn {
@@ -386,6 +388,7 @@ body {
     border-radius: 8px;
     font-weight: 600;
     cursor: pointer;
+    white-space: nowrap;
 }
 
 .hidden {

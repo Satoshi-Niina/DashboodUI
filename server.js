@@ -1375,10 +1375,13 @@ app.delete('/api/offices/:id', requireAdmin, async (req, res) => {
 // 保守基地一覧取得
 app.get('/api/bases', authenticateToken, async (req, res) => {
   try {
+    const basesRoute = await resolveTablePath('bases');
+    const officesRoute = await resolveTablePath('managements_offices');
+    
     const query = `
       SELECT b.*, o.office_name 
-      FROM master_data.bases b
-      LEFT JOIN master_data.managements_offices o ON b.office_id = o.office_id
+      FROM ${basesRoute.fullPath} b
+      LEFT JOIN ${officesRoute.fullPath} o ON b.office_id = o.office_id
       ORDER BY b.base_id DESC
     `;
     const result = await pool.query(query);
@@ -1403,16 +1406,18 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
   }
 
   try {
+    const basesRoute = await resolveTablePath('bases');
+
     // 基地コードが指定されていない場合は自動採番
     if (!base_code) {
-      const maxCodeQuery = `SELECT MAX(CAST(base_code AS INTEGER)) as max_code FROM master_data.bases WHERE base_code ~ '^[0-9]+$'`;
+      const maxCodeQuery = `SELECT MAX(CAST(base_code AS INTEGER)) as max_code FROM ${basesRoute.fullPath} WHERE base_code ~ '^[0-9]+$'`;
       const maxCodeResult = await pool.query(maxCodeQuery);
       const maxCode = maxCodeResult.rows[0].max_code || 0;
       base_code = String(maxCode + 1).padStart(4, '0');
     }
 
     const insertQuery = `
-      INSERT INTO master_data.bases 
+      INSERT INTO ${basesRoute.fullPath} 
       (base_code, base_name, location, office_id, address, postal_code)
       VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *
@@ -1449,8 +1454,10 @@ app.put('/api/bases/:id', requireAdmin, async (req, res) => {
   }
 
   try {
+    const basesRoute = await resolveTablePath('bases');
+    
     const updateQuery = `
-      UPDATE master_data.bases 
+      UPDATE ${basesRoute.fullPath} 
       SET base_name = $1, location = $2, office_id = $3, address = $4, postal_code = $5,
           updated_at = CURRENT_TIMESTAMP
       WHERE base_id = $6
@@ -1481,7 +1488,8 @@ app.delete('/api/bases/:id', requireAdmin, async (req, res) => {
   const baseId = req.params.id;
 
   try {
-    const deleteQuery = 'DELETE FROM master_data.bases WHERE id = $1 RETURNING base_name';
+    const basesRoute = await resolveTablePath('bases');
+    const deleteQuery = `DELETE FROM ${basesRoute.fullPath} WHERE base_id = $1 RETURNING base_name`;
     const result = await pool.query(deleteQuery, [baseId]);
 
     if (result.rows.length === 0) {

@@ -6,6 +6,12 @@ const router = express.Router();
  * 環境変数で設定されたURL情報をフロントエンドに提供します。
  */
 router.get('/', (req, res) => {
+    // キャッシュを無効化するヘッダーを設定
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+
     // 環境変数から 'URL_' で始まるものを収集、または特定のキーを指定してマッピング
     const config = {
         endpoints: {
