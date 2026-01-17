@@ -1354,7 +1354,7 @@ app.delete('/api/offices/:id', requireAdmin, async (req, res) => {
   const officeId = req.params.id;
 
   try {
-    const offices = await dynamicDelete('managements_offices', { id: officeId }, true);
+    const offices = await dynamicDelete('management_offices', { id: officeId }, true);
 
     if (offices.length === 0) {
       return res.status(404).json({ success: false, message: '事業所が見つかりません' });
@@ -2641,7 +2641,7 @@ app.post('/debug/test-login', async (req, res) => {
 // デバッグ用: テーブル存在確認
 app.get('/debug/tables', async (req, res) => {
   try {
-    const tables = ['managements_offices', 'vehicles', 'machines', 'machine_types', 'bases', 'users', 'inspection_types', 'inspection_schedules'];
+    const tables = ['management_offices', 'vehicles', 'machines', 'machine_types', 'bases', 'users', 'inspection_types', 'inspection_schedules'];
     const results = {};
 
     for (const tableName of tables) {
@@ -2896,7 +2896,7 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
 
     console.log(`[GET /api/machines] Resolving tables:`, { machines: machinesRoute.fullPath, types: machineTypesRoute.fullPath });
 
-    const officesRoute = await resolveTablePath('managements_offices');
+    const officesRoute = await resolveTablePath('management_offices');
 
     const query = `
       SELECT 
