@@ -1264,7 +1264,7 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
 // 事業所一覧取得
 app.get('/api/offices', authenticateToken, async (req, res) => {
   try {
-    const route = await resolveTablePath('managements_offices');
+    const route = await resolveTablePath('management_offices');
     const query = `SELECT * FROM ${route.fullPath} ORDER BY office_id DESC`;
     const result = await pool.query(query);
     res.json({ success: true, offices: result.rows });
@@ -1286,14 +1286,14 @@ app.post('/api/offices', requireAdmin, async (req, res) => {
   try {
     // 事業所コードが指定されていない場合は自動採番
     if (!office_code) {
-      const route = await resolveTablePath('managements_offices');
+      const route = await resolveTablePath('management_offices');
       const maxCodeQuery = `SELECT MAX(CAST(office_code AS INTEGER)) as max_code FROM ${route.fullPath} WHERE office_code ~ '^[0-9]+$'`;
       const maxCodeResult = await pool.query(maxCodeQuery);
       const maxCode = maxCodeResult.rows[0].max_code || 0;
       office_code = String(maxCode + 1).padStart(4, '0');
     }
 
-    const offices = await dynamicInsert('managements_offices', {
+    const offices = await dynamicInsert('management_offices', {
       office_code,
       office_name,
       office_type: office_type || null,
@@ -1324,7 +1324,7 @@ app.put('/api/offices/:id', requireAdmin, async (req, res) => {
   }
 
   try {
-    const offices = await dynamicUpdate('managements_offices',
+    const offices = await dynamicUpdate('management_offices',
       {
         office_code: office_code || null,
         office_name,
@@ -1376,7 +1376,7 @@ app.delete('/api/offices/:id', requireAdmin, async (req, res) => {
 app.get('/api/bases', authenticateToken, async (req, res) => {
   try {
     const basesRoute = await resolveTablePath('bases');
-    const officesRoute = await resolveTablePath('managements_offices');
+    const officesRoute = await resolveTablePath('management_offices');
     
     const query = `
       SELECT b.*, o.office_name 
@@ -3254,7 +3254,7 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
 
     const machinesRoute = await resolveTablePath('machines');
     const machineTypesRoute = await resolveTablePath('machine_types');
-    const officesRoute = await resolveTablePath('managements_offices');
+    const officesRoute = await resolveTablePath('management_offices');
     const inspectionTypesRoute = await resolveTablePath('inspection_types');
     const inspectionSchedulesRoute = await resolveTablePath('inspection_schedules');
 
