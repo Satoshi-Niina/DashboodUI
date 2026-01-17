@@ -26,7 +26,18 @@ INSERT INTO public.app_resource_routing (
     physical_table, 
     is_active
 ) VALUES 
-    ('dashboard-ui', 'managements_offices', 'master_data', 'managements_offices', true);
+    ('dashboard-ui', 'managements_offices', 'master_data', 'management_offices', true);
+
+-- 検修周期・期間設定
+INSERT INTO public.app_resource_routing (
+    app_id, 
+    logical_resource_name, 
+    physical_schema, 
+    physical_table, 
+    is_active
+) VALUES 
+    ('dashboard-ui', 'inspection_schedules', 'master_data', 'inspection_schedules', true);
+
 
 -- 保守基地マスタ
 INSERT INTO public.app_resource_routing (
@@ -86,10 +97,11 @@ BEGIN
     RAISE NOTICE 'ダッシュボードUIのルーティング設定が完了しました';
     RAISE NOTICE '登録されたルーティング:';
     RAISE NOTICE '  - users → master_data.users';
-    RAISE NOTICE '  - managements_offices → master_data.managements_offices';
+    RAISE NOTICE '  - managements_offices → master_data.management_offices';
     RAISE NOTICE '  - bases → master_data.bases';
     RAISE NOTICE '  - vehicles → master_data.vehicles';
     RAISE NOTICE '  - machines → master_data.machines';
     RAISE NOTICE '  - machine_types → master_data.machine_types';
+    RAISE NOTICE '  - inspection_schedules → master_data.inspection_schedules';
     RAISE NOTICE '===================================================';
 END $$;
