@@ -30,7 +30,7 @@ const apps = [
     {
         id: 'failure',
         title: '機械故障管理',
-        description: '機械故障の発生状況と対応履歴を管理します。',
+        description: '機械故障の原因分析と対策策定、発生状況と対応履歴を管理します。',
         image: 'assets/img/Machinery Failure Management.png',
         url: '#failure',
         icon: '⚠️'
