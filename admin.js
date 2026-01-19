@@ -3577,7 +3577,19 @@ async function handleManualImport() {
             });
 
             if (!response.ok) {
-                throw new Error(`Failed to upload ${file.name}`);
+                let errorMsg = `Failed to upload ${file.name}`;
+                try {
+                    const errorData = await response.json();
+                    if (errorData.message) {
+                        errorMsg += `: ${errorData.message}`;
+                    }
+                } catch (e) {
+                    const text = await response.text();
+                    if (text) {
+                        errorMsg += `: ${text}`;
+                    }
+                }
+                throw new Error(errorMsg);
             }
         } catch (error) {
             console.error('[AI] Error uploading file:', error);
