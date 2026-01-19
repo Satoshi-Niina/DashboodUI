@@ -1,0 +1,33 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+
+# Environment variables
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Build outputs
+dist/
+build/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Docker
+docker-compose.override.yml

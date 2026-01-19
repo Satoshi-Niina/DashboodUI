@@ -599,14 +599,14 @@
 
                     <section class="config-section">
                         <h3>📄 基礎マニュアルファイルインポート</h3>
-                        <p class="section-desc">PDF、TXT、XLSX形式のマニュアルファイルをインポートします（複数選択可能）</p>
+                        <p class="section-desc">PDF、TXT、XLSX、画像、JSON形式のマニュアルファイルをインポートします（複数選択可能）</p>
                         
                         <div class="upload-area" id="manual-upload-area">
-                            <input type="file" id="manual-files" multiple accept=".pdf,.txt,.xlsx,.docx,.md" class="file-input" style="display: none;">
+                            <input type="file" id="manual-files" multiple accept=".pdf,.txt,.xlsx,.docx,.md,.json,.png,.jpg,.jpeg,.gif,.svg,.webp,.bmp" class="file-input" style="display: none;">
                             <label for="manual-files" class="upload-label">
                                 <div class="upload-content">
                                     <span class="upload-icon">📁</span>
-                                    <p>クリックしてファイルを選択 (PDF, TXT, XLSX, DOCX, MD)</p>
+                                    <p>クリックしてファイルを選択 (PDF, TXT, XLSX, DOCX, MD, JSON, PNG, JPG, GIF, SVG等)</p>
                                     <p class="upload-hint">複数選択可能 | 最大100MB</p>
                                 </div>
                             </label>
@@ -632,7 +632,7 @@
                         
                         <div class="form-group">
                             <label for="gcs-file-path">GCSファイルパス</label>
-                            <input type="text" id="gcs-file-path" placeholder="knowledge-data/manual-2024.pdf">
+                            <input type="text" id="gcs-file-path" placeholder="ai-knowledge/manuals/manual-2024.pdf">
                             <small>バケット内のファイルパスを入力してください</small>
                         </div>
                         

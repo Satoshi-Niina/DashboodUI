@@ -2096,9 +2096,22 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
     let ragMetadataPath = null;
     let chunks = [];
     
-    // 1. 元ファイルをGCSに保存（チェックボックスがONの場合のみ）
-    if (saveOriginalFile === 'true') {
-      originalFilePath = `${folderPath}/originals/${gcsFileName}`;
+    // ファイルタイプを判定
+    const isImageFile = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico'].includes(extension.toLowerCase());
+    const isJsonFile = extension.toLowerCase() === '.json';
+    const isManualFile = ['.pdf', '.txt', '.xlsx', '.docx', '.md'].includes(extension.toLowerCase());
+    
+    // 1. 元ファイルをGCSに保存（ファイルタイプに応じて適切なフォルダに振り分け）
+    if (isImageFile || isJsonFile || isManualFile || saveOriginalFile === 'true') {
+      // ファイルタイプに応じて保存先フォルダを決定
+      let targetFolder = 'originals'; // デフォルト
+      if (isImageFile) {
+        targetFolder = 'images';
+      } else if (isManualFile) {
+        targetFolder = 'manuals';
+      }
+      
+      originalFilePath = `${folderPath}/${targetFolder}/${gcsFileName}`;
       const originalFile = storage.bucket(bucketName).file(originalFilePath);
       await originalFile.save(file.buffer, {
         metadata: {
@@ -2107,11 +2120,15 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
           metadata: {
             originalName: safeFileName,
             uploadedBy: uploadedBy || 'admin',
-            uploadedAt: new Date().toISOString()
+            uploadedAt: new Date().toISOString(),
+            isImageFile: isImageFile,
+            isJsonFile: isJsonFile,
+            isManualFile: isManualFile,
+            targetFolder: targetFolder
           }
         }
       });
-      console.log(`[GCS] ✅ Original file saved: ${originalFilePath}`);
+      console.log(`[GCS] ✅ Original file saved to ${targetFolder}/: ${originalFilePath}`);
     }
     
     // 2. ファイル内容をテキスト化・チャンク処理
@@ -2223,10 +2240,41 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
 // テキスト抽出ヘルパー関数
 async function extractTextFromFile(file) {
   const fileType = path.extname(file.originalname).toLowerCase();
+  
+  // 画像ファイルの場合はメタデータのみ返す（実際の画像は元ファイルとして保存される）
+  if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico'].includes(fileType)) {
+    return JSON.stringify({
+      type: 'image',
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      size: file.size,
+      description: `画像ファイル: ${file.originalname}`,
+      metadata: {
+        uploadedAt: new Date().toISOString(),
+        fileType: fileType,
+        isImageFile: true
+      }
+    }, null, 2);
+  }
+  
+  // JSONファイルの場合はそのまま内容を返す
+  if (fileType === '.json') {
+    try {
+      const content = file.buffer.toString('utf-8');
+      // JSONが正しいかバリデーション
+      JSON.parse(content);
+      return content;
+    } catch (e) {
+      console.error('Invalid JSON file:', e);
+      return `{"error": "Invalid JSON format", "fileName": "${file.originalname}"}`;
+    }
+  }
+  
+  // テキストファイルの場合
   const content = file.buffer.toString('utf-8');
   
-  // 簡易実装：TXT, MD, JSON等はそのまま、PDF/DOCXは後で実装
-  if (['.txt', '.md', '.json', '.js', '.py', '.java', '.cpp', '.c', '.h'].includes(fileType)) {
+  // 簡易実装：TXT, MD等はそのまま、PDF/DOCXは後で実装
+  if (['.txt', '.md', '.js', '.py', '.java', '.cpp', '.c', '.h'].includes(fileType)) {
     return content;
   } else if (fileType === '.pdf') {
     // TODO: PDF-parseライブラリを使用
