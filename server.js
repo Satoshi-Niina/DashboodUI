@@ -2061,8 +2061,13 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
     const settingsResult = await pool.query(settingsQuery);
     const storageSettings = settingsResult.rows[0]?.settings_json || {};
     
-    const bucketName = storageSettings.gcsBucketName || process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET;
-    const folderPath = storageSettings.gcsKnowledgeFolder || process.env.GCS_KNOWLEDGE_FOLDER || 'ai-knowledge';
+    const bucketName = (storageSettings.gcsBucketName && storageSettings.gcsBucketName.trim()) 
+      ? storageSettings.gcsBucketName.trim() 
+      : (process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET);
+
+    const folderPath = (storageSettings.gcsKnowledgeFolder && storageSettings.gcsKnowledgeFolder.trim()) 
+      ? storageSettings.gcsKnowledgeFolder.trim() 
+      : (process.env.GCS_KNOWLEDGE_FOLDER || 'ai-knowledge');
     
     console.log('[AI Upload] GCS Bucket:', bucketName);
     console.log('[AI Upload] GCS Folder:', folderPath);

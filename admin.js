@@ -3593,7 +3593,8 @@ async function handleManualImport() {
             }
         } catch (error) {
             console.error('[AI] Error uploading file:', error);
-            showToast(`${file.name} のアップロードに失敗しました`, 'error');
+            // エラーメッセージを含めて表示するように修正
+            showToast(`${error.message}`, 'error');
             return;
         }
     }
