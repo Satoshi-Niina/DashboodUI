@@ -2063,7 +2063,7 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
     
     const bucketName = (storageSettings.gcsBucketName && storageSettings.gcsBucketName.trim()) 
       ? storageSettings.gcsBucketName.trim() 
-      : (process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET);
+      : (process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET || 'maint-vehicle-management-storage');
 
     const folderPath = (storageSettings.gcsKnowledgeFolder && storageSettings.gcsKnowledgeFolder.trim()) 
       ? storageSettings.gcsKnowledgeFolder.trim() 
