@@ -3847,22 +3847,9 @@ async function runEmergencyDbFix() {
 
 // --- サーバー起動 ---
 async function startServer() {
-  try {
-    console.log('Testing database connection...');
-    const testQuery = await pool.query('SELECT NOW() as current_time');
-    console.log('✅ Database connection successful:', testQuery.rows[0].current_time);
+  console.log(`📡 Starting server on port ${PORT}...`);
 
-    // 起動時にDB修正を実行
-    await runEmergencyDbFix();
-
-  } catch (err) {
-    console.error('❌ Database connection failed:', err.message);
-    console.error('Stack:', err.stack);
-    console.error('⚠️ Server will start anyway, but database operations will fail');
-  }
-
-  console.log(`📡 About to call app.listen(${PORT}, '0.0.0.0')...`);
-
+  // まずサーバーをリッスン開始（Cloud Runのヘルスチェック対策）
   const server = app.listen(PORT, '0.0.0.0', (err) => {
     if (err) {
       console.error('❌ Failed to start server:', err);
@@ -3875,6 +3862,9 @@ async function startServer() {
     console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`❤️ Health check: http://0.0.0.0:${PORT}/health`);
     console.log('='.repeat(60));
+
+    // サーバー起動後にデータベース接続を非同期で実行
+    initializeDatabase();
   });
 
   server.on('error', (err) => {
@@ -3895,6 +3885,26 @@ async function startServer() {
     });
   });
 }
+
+// データベース初期化（非同期）
+async function initializeDatabase() {
+  try {
+    console.log('🔄 Initializing database connection...');
+    const testQuery = await pool.query('SELECT NOW() as current_time');
+    console.log('✅ Database connection successful:', testQuery.rows[0].current_time);
+
+    // 起動時にDB修正を実行
+    console.log('🔄 Running emergency DB fix...');
+    await runEmergencyDbFix();
+    console.log('✅ Database initialization complete');
+
+  } catch (err) {
+    console.error('❌ Database initialization failed:', err.message);
+    console.error('Stack:', err.stack);
+    console.error('⚠️ Server is running, but database operations may fail');
+  }
+}
+
 
 // Start the server
 startServer().catch(err => {
