@@ -22,8 +22,6 @@ console.log('🚀 Starting server...');
 console.log('Node version:', process.version);
 console.log('Environment:', process.env.NODE_ENV || 'development');
 console.log('PORT from env:', process.env.PORT);
-console.log('K_SERVICE:', process.env.K_SERVICE || 'NOT SET');
-console.log('K_REVISION:', process.env.K_REVISION || 'NOT SET');
 console.log('Cloud SQL Instance:', process.env.CLOUD_SQL_INSTANCE || 'NOT SET');
 console.log('DB Name:', process.env.DB_NAME || 'NOT SET');
 console.log('DB User:', process.env.DB_USER || 'NOT SET');
@@ -33,8 +31,7 @@ console.log('APP_ID:', process.env.APP_ID || 'dashboard-ui');
 console.log('DATABASE_URL set:', !!process.env.DATABASE_URL);
 
 const app = express();
-const isCloudRun = !!process.env.K_SERVICE || !!process.env.K_REVISION;
-const PORT = isCloudRun ? 8080 : (Number(process.env.PORT) || 3000);
+const PORT = Number(process.env.PORT) || 8080;
 let serverInstance;
 let dbReady = false;
 
@@ -3875,7 +3872,6 @@ async function runEmergencyDbFix() {
 // --- サーバー起動 ---
 async function startServer() {
   if (serverInstance) {
-    console.log('ℹ️ Server already started, skipping duplicate start');
     return;
   }
   console.log(`📡 Starting server on port ${PORT}...`);
