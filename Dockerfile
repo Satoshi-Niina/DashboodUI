@@ -12,7 +12,7 @@ RUN npm install --production
 
 # アプリケーションファイルをコピー
 # キャッシュバスティング: ビルド時に必ず最新ファイルを使用
-ARG CACHEBUST=20260117-1035
+ARG CACHEBUST=20260120-1050
 ARG BUILDTIME=unknown
 ENV BUILD_TIMESTAMP=${CACHEBUST}
 ENV BUILD_TIME=${BUILDTIME}
@@ -24,12 +24,6 @@ RUN echo "🔨 Build Info:" && \
     echo "  Timestamp: ${CACHEBUST}" && \
     echo "  Build Time: ${BUILDTIME}" && \
     echo "  Node Version: $(node --version)"
-
-# コンテナ起動時に実行するコマンド
-CMD ["npm", "start"]
-
-# バージョン番号を自動更新
-RUN node update-version.js || true
 
 # 非rootユーザーで実行 (セキュリティのため)
 RUN useradd -m appuser && chown -R appuser:appuser /app
