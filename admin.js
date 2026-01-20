@@ -51,13 +51,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // タブ機能の初期化
     initializeTabs();
 
-    // 初期ロード
+    // 初期ロード - 最初のタブ（ユーザー管理）のみ読み込む
     loadUsers();
-    loadOffices();
-    loadBases();
-    loadDatabaseStats();
-    loadInspectionTypes();
-    loadInspectionSchedules();
 
     // 汎用テーブルフィルター関数
     window.applyTableFilter = function (table) {
