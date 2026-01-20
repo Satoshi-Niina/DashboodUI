@@ -986,6 +986,41 @@ async function requireAdmin(req, res, next) {
   }
 }
 
+// システム管理者専用認証ミドルウェア
+async function requireSystemAdmin(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+
+  if (!token) {
+    return res.status(401).json({ success: false, message: '認証が必要です' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+      issuer: 'emergency-assistance-app',
+      audience: 'emergency-assistance-app'
+    });
+    const query = 'SELECT id, username, role FROM master_data.users WHERE id = $1';
+    const result = await pool.query(query, [decoded.id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
+    }
+
+    const user = result.rows[0];
+
+    // system_admin のみアクセス可能
+    if (user.role !== 'system_admin') {
+      return res.status(403).json({ success: false, message: 'アクセス権限がありません。システム管理者権限が必要です。' });
+    }
+
+    req.user = user;
+    next();
+  } catch (err) {
+    console.error('Auth middleware error:', err);
+    return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
+  }
+}
+
 // 設定取得エンドポイント（管理画面用）
 app.get('/api/config', requireAdmin, async (req, res) => {
   try {
