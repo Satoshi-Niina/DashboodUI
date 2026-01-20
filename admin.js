@@ -215,6 +215,56 @@ function initializeEventListeners() {
         addUserBtn.addEventListener('click', () => openUserModal());
     }
 
+    // ユーザーインポートボタン
+    const importUsersBtn = document.getElementById('import-users-btn');
+    const userImportFile = document.getElementById('user-import-file');
+    if (importUsersBtn && userImportFile) {
+        importUsersBtn.addEventListener('click', () => {
+            userImportFile.click();
+        });
+        userImportFile.addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                await importUsers(e.target.files[0]);
+                e.target.value = ''; // ファイル選択をリセット
+            }
+        });
+    }
+
+    // テンプレートダウンロードボタン
+    const downloadExcelBtn = document.getElementById('download-excel-template-btn');
+    if (downloadExcelBtn) {
+        downloadExcelBtn.addEventListener('click', () => downloadUserTemplate('excel'));
+    }
+
+    const downloadCsvBtn = document.getElementById('download-csv-template-btn');
+    if (downloadCsvBtn) {
+        downloadCsvBtn.addEventListener('click', () => downloadUserTemplate('csv'));
+    }
+
+    // フィルターイベント
+    const filterDisplayName = document.getElementById('filter-display-name');
+    const filterUsername = document.getElementById('filter-username');
+    const filterRole = document.getElementById('filter-role');
+    const clearFiltersBtn = document.getElementById('clear-filters-btn');
+
+    if (filterDisplayName) {
+        filterDisplayName.addEventListener('input', applyUserFilters);
+    }
+    if (filterUsername) {
+        filterUsername.addEventListener('input', applyUserFilters);
+    }
+    if (filterRole) {
+        filterRole.addEventListener('change', applyUserFilters);
+    }
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', () => {
+            if (filterDisplayName) filterDisplayName.value = '';
+            if (filterUsername) filterUsername.value = '';
+            if (filterRole) filterRole.value = '';
+            applyUserFilters();
+        });
+    }
+
     // ユーザーモーダルのイベントリスナー
     const userModal = document.getElementById('user-modal');
     const userCloseModal = document.getElementById('modal-close');
@@ -429,6 +479,9 @@ function initializeEventListeners() {
 }
 
 // ========== ユーザー管理 ==========
+// グローバル変数としてユーザーデータを保持
+let allUsers = [];
+
 async function loadUsers() {
     const usersList = document.getElementById('users-list');
     usersList.innerHTML = '<p class="loading">読み込み中...</p>';
@@ -450,40 +503,78 @@ async function loadUsers() {
         console.log('[loadUsers] Data received:', data);
 
         if (data.success && data.users.length > 0) {
-            usersList.innerHTML = data.users.map(user => {
-                // 役割の表示名を取得
-                let roleDisplayName = 'ユーザー';
-                if (user.role === 'system_admin') {
-                    roleDisplayName = 'システム管理者';
-                } else if (user.role === 'operation_admin') {
-                    roleDisplayName = '運用管理者';
-                } else if (user.role === 'admin') {
-                    roleDisplayName = '管理者';
-                } else if (user.role === 'user') {
-                    roleDisplayName = 'ユーザー';
-                }
-
-                return `
-                    <div class="user-item">
-                        <div class="user-info">
-                            <div class="username">${escapeHtml(user.username)}</div>
-                            <div class="display-name">${escapeHtml(user.display_name || '')}</div>
-                            <span class="role-badge role-${user.role}">${roleDisplayName}</span>
-                        </div>
-                        <div class="user-actions-buttons">
-                            <button class="btn-edit" onclick="editUser(${user.id})">✏️ 編集</button>
-                            <button class="btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')">🗑️ 削除</button>
-                        </div>
-                    </div>
-                `;
-            }).join('');
+            // 全ユーザーデータをグローバル変数に保存
+            allUsers = data.users;
+            // フィルター適用して表示
+            applyUserFilters();
         } else {
+            allUsers = [];
             usersList.innerHTML = '<p class="loading">ユーザーが登録されていません</p>';
         }
     } catch (error) {
         console.error('[loadUsers] Error:', error);
+        allUsers = [];
         usersList.innerHTML = `<p class="loading" style="color: red;">⚠️ ユーザーの読み込みに失敗しました<br>エラー: ${error.message}<br>データベース接続を確認してください</p>`;
     }
+}
+
+// ユーザーフィルター適用関数
+function applyUserFilters() {
+    const filterDisplayName = document.getElementById('filter-display-name').value.toLowerCase().trim();
+    const filterUsername = document.getElementById('filter-username').value.toLowerCase().trim();
+    const filterRole = document.getElementById('filter-role').value;
+
+    // フィルター条件に基づいてユーザーを絞り込み
+    const filteredUsers = allUsers.filter(user => {
+        const matchDisplayName = !filterDisplayName ||
+            (user.display_name && user.display_name.toLowerCase().includes(filterDisplayName));
+        const matchUsername = !filterUsername ||
+            user.username.toLowerCase().includes(filterUsername);
+        const matchRole = !filterRole || user.role === filterRole;
+
+        return matchDisplayName && matchUsername && matchRole;
+    });
+
+    // 表示を更新
+    displayUsers(filteredUsers);
+}
+
+// ユーザー表示関数
+function displayUsers(users) {
+    const usersList = document.getElementById('users-list');
+
+    if (users.length === 0) {
+        usersList.innerHTML = '<p class="loading">条件に一致するユーザーが見つかりません</p>';
+        return;
+    }
+
+    usersList.innerHTML = users.map(user => {
+        // 役割の表示名を取得
+        let roleDisplayName = 'ユーザー';
+        if (user.role === 'system_admin') {
+            roleDisplayName = 'システム管理者';
+        } else if (user.role === 'operation_admin') {
+            roleDisplayName = '運用管理者';
+        } else if (user.role === 'admin') {
+            roleDisplayName = '管理者';
+        } else if (user.role === 'user') {
+            roleDisplayName = 'ユーザー';
+        }
+
+        return `
+            <div class="user-item" data-username="${escapeHtml(user.username)}" data-displayname="${escapeHtml(user.display_name || '')}" data-role="${user.role}">
+                <div class="user-info">
+                    <div class="username">${escapeHtml(user.username)}</div>
+                    <div class="display-name">${escapeHtml(user.display_name || '')}</div>
+                    <span class="role-badge role-${user.role}">${roleDisplayName}</span>
+                </div>
+                <div class="user-actions-buttons">
+                    <button class="btn-edit" onclick="editUser(${user.id})">✏️ 編集</button>
+                    <button class="btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')">🗑️ 削除</button>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 function openUserModal(userId = null) {
@@ -1295,12 +1386,12 @@ async function loadInspectionSchedules() {
                 const statusBadge = schedule.is_active ?
                     '<span class="status-badge status-active">有効</span>' :
                     '<span class="status-badge status-inactive">無効</span>';
-                
+
                 // カテゴリーか機械番号のどちらかを表示
                 const targetDisplay = schedule.target_category || schedule.machine_number || '-';
                 // 編集時の表示用識別子（名前）も同様に設定
-                const targetName = schedule.target_category ? 
-                    `カテゴリー: ${schedule.target_category}` : 
+                const targetName = schedule.target_category ?
+                    `カテゴリー: ${schedule.target_category}` :
                     `保守用車: ${schedule.machine_number}`;
 
                 html += `
@@ -1368,7 +1459,7 @@ async function loadInspectionTypeData(id) {
             // データが data.data にあるか、data そのものかを確認
             const type = data.data || data;
             console.log('[loadInspectionTypeData] Type object:', type);
-            
+
             document.getElementById('inspection-type-id').value = type.id;
             document.getElementById('inspection-type-code').value = type.type_code || '';
             document.getElementById('inspection-type-name').value = type.type_name || '';
@@ -1447,7 +1538,7 @@ async function loadInspectionScheduleData(id) {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
-        
+
         console.log('[loadInspectionScheduleData] Response:', data);
 
         if (data.success) {
@@ -1455,17 +1546,17 @@ async function loadInspectionScheduleData(id) {
             console.log('[loadInspectionScheduleData] Schedule object:', schedule);
 
             document.getElementById('inspection-schedule-id').value = schedule.id;
-            
+
             // 値のセットと確認
             const machineSelect = document.getElementById('inspection-schedule-machine');
             const categorySelect = document.getElementById('inspection-schedule-category');
             const typeSelect = document.getElementById('inspection-schedule-type');
-            
+
             // カテゴリかマシンIDのどちらかがセットされているはず
             if (categorySelect) categorySelect.value = schedule.target_category || '';
             machineSelect.value = schedule.machine_id || '';
             typeSelect.value = schedule.inspection_type_id || '';
-            
+
             document.getElementById('inspection-schedule-cycle').value = schedule.cycle_months || '';
             document.getElementById('inspection-schedule-duration').value = schedule.duration_days || '';
             document.getElementById('inspection-schedule-remarks').value = schedule.remarks || '';
@@ -2931,7 +3022,7 @@ window.editInspectionSchedule = async function (id) {
             // 今回はカテゴリー移行なので、カテゴリーがなければ未選択状態になる
             console.warn('[Admin] Legacy schedule with machine_id:', schedule.machine_id);
         }
-        
+
         document.getElementById('inspection-schedule-type').value = schedule.inspection_type_id;
         document.getElementById('inspection-schedule-cycle').value = schedule.cycle_months;
         document.getElementById('inspection-schedule-duration').value = schedule.duration_days;
@@ -3249,7 +3340,7 @@ function initializeAIManagement() {
     document.querySelectorAll('.radio-option').forEach(label => {
         const input = label.querySelector('input[type="radio"]');
         if (input) {
-            input.addEventListener('change', function() {
+            input.addEventListener('change', function () {
                 document.querySelectorAll('.radio-option').forEach(l => {
                     l.style.borderColor = '#ddd';
                     l.style.backgroundColor = 'white';
@@ -3271,7 +3362,7 @@ function initializeAIManagement() {
     document.querySelectorAll('.checkbox-option').forEach(label => {
         const input = label.querySelector('input[type="checkbox"]');
         if (input && !input.disabled) {
-            input.addEventListener('change', function() {
+            input.addEventListener('change', function () {
                 if (this.checked) {
                     label.style.borderColor = '#667eea';
                     label.style.backgroundColor = '#f0f4ff';
@@ -3298,19 +3389,19 @@ function initializeAIManagement() {
     const testRAGBtn = document.getElementById('test-rag-btn');
     const ragTestModal = document.getElementById('rag-test-result-modal');
     const closeRagTestModal = document.getElementById('close-rag-test-modal');
-    
+
     if (testRAGBtn && ragTestModal) {
         testRAGBtn.addEventListener('click', async () => {
             try {
                 const testQuery = document.getElementById('test-query')?.value || 'テストクエリ';
                 showToast('🧪 RAGパフォーマンステストを開始します...', 'info');
-                
+
                 const chunkSize = document.getElementById('rag-chunk-size').value;
                 const overlap = document.getElementById('rag-overlap').value;
                 const similarity = parseFloat(document.getElementById('rag-similarity').value) / 100;
                 const maxResults = document.getElementById('rag-max-results').value;
                 const searchMethod = document.querySelector('input[name="search-method"]:checked')?.value || 'vector';
-                
+
                 // テスト実行中の表示
                 const ragTestResultBody = document.getElementById('rag-test-result-body');
                 ragTestResultBody.innerHTML = `
@@ -3323,15 +3414,15 @@ function initializeAIManagement() {
 ✓ テストクエリ: "${testQuery}"
 
 処理を実行中...⏳`;
-                
+
                 ragTestModal.classList.add('show');
-                
+
                 // 仮のテスト実行（実装は後で追加）
                 const startTime = Date.now();
                 await new Promise(resolve => setTimeout(resolve, 1500));
                 const endTime = Date.now();
                 const duration = endTime - startTime;
-                
+
                 const resultMessage = `🎉 RAGパフォーマンステスト完了
 
 【現在の設定】
@@ -3351,24 +3442,24 @@ function initializeAIManagement() {
 • オーバーラップを設定するとチャンク間の情報欠落を防げます
 • 類似度閾値を高くすると精度が上がりますが結果数が減ります
 • 最大結果数は用途に応じて調整してください`;
-                
+
                 ragTestResultBody.textContent = resultMessage;
                 console.log('[RAG Test] Complete:', resultMessage);
-                
+
             } catch (error) {
                 console.error('[RAG Test] Error:', error);
                 const ragTestResultBody = document.getElementById('rag-test-result-body');
                 ragTestResultBody.textContent = '❌ テスト実行中にエラーが発生しました:\n' + error.message;
             }
         });
-        
+
         // 終了ボタンでモーダルを閉じる
         if (closeRagTestModal) {
             closeRagTestModal.addEventListener('click', () => {
                 ragTestModal.classList.remove('show');
             });
         }
-        
+
         // モーダル背景クリックで閉じる
         ragTestModal.addEventListener('click', (e) => {
             if (e.target === ragTestModal) {
@@ -3417,7 +3508,7 @@ async function loadKnowledgeData() {
     try {
         const token = localStorage.getItem('user_token');
         console.log('[LoadKnowledge] Token:', token ? 'exists' : 'missing');
-        
+
         const response = await fetch('/api/ai/knowledge', {
             headers: {
                 'Authorization': `Bearer ${token}`
@@ -3425,7 +3516,7 @@ async function loadKnowledgeData() {
         });
 
         console.log('[LoadKnowledge] Response status:', response.status);
-        
+
         if (response.ok) {
             const result = await response.json();
             console.log('[LoadKnowledge] Result:', result);
@@ -3445,7 +3536,7 @@ async function loadKnowledgeData() {
 // ナレッジデータの表示
 function displayKnowledgeData(data) {
     const container = document.getElementById('knowledge-data-list');
-    
+
     if (!data || data.length === 0) {
         container.innerHTML = '<p class="no-data">ナレッジデータがありません</p>';
         return;
@@ -3612,14 +3703,14 @@ function updateCurrentRAGSettings() {
     const similarity = document.getElementById('rag-similarity')?.value || '0';
     const maxResults = document.getElementById('rag-max-results')?.value || '-';
     const searchMethod = document.querySelector('input[name="search-method"]:checked')?.value || 'vector';
-    
+
     // テキスト前処理の選択状態を取得
     const preprocessing = [];
     if (document.getElementById('preprocessing-stopwords')?.checked) preprocessing.push('ストップワード除去');
     if (document.getElementById('preprocessing-stemming')?.checked) preprocessing.push('ステミング');
     if (document.getElementById('preprocessing-lowercase')?.checked) preprocessing.push('小文字変換');
     if (document.getElementById('preprocessing-normalize')?.checked) preprocessing.push('文字正規化');
-    
+
     // 表示を更新
     if (document.getElementById('display-chunk-size')) {
         document.getElementById('display-chunk-size').textContent = chunkSize;
@@ -3659,10 +3750,10 @@ function getSearchMethodLabel(value) {
 async function diagnoseGCSConnection() {
     const resultDiv = document.getElementById('gcs-diagnosis-result');
     const contentDiv = document.getElementById('gcs-diagnosis-content');
-    
+
     try {
         showToast('🔍 GCS接続診断を開始します...', 'info');
-        
+
         // 診断中の表示
         resultDiv.style.display = 'block';
         contentDiv.innerHTML = `
@@ -3670,7 +3761,7 @@ async function diagnoseGCSConnection() {
     <div style="font-size: 2em; margin-bottom: 10px;">⏳</div>
     <div>診断実行中...</div>
 </div>`;
-        
+
         const token = localStorage.getItem('user_token');
         const response = await fetch('/api/ai/diagnose-gcs', {
             method: 'GET',
@@ -3678,7 +3769,7 @@ async function diagnoseGCSConnection() {
                 'Authorization': `Bearer ${token}`
             }
         });
-        
+
         let result;
         try {
             result = await response.json();
@@ -3688,7 +3779,7 @@ async function diagnoseGCSConnection() {
         }
 
         if (response.ok) {
-            
+
             if (result && result.success) {
                 // 成功時の表示
                 contentDiv.innerHTML = `
@@ -3708,9 +3799,9 @@ async function diagnoseGCSConnection() {
     <div style="margin-bottom: 15px;">
         <strong>📁 フォルダ構成:</strong><br>
         <div style="margin-left: 20px; margin-top: 5px;">
-            ${result.folders && result.folders.length > 0 ? 
-                result.folders.map(f => `✓ ${f}`).join('<br>') : 
-                '⚠️ フォルダが見つかりません'}
+            ${result.folders && result.folders.length > 0 ?
+                        result.folders.map(f => `✓ ${f}`).join('<br>') :
+                        '⚠️ フォルダが見つかりません'}
         </div>
     </div>
     
@@ -3743,7 +3834,7 @@ async function diagnoseGCSConnection() {
         }
     } catch (error) {
         console.error('[GCS Diagnosis] Error:', error);
-        
+
         // エラー時の表示
         contentDiv.innerHTML = `
 <div style="line-height: 1.8;">
@@ -3809,29 +3900,29 @@ async function loadRAGSettings() {
             const result = await response.json();
             if (result.success && result.settings.rag) {
                 const settings = result.settings.rag.data;
-                
+
                 // チャンクサイズ
                 document.getElementById('rag-chunk-size').value = settings.chunkSize || 500;
                 document.getElementById('chunk-size-value').textContent = settings.chunkSize || 500;
-                
+
                 // オーバーラップ
                 if (document.getElementById('rag-overlap')) {
                     document.getElementById('rag-overlap').value = settings.overlap || 100;
                     document.getElementById('overlap-value').textContent = settings.overlap || 100;
                 }
-                
+
                 // 類似度閾値
                 document.getElementById('rag-similarity').value = (settings.similarityThreshold || 0.7) * 100;
                 document.getElementById('similarity-value').textContent = settings.similarityThreshold || 0.7;
-                
+
                 // 最大結果数
                 document.getElementById('rag-max-results').value = settings.maxResults || 5;
-                
+
                 // システムプロンプト
                 if (document.getElementById('rag-system-prompt')) {
                     document.getElementById('rag-system-prompt').value = settings.customInstructions || '';
                 }
-                
+
                 // 検索手法
                 if (settings.searchMethod) {
                     const searchMethodRadio = document.querySelector(`input[name="search-method"][value="${settings.searchMethod}"]`);
@@ -3841,7 +3932,7 @@ async function loadRAGSettings() {
                         searchMethodRadio.dispatchEvent(new Event('change'));
                     }
                 }
-                
+
                 // テキスト前処理
                 if (settings.preprocessing) {
                     if (document.getElementById('preprocessing-stopwords')) {
@@ -3864,7 +3955,7 @@ async function loadRAGSettings() {
                         }
                     });
                 }
-                
+
                 // 現在の設定表示を更新
                 updateCurrentRAGSettings();
             }
@@ -3878,7 +3969,7 @@ async function loadRAGSettings() {
 async function saveRAGSettings() {
     // 検索手法を取得
     const searchMethod = document.querySelector('input[name="search-method"]:checked')?.value || 'vector';
-    
+
     // テキスト前処理の設定を取得
     const preprocessing = {
         stopwords: document.getElementById('preprocessing-stopwords')?.checked || false,
@@ -3886,7 +3977,7 @@ async function saveRAGSettings() {
         lowercase: document.getElementById('preprocessing-lowercase')?.checked || false,
         normalize: document.getElementById('preprocessing-normalize')?.checked || false
     };
-    
+
     const settings = {
         chunkSize: parseInt(document.getElementById('rag-chunk-size').value),
         overlap: parseInt(document.getElementById('rag-overlap')?.value || 100),
@@ -3900,7 +3991,7 @@ async function saveRAGSettings() {
     try {
         const token = localStorage.getItem('user_token');
         console.log('[AI] Saving RAG settings:', settings);
-        
+
         const response = await fetch('/api/ai/settings', {
             method: 'POST',
             headers: {
@@ -3940,4 +4031,709 @@ document.addEventListener('DOMContentLoaded', () => {
             setTimeout(initializeAIManagement, 100);
         });
     }
+
+    // システム運用タブの初期化
+    initializeSystemOperations();
 });
+
+// ========================================
+// システム運用タブ機能
+// ========================================
+
+/**
+ * システム運用タブの初期化
+ */
+function initializeSystemOperations() {
+    console.log('[System Operations] Initializing...');
+
+    // メンテナンスボタンのイベントリスナー
+    const cleanTempBtn = document.getElementById('btn-clean-tmp');
+    const backupLogBtn = document.getElementById('btn-backup-log');
+    const cleanImagesBtn = document.getElementById('btn-clean-images');
+
+    if (cleanTempBtn) {
+        cleanTempBtn.addEventListener('click', handleCleanTempFiles);
+    }
+
+    if (backupLogBtn) {
+        backupLogBtn.addEventListener('click', handleBackupLogs);
+    }
+
+    if (cleanImagesBtn) {
+        cleanImagesBtn.addEventListener('click', handleCleanOrphanedImages);
+    }
+
+    // システム運用タブがクリックされたときにデータを読み込む
+    const systemOpsTabBtn = document.querySelector('[data-tab="system-operations"]');
+    if (systemOpsTabBtn) {
+        systemOpsTabBtn.addEventListener('click', () => {
+            setTimeout(loadSystemOperationsData, 100);
+        });
+    }
+}
+
+/**
+ * システム運用データの読み込み
+ */
+async function loadSystemOperationsData() {
+    console.log('[System Operations] Loading data...');
+
+    try {
+        const token = localStorage.getItem('user_token');
+
+        // 並列で各データを取得
+        await Promise.all([
+            loadSecurityAlerts(token),
+            loadBlockedAccess(token),
+            loadRegisteredDevices(token),
+            loadNpmAudit(token),
+            loadStorageUsage(token),
+            loadCertificateStatus(token)
+        ]);
+
+        console.log('[System Operations] All data loaded successfully');
+    } catch (error) {
+        console.error('[System Operations] Error loading data:', error);
+    }
+}
+
+/**
+ * セキュリティアラートを読み込み
+ */
+async function loadSecurityAlerts(token) {
+    try {
+        const response = await fetch('/api/security/alerts', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // アラート件数を更新
+            const badgeElement = document.querySelector('.security-panel .badge-alert');
+            if (badgeElement && data.summary) {
+                badgeElement.textContent = `${data.summary.totalAlerts || 0}件`;
+            }
+
+            // アラート詳細を更新
+            const alertCount = document.querySelector('.alert-count');
+            if (alertCount && data.summary) {
+                alertCount.innerHTML = `<span class="text-danger">${data.summary.totalAlerts || 0}件</span>`;
+            }
+
+            // アラート詳細リストを更新
+            const alertDetails = document.querySelector('.alert-details');
+            if (alertDetails && data.summary) {
+                alertDetails.innerHTML = `
+                    <li>・不正アクセス試行: ${data.summary.unauthorizedAttempts || 0}回</li>
+                    <li>・ブロックされたIP: ${data.summary.blockedIPs || 0}個</li>
+                `;
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] Error loading security alerts:', error);
+    }
+}
+
+/**
+ * ブロックされたアクセスを読み込み
+ */
+async function loadBlockedAccess(token) {
+    try {
+        const response = await fetch('/api/security/blocked-access', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.data) {
+            const table = document.querySelector('.security-list-section table tbody');
+            if (table) {
+                table.innerHTML = result.data.slice(0, 5).map(item => `
+                    <tr>
+                        <td>${item.ip} ${item.country ? `(${item.country})` : ''}</td>
+                        <td><span class="badge-gray">${item.attempts}回試行</span></td>
+                    </tr>
+                `).join('');
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] Error loading blocked access:', error);
+    }
+}
+
+/**
+ * 登録デバイスを読み込み
+ */
+async function loadRegisteredDevices(token) {
+    try {
+        const response = await fetch('/api/security/devices', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.data) {
+            const devicesContainer = document.querySelector('.security-list-section:nth-child(3)');
+            if (devicesContainer) {
+                const devicesHtml = result.data.slice(0, 5).map(device => `
+                    <div class="device-item">
+                        <div class="device-info">
+                            <span class="device-name">${device.name} (${device.user})</span>
+                            <span class="device-meta">最終アクセス: ${device.lastAccess}</span>
+                        </div>
+                        <span class="status-badge ${device.status === 'active' ? 'success' : 'inactive'}">${device.status === 'active' ? '稼働中' : '非稼働'}</span>
+                    </div>
+                `).join('');
+
+                // デバイス一覧を更新（詳細ボタンは保持）
+                const existingButton = devicesContainer.querySelector('.panel-footer');
+                const devicesList = devicesContainer.querySelector('h4').nextElementSibling;
+                if (devicesList && devicesList.classList.contains('device-item')) {
+                    // 既存のデバイス項目をすべて削除
+                    while (devicesList && devicesList.classList.contains('device-item')) {
+                        const next = devicesList.nextElementSibling;
+                        devicesList.remove();
+                        devicesList = next;
+                    }
+                }
+
+                // 新しいデバイスを追加
+                const h4 = devicesContainer.querySelector('h4');
+                if (h4 && existingButton) {
+                    h4.insertAdjacentHTML('afterend', devicesHtml);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] Error loading registered devices:', error);
+    }
+}
+
+/**
+ * npm audit結果を読み込み
+ */
+async function loadNpmAudit(token) {
+    try {
+        const response = await fetch('/api/maintenance/npm-audit', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.vulnerabilities) {
+            const govWarnings = document.querySelector('.gov-warnings');
+            if (govWarnings) {
+                const total = result.vulnerabilities.total || 0;
+                const critical = result.vulnerabilities.critical || 0;
+                const high = result.vulnerabilities.high || 0;
+
+                govWarnings.innerHTML = `
+                    <span>⚠️ 脆弱性あり:</span> <span class="text-danger">${total}個 (重大:${critical}, 高:${high})</span><br>
+                    <span>⏰ 更新可能:</span> <span>${total > 0 ? total : '0'}パッケージ</span>
+                `;
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] Error loading npm audit:', error);
+    }
+}
+
+/**
+ * ストレージ使用状況を読み込み
+ */
+async function loadStorageUsage(token) {
+    try {
+        const response = await fetch('/api/maintenance/storage-usage', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            const total = result.total || 0;
+            const limit = 5; // GB
+            const percentage = Math.round((total / limit) * 100);
+
+            // ストレージ使用状況を更新
+            const storageStats = document.querySelector('.storage-stats');
+            if (storageStats) {
+                const storageText = storageStats.querySelector('.storage-text');
+                if (storageText) {
+                    storageText.innerHTML = `
+                        <span>使用中: ${total.toFixed(1)}GB / ${limit}GB</span>
+                        <span class="percentage">${percentage}%</span>
+                    `;
+                }
+
+                const progressBar = storageStats.querySelector('.progress-bar-fill');
+                if (progressBar) {
+                    progressBar.style.width = `${percentage}%`;
+                    progressBar.className = `progress-bar-fill ${percentage > 80 ? 'danger' : percentage > 60 ? 'warning' : 'success'}`;
+                }
+
+                // 内訳を更新
+                const detailsList = storageStats.querySelector('.storage-details');
+                if (detailsList && result.breakdown) {
+                    detailsList.innerHTML = `
+                        <li>・アップロード: ${result.breakdown.uploads || 0}GB</li>
+                        <li>・ログファイル: ${result.breakdown.logs || 0}GB</li>
+                        <li>・一時ファイル: ${result.breakdown.temp || 0}GB ${result.breakdown.temp > 1 ? '<span class="text-warning">⚠️</span>' : ''}</li>
+                    `;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] Error loading storage usage:', error);
+    }
+}
+
+/**
+ * 証明書ステータスを読み込み
+ */
+async function loadCertificateStatus(token) {
+    try {
+        const response = await fetch('/api/maintenance/certificate-status', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.certificates) {
+            const expiryList = document.querySelector('.expiry-list');
+            if (expiryList) {
+                expiryList.innerHTML = result.certificates.map(cert => {
+                    let badgeClass = 'badge-success';
+                    let label = '問題なし';
+
+                    if (cert.daysRemaining !== null) {
+                        if (cert.daysRemaining < 30) {
+                            badgeClass = 'badge-danger';
+                            label = `${cert.daysRemaining}日後`;
+                        } else if (cert.daysRemaining < 60) {
+                            badgeClass = 'badge-warning';
+                            label = `${cert.daysRemaining}日後`;
+                        } else {
+                            label = `${cert.daysRemaining}日後`;
+                        }
+                    }
+
+                    return `
+                        <div class="expiry-row">
+                            <span class="expiry-label">${cert.name}</span>
+                            <span class="${badgeClass}">${label}</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] Error loading certificate status:', error);
+    }
+}
+
+/**
+ * 一時ファイル削除処理
+ */
+async function handleCleanTempFiles() {
+    if (!confirm('一時ファイルを削除してもよろしいですか？\n1日以上経過したファイルが削除されます。')) {
+        return;
+    }
+
+    const button = document.getElementById('btn-clean-tmp');
+    button.disabled = true;
+    button.textContent = '🔄 削除中...';
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/maintenance/clean-temp', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(result.message || '一時ファイルを削除しました', 'success');
+
+            // ストレージ使用状況を再読み込み
+            loadStorageUsage(token);
+        } else {
+            showToast(result.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('[Maintenance] Error cleaning temp files:', error);
+        showToast('エラーが発生しました: ' + error.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = '🗑️ 一時ファイルを削除';
+    }
+}
+
+/**
+ * ログバックアップ処理
+ */
+async function handleBackupLogs() {
+    const button = document.getElementById('btn-backup-log');
+    button.disabled = true;
+    button.textContent = '🔄 バックアップ中...';
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/maintenance/backup-logs', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(result.message || 'ログをバックアップしました', 'success');
+        } else {
+            showToast(result.message || 'バックアップに失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('[Maintenance] Error backing up logs:', error);
+        showToast('エラーが発生しました: ' + error.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = '📦 ログファイルバックアップ';
+    }
+}
+
+/**
+ * 孤立画像削除処理
+ */
+async function handleCleanOrphanedImages() {
+    if (!confirm('孤立した画像ファイルを削除してもよろしいですか？\n7日以上経過した未使用ファイルが削除されます。')) {
+        return;
+    }
+
+    const button = document.getElementById('btn-clean-images');
+    button.disabled = true;
+    button.textContent = '🔄 削除中...';
+
+    try {
+        const token = localStorage.getItem('user_token');
+        const response = await fetch('/api/maintenance/clean-orphaned-images', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(result.message || '孤立画像を削除しました', 'success');
+
+            // ストレージ使用状況を再読み込み
+            loadStorageUsage(token);
+        } else {
+            showToast(result.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('[Maintenance] Error cleaning orphaned images:', error);
+        showToast('エラーが発生しました: ' + error.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = '🧹 孤立画像を削除';
+    }
+}
+
+// ========================================
+// ユーザーインポート・テンプレート機能
+// ========================================
+
+/**
+ * テンプレートダウンロード
+ */
+function downloadUserTemplate(format) {
+    const headers = ['ログインユーザー名', '表示名', 'メールアドレス', '権限', '初期パスワード'];
+    const sampleData = [
+        ['user001', '山田太郎', 'yamada@example.com', 'user', 'Password123'],
+        ['user002', '佐藤花子', 'sato@example.com', 'user', 'Password456'],
+        ['admin001', '管理者', 'admin@example.com', 'system_admin', 'AdminPass789']
+    ];
+
+    if (format === 'csv') {
+        downloadCSVTemplate(headers, sampleData);
+    } else if (format === 'excel') {
+        downloadExcelTemplate(headers, sampleData);
+    }
+}
+
+/**
+ * CSVテンプレートダウンロード
+ */
+function downloadCSVTemplate(headers, sampleData) {
+    // CSVコンテンツ作成
+    let csvContent = '\uFEFF'; // BOM for Excel UTF-8 recognition
+    csvContent += headers.join(',') + '\n';
+    sampleData.forEach(row => {
+        csvContent += row.map(cell => `"${cell}"`).join(',') + '\n';
+    });
+
+    // ダウンロード実行
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'user_import_template.csv';
+    link.click();
+    URL.revokeObjectURL(link.href);
+
+    showToast('CSVテンプレートをダウンロードしました', 'success');
+}
+
+/**
+ * Excelテンプレートダウンロード（簡易版：HTML table形式）
+ */
+function downloadExcelTemplate(headers, sampleData) {
+    // Excel形式（実際はHTML table）
+    let htmlContent = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/1999/xhtml">';
+    htmlContent += '<head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>';
+    htmlContent += '<x:Name>ユーザーインポート</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet>';
+    htmlContent += '</x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body>';
+    htmlContent += '<table border="1"><thead><tr>';
+
+    headers.forEach(header => {
+        htmlContent += `<th style="background-color: #4CAF50; color: white; font-weight: bold;">${header}</th>`;
+    });
+    htmlContent += '</tr></thead><tbody>';
+
+    sampleData.forEach(row => {
+        htmlContent += '<tr>';
+        row.forEach(cell => {
+            htmlContent += `<td>${cell}</td>`;
+        });
+        htmlContent += '</tr>';
+    });
+
+    htmlContent += '</tbody></table></body></html>';
+
+    const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'user_import_template.xls';
+    link.click();
+    URL.revokeObjectURL(link.href);
+
+    showToast('Excelテンプレートをダウンロードしました', 'success');
+}
+
+/**
+ * ユーザーインポート処理
+ */
+async function importUsers(file) {
+    if (!file) {
+        showToast('ファイルが選択されていません', 'error');
+        return;
+    }
+
+    // ファイルサイズチェック (1MB)
+    if (file.size > 1024 * 1024) {
+        showToast('ファイルサイズが大きすぎます（最大1MB）', 'error');
+        return;
+    }
+
+    const fileName = file.name.toLowerCase();
+    let users = [];
+
+    try {
+        showToast('インポート処理中...', 'info');
+
+        if (fileName.endsWith('.csv')) {
+            users = await parseCSVFile(file);
+        } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+            users = await parseExcelFile(file);
+        } else {
+            showToast('対応していないファイル形式です（.csv, .xlsx, .xlsのみ）', 'error');
+            return;
+        }
+
+        console.log('[importUsers] Parsed users:', users);
+
+        if (users.length === 0) {
+            showToast('インポートするユーザーがありません', 'warning');
+            return;
+        }
+
+        // バリデーション
+        const validation = validateUsers(users);
+        if (!validation.valid) {
+            showToast(`データエラー:\n${validation.errors.join('\n')}`, 'error');
+            return;
+        }
+
+        // サーバーに送信
+        await sendUsersToServer(users);
+
+    } catch (error) {
+        console.error('[importUsers] Error:', error);
+        showToast('インポート処理中にエラーが発生しました: ' + error.message, 'error');
+    }
+}
+
+/**
+ * CSVファイルパース
+ */
+async function parseCSVFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const text = e.target.result;
+                const lines = text.split('\n').filter(line => line.trim());
+
+                if (lines.length < 2) {
+                    reject(new Error('データが空です'));
+                    return;
+                }
+
+                // ヘッダー行をスキップ
+                const dataLines = lines.slice(1);
+                const users = dataLines.map((line, index) => {
+                    // CSV parsing (simple version - handles quoted fields)
+                    const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+
+                    if (values.length < 5) {
+                        console.warn(`行 ${index + 2}: カラム数が不足しています`);
+                        return null;
+                    }
+
+                    return {
+                        username: values[0],
+                        display_name: values[1],
+                        email: values[2],
+                        role: values[3],
+                        password: values[4]
+                    };
+                }).filter(u => u !== null);
+
+                resolve(users);
+            } catch (error) {
+                reject(error);
+            }
+        };
+        reader.onerror = () => reject(new Error('ファイル読み込みエラー'));
+        reader.readAsText(file, 'UTF-8');
+    });
+}
+
+/**
+ * Excelファイルパース（HTML形式の簡易版）
+ */
+async function parseExcelFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const text = e.target.result;
+
+                // Simple HTML table parsing
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(text, 'text/html');
+                const rows = doc.querySelectorAll('tr');
+
+                if (rows.length < 2) {
+                    reject(new Error('データが空です'));
+                    return;
+                }
+
+                const users = [];
+                // Skip header row (index 0)
+                for (let i = 1; i < rows.length; i++) {
+                    const cells = rows[i].querySelectorAll('td, th');
+                    if (cells.length >= 5) {
+                        users.push({
+                            username: cells[0].textContent.trim(),
+                            display_name: cells[1].textContent.trim(),
+                            email: cells[2].textContent.trim(),
+                            role: cells[3].textContent.trim(),
+                            password: cells[4].textContent.trim()
+                        });
+                    }
+                }
+
+                resolve(users);
+            } catch (error) {
+                reject(error);
+            }
+        };
+        reader.onerror = () => reject(new Error('ファイル読み込みエラー'));
+        reader.readAsText(file, 'UTF-8');
+    });
+}
+
+/**
+ * ユーザーデータのバリデーション
+ */
+function validateUsers(users) {
+    const errors = [];
+    const usernames = new Set();
+    const validRoles = ['system_admin', 'operation_admin', 'admin', 'user'];
+
+    users.forEach((user, index) => {
+        const rowNum = index + 2; // +2 for header and 0-index
+
+        // ログインユーザー名チェック
+        if (!user.username || user.username.trim() === '') {
+            errors.push(`行${rowNum}: ログインユーザー名が空です`);
+        } else if (usernames.has(user.username)) {
+            errors.push(`行${rowNum}: ログインユーザー名が重複しています (${user.username})`);
+        } else {
+            usernames.add(user.username);
+        }
+
+        // 表示名チェック
+        if (!user.display_name || user.display_name.trim() === '') {
+            errors.push(`行${rowNum}: 表示名が空です`);
+        }
+
+        // 権限チェック
+        if (!validRoles.includes(user.role)) {
+            errors.push(`行${rowNum}: 権限が不正です (${user.role})`);
+        }
+
+        // パスワードチェック
+        if (!user.password || user.password.length < 6) {
+            errors.push(`行${rowNum}: パスワードは6文字以上必要です`);
+        }
+    });
+
+    return {
+        valid: errors.length === 0,
+        errors: errors
+    };
+}
+
+/**
+ * サーバーにユーザーデータを送信
+ */
+async function sendUsersToServer(users) {
+    const token = localStorage.getItem('user_token');
+
+    try {
+        const response = await fetch('/api/users/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ users })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            const message = `インポート完了\n成功: ${result.imported}件\nスキップ: ${result.skipped}件\nエラー: ${result.errors}件`;
+            showToast(message, 'success');
+
+            // ユーザーリストを再読み込み
+            await loadUsers();
+        } else {
+            showToast('インポートに失敗しました: ' + result.message, 'error');
+        }
+    } catch (error) {
+        console.error('[sendUsersToServer] Error:', error);
+        showToast('サーバーエラー: ' + error.message, 'error');
+    }
+}

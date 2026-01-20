@@ -10,7 +10,7 @@ const configRoutes = require('./server/routes/config');
 require('dotenv').config();
 
 // Multer設定（ファイルアップロード用）
-const upload = multer({ 
+const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 100 * 1024 * 1024 } // 100MB
 });
@@ -1255,6 +1255,108 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
   }
 });
 
+// ユーザー一括インポートエンドポイント
+app.post('/api/users/import', requireAdmin, async (req, res) => {
+  try {
+    console.log('[POST /api/users/import] Starting import...');
+    const { users } = req.body;
+
+    if (!Array.isArray(users) || users.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'ユーザーデータが不正です'
+      });
+    }
+
+    let imported = 0;
+    let skipped = 0;
+    let errors = 0;
+    const errorDetails = [];
+
+    // 既存ユーザー名を事前に取得
+    const route = await resolveTablePath('users');
+    const existingUsersQuery = `SELECT username FROM ${route.fullPath}`;
+    const existingResult = await pool.query(existingUsersQuery);
+    const existingUsernames = new Set(existingResult.rows.map(u => u.username));
+
+    // 各ユーザーを処理
+    for (let i = 0; i < users.length; i++) {
+      const user = users[i];
+      const rowNum = i + 2; // +2 for header and 0-index
+
+      try {
+        // バリデーション
+        if (!user.username || !user.display_name || !user.password) {
+          errorDetails.push(`行${rowNum}: 必須項目が不足しています`);
+          errors++;
+          continue;
+        }
+
+        // パスワード長チェック
+        if (user.password.length < 6) {
+          errorDetails.push(`行${rowNum}: パスワードは6文字以上必要です`);
+          errors++;
+          continue;
+        }
+
+        // 重複チェック
+        if (existingUsernames.has(user.username)) {
+          console.log(`[Import] Skipping existing user: ${user.username}`);
+          skipped++;
+          continue;
+        }
+
+        // パスワードハッシュ化
+        const hashedPassword = await bcrypt.hash(user.password, 10);
+
+        // ユーザー挿入
+        const userData = {
+          username: user.username,
+          password: hashedPassword,
+          display_name: user.display_name,
+          role: user.role || 'user'
+        };
+
+        // emailがある場合追加
+        if (user.email) {
+          userData.email = user.email;
+        }
+
+        await dynamicInsert('users', userData);
+
+        // 追加成功したら既存リストに追加
+        existingUsernames.add(user.username);
+        imported++;
+        console.log(`[Import] User imported: ${user.username}`);
+
+      } catch (err) {
+        console.error(`[Import] Error processing user at row ${rowNum}:`, err);
+        errorDetails.push(`行${rowNum}: ${err.message}`);
+        errors++;
+      }
+    }
+
+    console.log(`[Import] Complete - Imported: ${imported}, Skipped: ${skipped}, Errors: ${errors}`);
+
+    // 結果を返す
+    res.json({
+      success: true,
+      imported,
+      skipped,
+      errors,
+      errorDetails,
+      message: `インポート完了: 成功${imported}件、スキップ${skipped}件、エラー${errors}件`
+    });
+
+  } catch (err) {
+    console.error('[POST /api/users/import] Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'インポート処理中にサーバーエラーが発生しました: ' + err.message
+    });
+  }
+});
+
 
 
 // ========================================
@@ -1377,7 +1479,7 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
   try {
     const basesRoute = await resolveTablePath('bases');
     const officesRoute = await resolveTablePath('management_offices');
-    
+
     const query = `
       SELECT b.*, o.office_name 
       FROM ${basesRoute.fullPath} b
@@ -1455,7 +1557,7 @@ app.put('/api/bases/:id', requireAdmin, async (req, res) => {
 
   try {
     const basesRoute = await resolveTablePath('bases');
-    
+
     const updateQuery = `
       UPDATE ${basesRoute.fullPath} 
       SET base_name = $1, location = $2, office_id = $3, address = $4, postal_code = $5,
@@ -1925,7 +2027,7 @@ app.get('/api/ai/settings', requireAdmin, async (req, res) => {
       ORDER BY setting_type
     `;
     const result = await pool.query(query);
-    
+
     const settings = {};
     result.rows.forEach(row => {
       settings[row.setting_type] = {
@@ -1933,7 +2035,7 @@ app.get('/api/ai/settings', requireAdmin, async (req, res) => {
         updated_at: row.updated_at
       };
     });
-    
+
     res.json({ success: true, settings });
   } catch (err) {
     console.error('Error getting AI settings:', err);
@@ -1945,18 +2047,18 @@ app.get('/api/ai/settings', requireAdmin, async (req, res) => {
 app.post('/api/ai/settings', requireAdmin, async (req, res) => {
   try {
     const { settingType, settings } = req.body;
-    
+
     console.log('[AI Settings] Saving - Type:', settingType, 'Settings:', settings);
-    
+
     if (!settingType || !settings) {
       return res.status(400).json({ success: false, message: '必須パラメータが不足しています' });
     }
-    
+
     // 設定データのバリデーション
     if (typeof settings !== 'object' || Array.isArray(settings)) {
       return res.status(400).json({ success: false, message: '設定データの形式が不正です' });
     }
-    
+
     const query = `
       INSERT INTO master_data.ai_settings (app_id, setting_type, settings_json)
       VALUES ('common', $1, $2)
@@ -1964,9 +2066,9 @@ app.post('/api/ai/settings', requireAdmin, async (req, res) => {
       DO UPDATE SET settings_json = $2, updated_at = CURRENT_TIMESTAMP
       RETURNING id, setting_type, updated_at
     `;
-    
+
     const result = await pool.query(query, [settingType, JSON.stringify(settings)]);
-    
+
     console.log('[AI Settings] Saved successfully:', result.rows[0]);
     res.json({ success: true, message: 'AI設定を保存しました', data: result.rows[0] });
   } catch (err) {
@@ -1976,10 +2078,10 @@ app.post('/api/ai/settings', requireAdmin, async (req, res) => {
       code: err.code,
       detail: err.detail
     });
-    res.status(500).json({ 
-      success: false, 
+    res.status(500).json({
+      success: false,
       message: 'AI設定の保存に失敗しました',
-      error: err.message 
+      error: err.message
     });
   }
 });
@@ -1996,11 +2098,11 @@ app.get('/api/ai/knowledge', requireAdmin, async (req, res) => {
       ORDER BY uploaded_at DESC
     `;
     const result = await pool.query(query);
-    
+
     // ファイル名の自動デコード処理
     const processedData = result.rows.map(row => {
       let displayFileName = row.file_name;
-      
+
       // 1. descriptionから正しいファイル名を取得できる場合
       if (row.description && row.description.startsWith('Manual: ')) {
         displayFileName = row.description.replace('Manual: ', '');
@@ -2026,13 +2128,13 @@ app.get('/api/ai/knowledge', requireAdmin, async (req, res) => {
           console.log(`[Knowledge] Unable to decode: ${row.file_name}`);
         }
       }
-      
+
       return {
         ...row,
         file_name: displayFileName
       };
     });
-    
+
     res.json({ success: true, data: processedData });
   } catch (err) {
     console.error('Error getting knowledge data:', err);
@@ -2046,13 +2148,13 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'ファイルが選択されていません' });
     }
-    
+
     const { description, tags, uploadedBy, saveOriginalFile } = req.body;
     const file = req.file;
-    
+
     console.log('[AI Upload] Starting file upload:', file.originalname);
     console.log('[AI Upload] saveOriginalFile:', saveOriginalFile);
-    
+
     // GCS設定を取得
     const settingsQuery = `
       SELECT settings_json FROM master_data.ai_settings
@@ -2060,52 +2162,52 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
     `;
     const settingsResult = await pool.query(settingsQuery);
     const storageSettings = settingsResult.rows[0]?.settings_json || {};
-    
-    const bucketName = (storageSettings.gcsBucketName && storageSettings.gcsBucketName.trim()) 
-      ? storageSettings.gcsBucketName.trim() 
+
+    const bucketName = (storageSettings.gcsBucketName && storageSettings.gcsBucketName.trim())
+      ? storageSettings.gcsBucketName.trim()
       : (process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET || 'maint-vehicle-management-storage');
 
-    const folderPath = (storageSettings.gcsKnowledgeFolder && storageSettings.gcsKnowledgeFolder.trim()) 
-      ? storageSettings.gcsKnowledgeFolder.trim() 
+    const folderPath = (storageSettings.gcsKnowledgeFolder && storageSettings.gcsKnowledgeFolder.trim())
+      ? storageSettings.gcsKnowledgeFolder.trim()
       : (process.env.GCS_KNOWLEDGE_FOLDER || 'ai-knowledge');
-    
+
     console.log('[AI Upload] GCS Bucket:', bucketName);
     console.log('[AI Upload] GCS Folder:', folderPath);
-    
+
     if (!bucketName) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'GCSバケット名が設定されていません。.envファイルでGCS_BUCKET_NAMEまたはGOOGLE_CLOUD_STORAGE_BUCKETを設定してください。' 
+      return res.status(400).json({
+        success: false,
+        message: 'GCSバケット名が設定されていません。.envファイルでGCS_BUCKET_NAMEまたはGOOGLE_CLOUD_STORAGE_BUCKETを設定してください。'
       });
     }
-    
+
     // ファイル名生成（日本語対応・安全な形式）
     const timestamp = Date.now();
     const fileSize = file.buffer.length;
     const fileType = path.extname(file.originalname).slice(1);
-    
+
     // 日本語ファイル名を安全にエンコード
     const safeFileName = Buffer.from(file.originalname, 'utf-8').toString('utf-8');
     const fileNameWithoutExt = path.basename(safeFileName, path.extname(safeFileName));
     const extension = path.extname(safeFileName);
-    
+
     // GCS用のファイル名（タイムスタンプ_元のファイル名）
     const gcsFileName = `${timestamp}_${safeFileName}`;
-    
+
     console.log('[AI Upload] Original filename:', file.originalname);
     console.log('[AI Upload] Safe filename:', safeFileName);
     console.log('[AI Upload] GCS filename:', gcsFileName);
-    
+
     let originalFilePath = null;
     let chunksPath = null;
     let ragMetadataPath = null;
     let chunks = [];
-    
+
     // ファイルタイプを判定
     const isImageFile = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico'].includes(extension.toLowerCase());
     const isJsonFile = extension.toLowerCase() === '.json';
     const isManualFile = ['.pdf', '.txt', '.xlsx', '.docx', '.md'].includes(extension.toLowerCase());
-    
+
     // 1. 元ファイルをGCSに保存（ファイルタイプに応じて適切なフォルダに振り分け）
     if (isImageFile || isJsonFile || isManualFile || saveOriginalFile === 'true') {
       // ファイルタイプに応じて保存先フォルダを決定
@@ -2115,7 +2217,7 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
       } else if (isManualFile) {
         targetFolder = 'manuals';
       }
-      
+
       originalFilePath = `${folderPath}/${targetFolder}/${gcsFileName}`;
       const originalFile = storage.bucket(bucketName).file(originalFilePath);
       await originalFile.save(file.buffer, {
@@ -2135,12 +2237,12 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
       });
       console.log(`[GCS] ✅ Original file saved to ${targetFolder}/: ${originalFilePath}`);
     }
-    
+
     // 2. ファイル内容をテキスト化・チャンク処理
     const textContent = await extractTextFromFile(file);
     chunks = chunkText(textContent, 1000, 200); // 1000文字、200文字オーバーラップ
     console.log(`[AI Upload] ✅ Text extracted and chunked: ${chunks.length} chunks`);
-    
+
     // 3. チャンクをGCSに保存
     chunksPath = `${folderPath}/chunks/${timestamp}_${fileNameWithoutExt}.json`;
     const chunksFile = storage.bucket(bucketName).file(chunksPath);
@@ -2154,7 +2256,7 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
       })),
       processedAt: new Date().toISOString()
     }, null, 2);
-    
+
     await chunksFile.save(Buffer.from(chunksData, 'utf-8'), {
       contentType: 'application/json; charset=utf-8',
       metadata: {
@@ -2165,7 +2267,7 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
       }
     });
     console.log(`[GCS] ✅ Chunks saved: ${chunksPath} (${chunks.length} chunks)`);
-    
+
     // 4. RAG用ベクトル化メタデータを生成・保存
     const ragMetadata = {
       fileId: timestamp,
@@ -2183,11 +2285,11 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
         length: chunk.length
       }))
     };
-    
+
     ragMetadataPath = `${folderPath}/metadata/${timestamp}_${fileNameWithoutExt}.json`;
     const ragMetadataFile = storage.bucket(bucketName).file(ragMetadataPath);
     const metadataData = JSON.stringify(ragMetadata, null, 2);
-    
+
     await ragMetadataFile.save(Buffer.from(metadataData, 'utf-8'), {
       contentType: 'application/json; charset=utf-8',
       metadata: {
@@ -2198,7 +2300,7 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
       }
     });
     console.log(`[GCS] ✅ RAG metadata saved: ${ragMetadataPath}`);
-    
+
     // 5. CloudDB（PostgreSQL）にバックアップ・記録
     const insertQuery = `
       INSERT INTO master_data.ai_knowledge_data
@@ -2220,12 +2322,12 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
       ragMetadataPath,
       chunks.length
     ]);
-    
+
     console.log(`[DB] ✅ Knowledge data record created: ID=${result.rows[0].id}`);
-    
-    res.json({ 
-      success: true, 
-      message: 'ファイルをGCSにアップロードし、処理しました', 
+
+    res.json({
+      success: true,
+      message: 'ファイルをGCSにアップロードし、処理しました',
       id: result.rows[0].id,
       details: {
         bucket: bucketName,
@@ -2245,7 +2347,7 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
 // テキスト抽出ヘルパー関数
 async function extractTextFromFile(file) {
   const fileType = path.extname(file.originalname).toLowerCase();
-  
+
   // 画像ファイルの場合はメタデータのみ返す（実際の画像は元ファイルとして保存される）
   if (['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico'].includes(fileType)) {
     return JSON.stringify({
@@ -2261,7 +2363,7 @@ async function extractTextFromFile(file) {
       }
     }, null, 2);
   }
-  
+
   // JSONファイルの場合はそのまま内容を返す
   if (fileType === '.json') {
     try {
@@ -2274,10 +2376,10 @@ async function extractTextFromFile(file) {
       return `{"error": "Invalid JSON format", "fileName": "${file.originalname}"}`;
     }
   }
-  
+
   // テキストファイルの場合
   const content = file.buffer.toString('utf-8');
-  
+
   // 簡易実装：TXT, MD等はそのまま、PDF/DOCXは後で実装
   if (['.txt', '.md', '.js', '.py', '.java', '.cpp', '.c', '.h'].includes(fileType)) {
     return content;
@@ -2291,28 +2393,28 @@ async function extractTextFromFile(file) {
     // TODO: xlsx パッケージを使用
     return `[XLSX Content] ${file.originalname} - Excel解析は今後実装予定`;
   }
-  
+
   return content;
 }
 
 // テキストチャンク化ヘルパー関数
 function chunkText(text, chunkSize = 1000, overlap = 200) {
   if (!text || text.length === 0) return [];
-  
+
   const chunks = [];
   let start = 0;
-  
+
   while (start < text.length) {
     const end = Math.min(start + chunkSize, text.length);
     chunks.push(text.substring(start, end));
-    
+
     // オーバーラップを考慮して次のスタート位置を設定
     start += chunkSize - overlap;
-    
+
     // 最後のチャンクの場合は終了
     if (end === text.length) break;
   }
-  
+
   return chunks;
 }
 
@@ -2322,11 +2424,11 @@ app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
   try {
     client = await pool.connect();
     const { id } = req.params;
-    
+
     console.log('[Knowledge Delete] Step 3: Starting transaction...');
     await client.query('BEGIN');
     console.log('[Knowledge Delete] Step 3: ✅ Transaction started');
-    
+
     // 1. ファイル情報を取得（3つのGCSパスを含む）
     console.log('[Knowledge Delete] Step 4: Querying file info...');
     const fileQuery = `
@@ -2335,14 +2437,14 @@ app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
       WHERE id = $1
     `;
     const fileResult = await client.query(fileQuery, [id]);
-    
+
     if (fileResult.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ success: false, message: 'データが見つかりません' });
     }
-    
+
     const fileInfo = fileResult.rows[0];
-    
+
     // 2. 論理削除（is_active = false）
     const deleteQuery = `
       UPDATE master_data.ai_knowledge_data 
@@ -2351,7 +2453,7 @@ app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
       RETURNING id, file_name, is_active
     `;
     const deleteResult = await client.query(deleteQuery, [id]);
-    
+
     // 3. 関連するチャンクデータがあれば削除（テーブルが存在する場合のみ）
     try {
       // テーブルの存在確認（エラーにならない方法）
@@ -2363,7 +2465,7 @@ app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
         ) as table_exists
       `;
       const tableCheckResult = await client.query(tableCheckQuery);
-      
+
       if (tableCheckResult.rows[0].table_exists) {
         const chunkDeleteQuery = `
           DELETE FROM master_data.ai_knowledge_chunks 
@@ -2374,14 +2476,14 @@ app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
     } catch (chunkErr) {
       console.warn('Chunks table error (non-critical):', chunkErr.message);
     }
-    
+
     // 4. GCSファイルの削除（3つのファイルすべて - エラーでもロールバックしない）
     try {
       const bucketName = process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET;
-      
+
       if (bucketName && storage) {
         const bucket = storage.bucket(bucketName);
-        
+
         // 4-1. オリジナルファイルの削除
         if (fileInfo.gcs_original_path) {
           try {
@@ -2390,7 +2492,7 @@ app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
             console.warn('Original file deletion failed (non-critical):', gcsErr.message);
           }
         }
-        
+
         // 4-2. チャンクファイルの削除
         if (fileInfo.gcs_chunks_path) {
           try {
@@ -2399,7 +2501,7 @@ app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
             console.warn('Chunks file deletion failed (non-critical):', gcsErr.message);
           }
         }
-        
+
         // 4-3. RAGメタデータファイルの削除
         if (fileInfo.gcs_rag_metadata_path) {
           try {
@@ -2412,14 +2514,14 @@ app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
     } catch (gcsErr) {
       console.warn('GCS deletion error (non-critical):', gcsErr.message);
     }
-    
+
     await client.query('COMMIT');
-    
-    res.json({ 
-      success: true, 
+
+    res.json({
+      success: true,
       message: `「${fileInfo.file_name}」を削除しました（関連データも含む）`
     });
-    
+
   } catch (err) {
     if (client) {
       try {
@@ -2429,9 +2531,9 @@ app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
       }
     }
     console.error('Error deleting knowledge data:', err);
-    res.status(500).json({ 
-      success: false, 
-      message: 'データの削除に失敗しました: ' + err.message 
+    res.status(500).json({
+      success: false,
+      message: 'データの削除に失敗しました: ' + err.message
     });
   } finally {
     if (client) {
@@ -2455,10 +2557,10 @@ app.get('/api/ai/storage-stats', requireAdmin, async (req, res) => {
       FROM master_data.ai_knowledge_data
     `;
     const result = await pool.query(query);
-    
+
     const stats = result.rows[0];
     stats.total_size_mb = (parseFloat(stats.total_size_bytes || 0) / (1024 * 1024)).toFixed(2);
-    
+
     res.json({ success: true, stats });
   } catch (err) {
     console.error('Error getting storage stats:', err);
@@ -2470,10 +2572,10 @@ app.get('/api/ai/storage-stats', requireAdmin, async (req, res) => {
 app.get('/api/ai/diagnose-gcs', requireAdmin, async (req, res) => {
   try {
     console.log('[GCS Diagnosis] Starting diagnosis...');
-    
+
     // GCS設定の確認
     const bucketName = process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET || 'vehicle-management-storage';
-    
+
     if (!bucketName) {
       return res.status(500).json({
         success: false,
@@ -2527,7 +2629,7 @@ app.get('/api/ai/diagnose-gcs', requireAdmin, async (req, res) => {
     // フォルダ構造の確認
     const [files] = await bucket.getFiles({ prefix: '', maxResults: 100 });
     const folders = new Set();
-    
+
     files.forEach(file => {
       const parts = file.name.split('/');
       if (parts.length > 1) {
@@ -2545,7 +2647,7 @@ app.get('/api/ai/diagnose-gcs', requireAdmin, async (req, res) => {
     `;
     const result = await pool.query(query);
     const stats = result.rows[0];
-    
+
     const totalSizeMB = (parseFloat(stats.total_size_bytes || 0) / (1024 * 1024)).toFixed(2);
 
     console.log('[GCS Diagnosis] Success:', {
@@ -3449,6 +3551,158 @@ app.delete('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('❌ Inspection schedule delete error:', err.message);
     res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  }
+});
+
+// ========================================
+// セキュリティ監視・メンテナンスAPI
+// ========================================
+
+// セキュリティ監視・メンテナンスモジュールの読み込み
+const securityMonitor = require('./server/security-monitor');
+const maintenanceTasks = require('./server/maintenance-tasks');
+
+// セキュリティアラート取得
+app.get('/api/security/alerts', requireSystemAdmin, async (req, res) => {
+  try {
+    console.log('[Security API] Getting security alerts...');
+    const result = await securityMonitor.getSecurityAlerts();
+    res.json(result);
+  } catch (error) {
+    console.error('[Security API] Error getting alerts:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'セキュリティアラートの取得に失敗しました'
+    });
+  }
+});
+
+// ブロックされたアクセス一覧取得
+app.get('/api/security/blocked-access', requireSystemAdmin, async (req, res) => {
+  try {
+    console.log('[Security API] Getting blocked access...');
+    const result = await securityMonitor.getBlockedAccess();
+    res.json(result);
+  } catch (error) {
+    console.error('[Security API] Error getting blocked access:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'ブロックされたアクセスの取得に失敗しました'
+    });
+  }
+});
+
+// 登録デバイス一覧取得
+app.get('/api/security/devices', requireSystemAdmin, async (req, res) => {
+  try {
+    console.log('[Security API] Getting registered devices...');
+    const result = await securityMonitor.getRegisteredDevices(pool);
+    res.json(result);
+  } catch (error) {
+    console.error('[Security API] Error getting devices:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: '登録デバイスの取得に失敗しました'
+    });
+  }
+});
+
+// 一時ファイル削除
+app.post('/api/maintenance/clean-temp', requireSystemAdmin, async (req, res) => {
+  try {
+    console.log('[Maintenance API] Cleaning temp files...');
+    const result = await maintenanceTasks.cleanTempFiles();
+    res.json(result);
+  } catch (error) {
+    console.error('[Maintenance API] Error cleaning temp files:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: '一時ファイルの削除に失敗しました'
+    });
+  }
+});
+
+// ログバックアップ
+app.post('/api/maintenance/backup-logs', requireSystemAdmin, async (req, res) => {
+  try {
+    console.log('[Maintenance API] Backing up logs...');
+    const result = await maintenanceTasks.backupLogs();
+    res.json(result);
+  } catch (error) {
+    console.error('[Maintenance API] Error backing up logs:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'ログバックアップに失敗しました'
+    });
+  }
+});
+
+// 孤立画像削除
+app.post('/api/maintenance/clean-orphaned-images', requireSystemAdmin, async (req, res) => {
+  try {
+    console.log('[Maintenance API] Cleaning orphaned images...');
+    const result = await maintenanceTasks.cleanOrphanedImages(pool);
+    res.json(result);
+  } catch (error) {
+    console.error('[Maintenance API] Error cleaning orphaned images:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: '孤立画像の削除に失敗しました'
+    });
+  }
+});
+
+// npm audit（脆弱性チェック）
+app.get('/api/maintenance/npm-audit', requireSystemAdmin, async (req, res) => {
+  try {
+    console.log('[Maintenance API] Running npm audit...');
+    const result = await maintenanceTasks.checkNpmAudit();
+    res.json(result);
+  } catch (error) {
+    console.error('[Maintenance API] Error running npm audit:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'npm auditの実行に失敗しました'
+    });
+  }
+});
+
+// ストレージ使用状況取得
+app.get('/api/maintenance/storage-usage', requireSystemAdmin, async (req, res) => {
+  try {
+    console.log('[Maintenance API] Getting storage usage...');
+    const result = await maintenanceTasks.getStorageUsage();
+    res.json(result);
+  } catch (error) {
+    console.error('[Maintenance API] Error getting storage usage:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'ストレージ使用状況の取得に失敗しました'
+    });
+  }
+});
+
+// 証明書ステータス取得
+app.get('/api/maintenance/certificate-status', requireSystemAdmin, async (req, res) => {
+  try {
+    console.log('[Maintenance API] Getting certificate status...');
+    const result = await maintenanceTasks.getCertificateStatus();
+    res.json(result);
+  } catch (error) {
+    console.error('[Maintenance API] Error getting certificate status:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: '証明書ステータスの取得に失敗しました'
+    });
   }
 });
 

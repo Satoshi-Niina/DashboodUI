@@ -65,14 +65,57 @@
             <!-- ユーザー管理タブ -->
             <div id="user-management-tab" class="tab-content">
                 <div class="info-banner">
-                    <p>💡 ログインユーザーの追加・編集・削除を行います</p>
+                    <p>💡 ログインユーザーの追加・編集・削除、一括インポートを行います</p>
                 </div>
 
                 <section class="config-section">
-                    <div class="user-actions">
+                    <div class="user-actions" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
                         <button type="button" id="add-new-user-btn" class="btn-primary">
                             ➕ 新規ユーザー追加
                         </button>
+                        <button type="button" id="import-users-btn" class="btn-success">
+                            📥 ユーザーインポート
+                        </button>
+                        <button type="button" id="download-excel-template-btn" class="btn-info">
+                            📄 Excelテンプレート
+                        </button>
+                        <button type="button" id="download-csv-template-btn" class="btn-info">
+                            📄 CSVテンプレート
+                        </button>
+                        <input type="file" id="user-import-file" accept=".xlsx,.xls,.csv" style="display: none;">
+                    </div>
+
+                    <!-- フィルター機能 -->
+                    <div class="filter-section" style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 8px;">
+                        <h4 style="margin: 0 0 10px 0; font-size: 1.1em;">🔍 フィルター</h4>
+                        <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end;">
+                            <div style="flex: 1; min-width: 200px;">
+                                <label for="filter-display-name" style="display: block; font-size: 0.9em; margin-bottom: 5px;">表示名</label>
+                                <input type="text" id="filter-display-name" placeholder="表示名で検索..." 
+                                    style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            </div>
+                            <div style="flex: 1; min-width: 200px;">
+                                <label for="filter-username" style="display: block; font-size: 0.9em; margin-bottom: 5px;">ログインユーザー名</label>
+                                <input type="text" id="filter-username" placeholder="ユーザー名で検索..." 
+                                    style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            </div>
+                            <div style="flex: 1; min-width: 200px;">
+                                <label for="filter-role" style="display: block; font-size: 0.9em; margin-bottom: 5px;">権限</label>
+                                <select id="filter-role" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                    <option value="">すべて</option>
+                                    <option value="system_admin">システム管理者</option>
+                                    <option value="operation_admin">運用管理者</option>
+                                    <option value="admin">管理者</option>
+                                    <option value="user">ユーザー</option>
+                                </select>
+                            </div>
+                            <div>
+                                <button type="button" id="clear-filters-btn" class="btn-secondary" 
+                                    style="padding: 8px 16px; white-space: nowrap;">
+                                    🔄 クリア
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     <div id="users-list" class="users-list">
