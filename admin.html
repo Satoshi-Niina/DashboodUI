@@ -8,7 +8,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>設定管理 - Dashboard Admin</title>
-    <link rel="stylesheet" href="admin.css?v=20260117-1030">
+    <link rel="stylesheet" href="admin.css?v=20260120-1500">
 </head>
 
 <body>
@@ -47,10 +47,6 @@
                 <span class="tab-icon">💾</span>
                 <span class="tab-label">データベース管理</span>
             </button>
-            <button class="tab-button" data-tab="system-operations">
-                <span class="tab-icon">🛠️</span>
-                <span class="tab-label">システム運用</span>
-            </button>
             <button class="tab-button" data-tab="ai-management">
                 <span class="tab-icon">🤖</span>
                 <span class="tab-label">AI管理</span>
@@ -58,6 +54,10 @@
             <button class="tab-button" data-tab="cors-settings">
                 <span class="tab-icon">🌐</span>
                 <span class="tab-label">CORS設定</span>
+            </button>
+            <button class="tab-button" data-tab="system-operations">
+                <span class="tab-icon">🛠️</span>
+                <span class="tab-label">システム運用</span>
             </button>
         </div>
 
@@ -91,13 +91,15 @@
                         <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end;">
                             <div style="flex: 1; min-width: 200px;">
                                 <label for="filter-display-name" style="display: block; font-size: 0.9em; margin-bottom: 5px;">表示名</label>
-                                <input type="text" id="filter-display-name" placeholder="表示名で検索..." 
-                                    style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <select id="filter-display-name" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                    <option value="">すべて</option>
+                                </select>
                             </div>
                             <div style="flex: 1; min-width: 200px;">
                                 <label for="filter-username" style="display: block; font-size: 0.9em; margin-bottom: 5px;">ログインユーザー名</label>
-                                <input type="text" id="filter-username" placeholder="ユーザー名で検索..." 
-                                    style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <select id="filter-username" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                    <option value="">すべて</option>
+                                </select>
                             </div>
                             <div style="flex: 1; min-width: 200px;">
                                 <label for="filter-role" style="display: block; font-size: 0.9em; margin-bottom: 5px;">権限</label>
@@ -1278,7 +1280,7 @@
     <!-- トースト通知 -->
     <div id="toast" class="toast"></div>
 
-    <script src="admin.js?v=20260117-1030"></script>
+    <script src="admin.js?v=20260120-1500"></script>
 </body>
 
 </html>

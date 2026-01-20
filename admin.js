@@ -243,10 +243,10 @@ function initializeEventListeners() {
     const clearFiltersBtn = document.getElementById('clear-filters-btn');
 
     if (filterDisplayName) {
-        filterDisplayName.addEventListener('input', applyUserFilters);
+        filterDisplayName.addEventListener('change', applyUserFilters);
     }
     if (filterUsername) {
-        filterUsername.addEventListener('input', applyUserFilters);
+        filterUsername.addEventListener('change', applyUserFilters);
     }
     if (filterRole) {
         filterRole.addEventListener('change', applyUserFilters);
@@ -500,6 +500,8 @@ async function loadUsers() {
         if (data.success && data.users.length > 0) {
             // 全ユーザーデータをグローバル変数に保存
             allUsers = data.users;
+            // フィルター選択肢を更新
+            updateUserFilterOptions();
             // フィルター適用して表示
             applyUserFilters();
         } else {
@@ -513,18 +515,38 @@ async function loadUsers() {
     }
 }
 
+// ユーザーフィルターの選択肢を更新する関数
+function updateUserFilterOptions() {
+    const filterDisplayName = document.getElementById('filter-display-name');
+    const filterUsername = document.getElementById('filter-username');
+
+    if (!filterDisplayName || !filterUsername) return;
+
+    // 表示名の一覧を取得（重複除去・ソート）
+    const displayNames = [...new Set(allUsers.map(u => u.display_name).filter(Boolean))].sort();
+    const currentDisplayName = filterDisplayName.value;
+    filterDisplayName.innerHTML = '<option value="">すべて</option>' +
+        displayNames.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+    filterDisplayName.value = currentDisplayName;
+
+    // ユーザー名の一覧を取得（重複除去・ソート）
+    const usernames = [...new Set(allUsers.map(u => u.username))].sort();
+    const currentUsername = filterUsername.value;
+    filterUsername.innerHTML = '<option value="">すべて</option>' +
+        usernames.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+    filterUsername.value = currentUsername;
+}
+
 // ユーザーフィルター適用関数
 function applyUserFilters() {
-    const filterDisplayName = document.getElementById('filter-display-name').value.toLowerCase().trim();
-    const filterUsername = document.getElementById('filter-username').value.toLowerCase().trim();
+    const filterDisplayName = document.getElementById('filter-display-name').value.trim();
+    const filterUsername = document.getElementById('filter-username').value.trim();
     const filterRole = document.getElementById('filter-role').value;
 
     // フィルター条件に基づいてユーザーを絞り込み
     const filteredUsers = allUsers.filter(user => {
-        const matchDisplayName = !filterDisplayName ||
-            (user.display_name && user.display_name.toLowerCase().includes(filterDisplayName));
-        const matchUsername = !filterUsername ||
-            user.username.toLowerCase().includes(filterUsername);
+        const matchDisplayName = !filterDisplayName || user.display_name === filterDisplayName;
+        const matchUsername = !filterUsername || user.username === filterUsername;
         const matchRole = !filterRole || user.role === filterRole;
 
         return matchDisplayName && matchUsername && matchRole;

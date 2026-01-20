@@ -161,12 +161,16 @@ app.get('/', (req, res) => {
 
 // 静的ファイル配信（JSとCSSはキャッシュ無効化）
 app.use(express.static(path.join(__dirname), {
+  etag: false,
+  lastModified: false,
+  maxAge: 0,
   setHeaders: (res, filePath) => {
     // JS、CSS、HTMLファイルはキャッシュ無効化
     if (filePath.endsWith('.js') || filePath.endsWith('.css') || filePath.endsWith('.html')) {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, private, max-age=0');
       res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
+      res.setHeader('Expires', '-1');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
     }
   }
 }));
