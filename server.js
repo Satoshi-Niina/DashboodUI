@@ -36,6 +36,7 @@ const app = express();
 const isCloudRun = !!process.env.K_SERVICE || !!process.env.K_REVISION;
 const PORT = isCloudRun ? 8080 : (Number(process.env.PORT) || 3000);
 let serverInstance;
+let dbReady = false;
 
 console.log(`✅ Will listen on port: ${PORT}`);
 
@@ -62,6 +63,19 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 console.log('Middleware configured');
+
+// DB未接続時はAPIを停止
+app.use((req, res, next) => {
+  const isApiRequest = req.path.startsWith('/api') || req.path === '/config.js';
+  const isHealth = req.path === '/health' || req.path === '/_ah/health' || req.path === '/ready';
+  if (!dbReady && isApiRequest && !isHealth) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database is not ready. Please retry later.'
+    });
+  }
+  next();
+});
 
 // JWT_SECRETの確認
 if (!process.env.JWT_SECRET) {
@@ -167,6 +181,14 @@ app.get('/health', (req, res) => {
 
 app.get('/_ah/health', (req, res) => {
   res.status(200).send('OK');
+});
+
+// DB準備完了チェック
+app.get('/ready', (req, res) => {
+  if (dbReady) {
+    return res.status(200).send('READY');
+  }
+  return res.status(503).send('DB NOT READY');
 });
 
 // --- サーバー起動（起動を最優先） ---
@@ -656,6 +678,7 @@ async function testDatabaseConnection() {
   try {
     const res = await pool.query('SELECT NOW()');
     console.log('✅ Database connected successfully at:', res.rows[0].now);
+    dbReady = true;
     return true;
   } catch (err) {
     console.error('⚠️ Database connection error:', err.message);
@@ -3902,6 +3925,7 @@ async function initializeDatabase() {
     console.log('🔄 Initializing database connection...');
     const testQuery = await pool.query('SELECT NOW() as current_time');
     console.log('✅ Database connection successful:', testQuery.rows[0].current_time);
+    dbReady = true;
 
     // 起動時にDB修正を実行
     console.log('🔄 Running emergency DB fix...');
