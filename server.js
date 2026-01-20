@@ -31,7 +31,7 @@ console.log('APP_ID:', process.env.APP_ID || 'dashboard-ui');
 console.log('DATABASE_URL set:', !!process.env.DATABASE_URL);
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 8080;
 
 console.log(`✅ Will listen on port: ${PORT}`);
 
@@ -652,23 +652,7 @@ async function testDatabaseConnection() {
   }
 }
 
-// サーバー起動後に接続テスト（1回のみ高速チェック）
-let dbConnectionAttempts = 0;
-const maxDbAttempts = 1;
-setImmediate(async () => {
-  while (dbConnectionAttempts < maxDbAttempts) {
-    dbConnectionAttempts++;
-    console.log(`Database connection attempt ${dbConnectionAttempts}/${maxDbAttempts}`);
-    const connected = await testDatabaseConnection();
-    if (connected) {
-      break;
-    }
-    if (dbConnectionAttempts < maxDbAttempts) {
-      console.log('Retrying in 2 seconds...');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-  }
-});
+
 
 // Middleware: トークン認証
 function authenticateToken(req, res, next) {
@@ -3865,6 +3849,24 @@ async function startServer() {
 
     // サーバー起動後にデータベース接続を非同期で実行
     initializeDatabase();
+
+    // サーバー起動後に接続テスト（1回のみ高速チェック）
+    let dbConnectionAttempts = 0;
+    const maxDbAttempts = 1;
+    setImmediate(async () => {
+      while (dbConnectionAttempts < maxDbAttempts) {
+        dbConnectionAttempts++;
+        console.log(`Database connection attempt ${dbConnectionAttempts}/${maxDbAttempts}`);
+        const connected = await testDatabaseConnection();
+        if (connected) {
+          break;
+        }
+        if (dbConnectionAttempts < maxDbAttempts) {
+          console.log('Retrying in 2 seconds...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+    });
   });
 
   server.on('error', (err) => {
