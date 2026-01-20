@@ -35,6 +35,7 @@ console.log('DATABASE_URL set:', !!process.env.DATABASE_URL);
 const app = express();
 const isCloudRun = !!process.env.K_SERVICE || !!process.env.K_REVISION;
 const PORT = isCloudRun ? 8080 : (Number(process.env.PORT) || 3000);
+let serverInstance;
 
 console.log(`✅ Will listen on port: ${PORT}`);
 
@@ -168,6 +169,12 @@ app.get('/_ah/health', (req, res) => {
   res.status(200).send('OK');
 });
 
+// --- サーバー起動（起動を最優先） ---
+startServer().catch(err => {
+  console.error('❌ Fatal error during server startup:', err);
+  process.exit(1);
+});
+
 // Database Pool
 // Cloud Run環境では環境変数から個別に取得するか、接続文字列を使用
 const isProduction = process.env.NODE_ENV === 'production';
@@ -230,6 +237,16 @@ try {
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);
   // Don't exit the process
+});
+
+// データベース初期化（サーバー起動後に非同期で実行）
+setImmediate(async () => {
+  try {
+    await initializeDatabase();
+    await testDatabaseConnection();
+  } catch (err) {
+    console.error('❌ Post-start DB initialization failed:', err.message);
+  }
 });
 
 // ========================================
@@ -3834,6 +3851,10 @@ async function runEmergencyDbFix() {
 
 // --- サーバー起動 ---
 async function startServer() {
+  if (serverInstance) {
+    console.log('ℹ️ Server already started, skipping duplicate start');
+    return;
+  }
   console.log(`📡 Starting server on port ${PORT}...`);
 
   // まずサーバーをリッスン開始（Cloud Runのヘルスチェック対策）
@@ -3850,27 +3871,9 @@ async function startServer() {
     console.log(`❤️ Health check: http://0.0.0.0:${PORT}/health`);
     console.log('='.repeat(60));
 
-    // サーバー起動後にデータベース接続を非同期で実行
-    initializeDatabase();
-
-    // サーバー起動後に接続テスト（1回のみ高速チェック）
-    let dbConnectionAttempts = 0;
-    const maxDbAttempts = 1;
-    setImmediate(async () => {
-      while (dbConnectionAttempts < maxDbAttempts) {
-        dbConnectionAttempts++;
-        console.log(`Database connection attempt ${dbConnectionAttempts}/${maxDbAttempts}`);
-        const connected = await testDatabaseConnection();
-        if (connected) {
-          break;
-        }
-        if (dbConnectionAttempts < maxDbAttempts) {
-          console.log('Retrying in 2 seconds...');
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      }
-    });
   });
+
+  serverInstance = server;
 
   server.on('error', (err) => {
     console.error('❌ Server error:', err);
@@ -3885,7 +3888,9 @@ async function startServer() {
     console.log('SIGTERM received, closing server gracefully');
     server.close(() => {
       console.log('Server closed');
-      pool.end();
+      if (pool && typeof pool.end === 'function') {
+        pool.end();
+      }
       process.exit(0);
     });
   });
@@ -3911,8 +3916,4 @@ async function initializeDatabase() {
 }
 
 
-// Start the server
-startServer().catch(err => {
-  console.error('❌ Fatal error during server startup:', err);
-  process.exit(1);
-});
+// Start the server: moved to early startup section
