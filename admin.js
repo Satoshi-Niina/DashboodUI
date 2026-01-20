@@ -228,12 +228,7 @@ function initializeEventListeners() {
     // テンプレートダウンロードボタン
     const downloadExcelBtn = document.getElementById('download-excel-template-btn');
     if (downloadExcelBtn) {
-        downloadExcelBtn.addEventListener('click', () => downloadUserTemplate('excel'));
-    }
-
-    const downloadCsvBtn = document.getElementById('download-csv-template-btn');
-    if (downloadCsvBtn) {
-        downloadCsvBtn.addEventListener('click', () => downloadUserTemplate('csv'));
+        downloadExcelBtn.addEventListener('click', () => downloadUserTemplate());
     }
 
     // フィルターイベント
@@ -4463,7 +4458,7 @@ async function handleCleanOrphanedImages() {
 /**
  * テンプレートダウンロード
  */
-function downloadUserTemplate(format) {
+function downloadUserTemplate() {
     const headers = ['ログインユーザー名', '表示名', 'メールアドレス', '権限', '初期パスワード'];
     const sampleData = [
         ['user001', '山田太郎', 'yamada@example.com', 'user', 'Password123'],
@@ -4471,33 +4466,7 @@ function downloadUserTemplate(format) {
         ['admin001', '管理者', 'admin@example.com', 'system_admin', 'AdminPass789']
     ];
 
-    if (format === 'csv') {
-        downloadCSVTemplate(headers, sampleData);
-    } else if (format === 'excel') {
-        downloadExcelTemplate(headers, sampleData);
-    }
-}
-
-/**
- * CSVテンプレートダウンロード
- */
-function downloadCSVTemplate(headers, sampleData) {
-    // CSVコンテンツ作成
-    let csvContent = '\uFEFF'; // BOM for Excel UTF-8 recognition
-    csvContent += headers.join(',') + '\n';
-    sampleData.forEach(row => {
-        csvContent += row.map(cell => `"${cell}"`).join(',') + '\n';
-    });
-
-    // ダウンロード実行
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'user_import_template.csv';
-    link.click();
-    URL.revokeObjectURL(link.href);
-
-    showToast('CSVテンプレートをダウンロードしました', 'success');
+    downloadExcelTemplate(headers, sampleData);
 }
 
 /**
