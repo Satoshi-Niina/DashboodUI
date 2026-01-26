@@ -3110,11 +3110,13 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
   try {
     const machinesRoute = await resolveTablePath('machines');
     const machineTypesRoute = await resolveTablePath('machine_types');
-    const basesRoute = await resolveTablePath('bases');
-
-    console.log(`[GET /api/machines] Resolving tables:`, { machines: machinesRoute.fullPath, types: machineTypesRoute.fullPath });
-
     const officesRoute = await resolveTablePath('management_offices');
+
+    console.log(`[GET /api/machines] Resolving tables:`, { 
+      machines: machinesRoute.fullPath, 
+      types: machineTypesRoute.fullPath,
+      offices: officesRoute.fullPath 
+    });
 
     const query = `
       SELECT 
@@ -3126,17 +3128,16 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
         m.assigned_base_id,
         m.office_id,
         m.notes,
-        m.type_certification,
         m.machine_type_id,
         mt.model_name,
         mt.manufacturer,
         mt.category,
-        o.office_name,
+        COALESCE(mo.office_name, '配置未設定') as office_name,
         m.created_at,
         m.updated_at
       FROM ${machinesRoute.fullPath} m
       LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id::text = mt.id::text
-      LEFT JOIN ${officesRoute.fullPath} o ON m.office_id::text = o.office_id::text
+      LEFT JOIN ${officesRoute.fullPath} mo ON m.office_id = mo.office_id
       ORDER BY m.machine_number
     `;
     console.log(`[GET /api/machines] Executing SQL...`);

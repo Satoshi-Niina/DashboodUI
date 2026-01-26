@@ -62,15 +62,22 @@ document.addEventListener('DOMContentLoaded', () => {
             value: f.value
         })).filter(f => f.value !== "");
 
+        console.log('[applyTableFilter] Active filters:', activeFilters);
+
         const rows = Array.from(table.querySelector('tbody').rows);
+        let visibleCount = 0;
 
         rows.forEach(row => {
             const isMatch = activeFilters.every(f => {
                 const cellText = row.cells[f.index].textContent.trim();
-                return cellText === f.value;
+                const matches = cellText === f.value;
+                return matches;
             });
             row.style.display = isMatch ? "" : "none";
+            if (isMatch) visibleCount++;
         });
+        
+        console.log('[applyTableFilter] Visible rows:', visibleCount, '/', rows.length);
     };
 
     // フィルタの選択肢を自動生成する関数
@@ -78,10 +85,35 @@ document.addEventListener('DOMContentLoaded', () => {
         const filters = Array.from(table.querySelectorAll('.column-filter'));
         const rows = Array.from(table.querySelector('tbody').rows);
 
+        console.log('[updateFilterOptions] Called with rows:', rows.length);
+
         filters.forEach(select => {
             const colIndex = parseInt(select.dataset.col);
+            
+            // アクティブなフィルター（他の列）を取得
+            const activeFilters = filters.map((f, idx) => {
+                if (idx === filters.indexOf(select)) return null; // 自分自身は除外
+                return {
+                    index: parseInt(f.dataset.col),
+                    value: f.value
+                };
+            }).filter(f => f && f.value !== "");
+
+            console.log(`[updateFilterOptions] Column ${colIndex} active filters:`, activeFilters);
+
+            // アクティブなフィルターにマッチする行を抽出
+            const filteredRows = rows.filter(row => {
+                return activeFilters.every(f => {
+                    const cellText = row.cells[f.index].textContent.trim();
+                    return cellText === f.value;
+                });
+            });
+
+            console.log(`[updateFilterOptions] Filtered rows for column ${colIndex}:`, filteredRows.length);
+
+            // フィルター済み行から選択肢を抽出
             const values = new Set();
-            rows.forEach(row => {
+            filteredRows.forEach(row => {
                 const text = row.cells[colIndex].textContent.trim();
                 if (text) values.add(text);
             });
@@ -93,6 +125,8 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             select.innerHTML = optionsHtml;
             select.value = currentVal;
+            
+            console.log(`[updateFilterOptions] Column ${colIndex}: ${Array.from(values).length} options`);
         });
     };
 
@@ -942,19 +976,19 @@ async function loadMachines() {
                 <table class="data-table" id="machines-table">
                     <thead>
                         <tr>
-                            <th>機械番号</th>
+                            <th>管理事業所</th>
                             <th>機種</th>
+                            <th>機械番号</th>
                             <th>シリアル番号</th>
                             <th>製造年月日</th>
-                            <th>管理事業所</th>
                             <th>操作</th>
                         </tr>
                         <tr class="filter-row">
                             <th><select class="column-filter" data-col="0"></select></th>
                             <th><select class="column-filter" data-col="1"></select></th>
                             <th><select class="column-filter" data-col="2"></select></th>
+                            <th><select class="column-filter" data-col="3"></select></th>
                             <th></th>
-                            <th><select class="column-filter" data-col="4"></select></th>
                             <th></th>
                         </tr>
                     </thead>
@@ -967,11 +1001,11 @@ async function loadMachines() {
                 console.log('[loadMachines] Rendering machine:', { id: machineId, number: machineNumber });
                 html += `
                     <tr>
-                        <td>${escapeHtml(machine.machine_number || '-')}</td>
+                        <td>${escapeHtml(machine.office_name || '-')}</td>
                         <td>${escapeHtml(machine.model_name || '-')}</td>
+                        <td>${escapeHtml(machine.machine_number || '-')}</td>
                         <td>${escapeHtml(machine.serial_number || '-')}</td>
                         <td>${machine.manufacture_date ? new Date(machine.manufacture_date).toLocaleDateString('ja-JP') : '-'}</td>
-                        <td>${escapeHtml(machine.office_name || '-')}</td>
                         <td>
                             <button class="btn-sm btn-edit" data-id="${machineId}" data-action="edit-machine">編集</button>
                             <button class="btn-sm btn-delete" data-id="${machineId}" data-number="${escapeHtml(machineNumber)}" data-action="delete-machine">削除</button>
@@ -983,13 +1017,28 @@ async function loadMachines() {
             html += `</tbody></table>`;
             list.innerHTML = html;
 
+            // デバッグ: データ確認
+            console.log('[loadMachines] Sample data:', data.data.slice(0, 3));
+            console.log('[loadMachines] Office names:', data.data.map(m => m.office_name).filter((v, i, a) => a.indexOf(v) === i));
+            console.log('[loadMachines] Sample with office_id:');
+            data.data.slice(0, 3).forEach(m => {
+                console.log(`  - ${m.machine_number}: office_id=${m.office_id}, office_name=${m.office_name}`);
+            });
+
             // フィルターイベントと選択肢の初期化
             const table = document.getElementById('machines-table');
             if (table) {
+                console.log('[loadMachines] Calling updateFilterOptions');
                 updateFilterOptions(table);
                 const filters = table.querySelectorAll('.column-filter');
+                console.log('[loadMachines] Found filters:', filters.length);
                 filters.forEach(filter => {
-                    filter.addEventListener('change', () => window.applyTableFilter(table));
+                    filter.addEventListener('change', () => {
+                        console.log('[filter change] Applying filter');
+                        window.applyTableFilter(table);
+                        console.log('[filter change] Updating other filter options');
+                        updateFilterOptions(table);
+                    });
                 });
             }
         } else {
