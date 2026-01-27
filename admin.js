@@ -76,7 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
             row.style.display = isMatch ? "" : "none";
             if (isMatch) visibleCount++;
         });
-        
+
         console.log('[applyTableFilter] Visible rows:', visibleCount, '/', rows.length);
     };
 
@@ -89,7 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         filters.forEach(select => {
             const colIndex = parseInt(select.dataset.col);
-            
+
             // アクティブなフィルター（他の列）を取得
             const activeFilters = filters.map((f, idx) => {
                 if (idx === filters.indexOf(select)) return null; // 自分自身は除外
@@ -125,7 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             select.innerHTML = optionsHtml;
             select.value = currentVal;
-            
+
             console.log(`[updateFilterOptions] Column ${colIndex}: ${Array.from(values).length} options`);
         });
     };
@@ -320,10 +320,52 @@ function initializeEventListeners() {
         addOfficeBtn.addEventListener('click', () => showOfficeModal('add', null));
     }
 
+    // 事業所インポートボタン
+    const importOfficesBtn = document.getElementById('import-offices-btn');
+    const officesImportFile = document.getElementById('offices-import-file');
+    if (importOfficesBtn && officesImportFile) {
+        importOfficesBtn.addEventListener('click', () => {
+            officesImportFile.click();
+        });
+        officesImportFile.addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                await importMasterData('offices', e.target.files[0]);
+                e.target.value = '';
+            }
+        });
+    }
+
+    // 事業所テンプレートボタン
+    const downloadOfficesTemplateBtn = document.getElementById('download-offices-template-btn');
+    if (downloadOfficesTemplateBtn) {
+        downloadOfficesTemplateBtn.addEventListener('click', () => downloadMasterTemplate('offices'));
+    }
+
     // 保守基地追加ボタン
     const addBaseBtn = document.getElementById('add-new-base-btn');
     if (addBaseBtn) {
         addBaseBtn.addEventListener('click', () => showBaseModal('add', null));
+    }
+
+    // 保守基地インポートボタン
+    const importBasesBtn = document.getElementById('import-bases-btn');
+    const basesImportFile = document.getElementById('bases-import-file');
+    if (importBasesBtn && basesImportFile) {
+        importBasesBtn.addEventListener('click', () => {
+            basesImportFile.click();
+        });
+        basesImportFile.addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                await importMasterData('bases', e.target.files[0]);
+                e.target.value = '';
+            }
+        });
+    }
+
+    // 保守基地テンプレートボタン
+    const downloadBasesTemplateBtn = document.getElementById('download-bases-template-btn');
+    if (downloadBasesTemplateBtn) {
+        downloadBasesTemplateBtn.addEventListener('click', () => downloadMasterTemplate('bases'));
     }
 
     // 機種マスタ追加ボタン
@@ -342,6 +384,27 @@ function initializeEventListeners() {
             }
             openMachineTypeModal();
         });
+    }
+
+    // 機種マスタインポートボタン
+    const importMachineTypesBtn = document.getElementById('import-machine-types-btn');
+    const machineTypesImportFile = document.getElementById('machine-types-import-file');
+    if (importMachineTypesBtn && machineTypesImportFile) {
+        importMachineTypesBtn.addEventListener('click', () => {
+            machineTypesImportFile.click();
+        });
+        machineTypesImportFile.addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                await importMasterData('machine-types', e.target.files[0]);
+                e.target.value = '';
+            }
+        });
+    }
+
+    // 機種マスタテンプレートボタン
+    const downloadMachineTypesTemplateBtn = document.getElementById('download-machine-types-template-btn');
+    if (downloadMachineTypesTemplateBtn) {
+        downloadMachineTypesTemplateBtn.addEventListener('click', () => downloadMasterTemplate('machine-types'));
     }
 
     // 機種マスタモーダルのイベントリスナー
@@ -373,6 +436,27 @@ function initializeEventListeners() {
     const addMachineBtn = document.getElementById('add-new-machine-btn');
     if (addMachineBtn) {
         addMachineBtn.addEventListener('click', () => openMachineModal());
+    }
+
+    // 保守用車インポートボタン
+    const importMachinesBtn = document.getElementById('import-machines-btn');
+    const machinesImportFile = document.getElementById('machines-import-file');
+    if (importMachinesBtn && machinesImportFile) {
+        importMachinesBtn.addEventListener('click', () => {
+            machinesImportFile.click();
+        });
+        machinesImportFile.addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                await importMasterData('machines', e.target.files[0]);
+                e.target.value = '';
+            }
+        });
+    }
+
+    // 保守用車テンプレートボタン
+    const downloadMachinesTemplateBtn = document.getElementById('download-machines-template-btn');
+    if (downloadMachinesTemplateBtn) {
+        downloadMachinesTemplateBtn.addEventListener('click', () => downloadMasterTemplate('machines'));
     }
 
     // 機械番号マスタモーダルのイベントリスナー
@@ -2194,6 +2278,248 @@ function getStatusLabel(status) {
         'inactive': '停止中'
     };
     return labels[status] || status;
+}
+
+// ========== マスタデータのインポート・テンプレート共通機能 ==========
+
+/**
+ * テンプレートCSVのダウンロード
+ * @param {string} type マスタの種類
+ */
+async function downloadMasterTemplate(type) {
+    let headers = [];
+    let filename = '';
+
+    switch (type) {
+        case 'offices':
+            headers = ['事業所コード', '事業所名*', '事業所区分', '住所', '郵便番号', '電話番号'];
+            filename = '事業所マスタ_テンプレート.csv';
+            break;
+        case 'bases':
+            headers = ['基地コード', '基地名*', '所属事業所名', '所在地'];
+            filename = '保守基地マスタ_テンプレート.csv';
+            break;
+        case 'machine-types':
+            headers = ['メーカー型式*', 'メーカー', 'カテゴリ', '説明'];
+            filename = '機種マスタ_テンプレート.csv';
+            break;
+        case 'machines':
+            headers = ['管理事業所名*', '機種名*', '機械番号*', 'シリアル番号', '型式認定番号', '製造年月日', '購入年月日', '備考'];
+            filename = '保守用車管理マスタ_テンプレート.csv';
+            break;
+    }
+
+    const csvContent = "\uFEFF" + headers.join(',') + '\n';
+    await triggerFileDownload(csvContent, filename);
+}
+
+/**
+ * マスタデータのインポート処理
+ * @param {string} type マスタの種類
+ * @param {File} file CSVファイル
+ */
+async function importMasterData(type, file) {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const text = e.target.result;
+        const rows = parseCSV(text);
+        if (rows.length < 2) {
+            showToast('CSVデータが見つかりません', 'error');
+            return;
+        }
+
+        const headers = rows[0];
+        const dataRows = rows.slice(1);
+        let successCount = 0;
+        let errorCount = 0;
+        let errors = [];
+
+        showToast(`${dataRows.length}件の処理を開始します...`, 'info');
+
+        // 必要データの事前ロード（ID解決用）
+        let idMaps = {};
+        if (type === 'bases' || type === 'machines') {
+            idMaps.offices = await fetchOfficeMap();
+        }
+        if (type === 'machines') {
+            idMaps.machineTypes = await fetchMachineTypeMap();
+        }
+
+        for (let i = 0; i < dataRows.length; i++) {
+            const row = dataRows[i];
+            if (row.length < headers.length) continue;
+
+            const rowData = {};
+            headers.forEach((header, index) => {
+                rowData[header] = row[index] ? row[index].trim() : '';
+            });
+
+            try {
+                let apiData = {};
+                let apiUrl = '';
+
+                switch (type) {
+                    case 'offices':
+                        apiData = {
+                            office_code: rowData['事業所コード'] || null,
+                            office_name: rowData['事業所名*'],
+                            office_type: rowData['事業所区分'],
+                            address: rowData['住所'],
+                            postal_code: rowData['郵便番号'],
+                            phone_number: rowData['電話番号']
+                        };
+                        if (!apiData.office_name) throw new Error('事業所名は必須です');
+                        apiUrl = '/api/offices';
+                        break;
+
+                    case 'bases':
+                        const officeId = idMaps.offices[rowData['所属事業所名']];
+                        apiData = {
+                            base_code: rowData['基地コード'] || null,
+                            base_name: rowData['基地名*'],
+                            office_id: officeId || null,
+                            location: rowData['所在地']
+                        };
+                        if (!apiData.base_name) throw new Error('基地名は必須です');
+                        apiUrl = '/api/bases';
+                        break;
+
+                    case 'machine-types':
+                        apiData = {
+                            model_name: rowData['メーカー型式*'],
+                            manufacturer: rowData['メーカー'],
+                            category: rowData['カテゴリ'],
+                            description: rowData['説明']
+                        };
+                        if (!apiData.model_name) throw new Error('メーカー型式は必須です');
+                        apiUrl = '/api/machine-types';
+                        break;
+
+                    case 'machines':
+                        const machineOfficeId = idMaps.offices[rowData['管理事業所名*']];
+                        const machineTypeId = idMaps.machineTypes[rowData['機種名*']];
+                        apiData = {
+                            office_id: machineOfficeId || null,
+                            machine_type_id: machineTypeId || null,
+                            machine_number: rowData['機械番号*'],
+                            serial_number: rowData['シリアル番号'],
+                            type_certification: rowData['型式認定番号'],
+                            manufacture_date: rowData['製造年月日'] || null,
+                            purchase_date: rowData['購入年月日'] || null,
+                            notes: rowData['備考']
+                        };
+                        if (!apiData.machine_number) throw new Error('機械番号は必須です');
+                        if (!apiData.office_id) throw new Error(`管理事業所「${rowData['管理事業所名*']}」が見つかりません`);
+                        if (!apiData.machine_type_id) throw new Error(`機種「${rowData['機種名*']}」が見つかりません`);
+                        apiUrl = '/api/machines';
+                        break;
+                }
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('user_token')}`
+                    },
+                    body: JSON.stringify(apiData)
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    successCount++;
+                } else {
+                    throw new Error(result.message || '登録に失敗しました');
+                }
+            } catch (err) {
+                console.error(`Import error row ${i + 2}:`, err);
+                errorCount++;
+                errors.push(`行 ${i + 2}: ${err.message}`);
+            }
+        }
+
+        showToast(`インポート完了: 成功 ${successCount}件, 失敗 ${errorCount}件`, errorCount > 0 ? 'warning' : 'success');
+        if (errors.length > 0) {
+            alert(`一部のデータでエラーが発生しました:\n\n${errors.slice(0, 10).join('\n')}${errors.length > 10 ? '\n...他' : ''}`);
+        }
+
+        // データを再読み込み
+        switch (type) {
+            case 'offices': loadOffices(); break;
+            case 'bases': loadBases(); break;
+            case 'machine-types': loadMachineTypes(); break;
+            case 'machines': loadMachines(); break;
+        }
+    };
+    reader.readAsText(file);
+}
+
+/**
+ * CSVのパース（簡易版）
+ */
+function parseCSV(text) {
+    const lines = text.split(/\r?\n/);
+    return lines.filter(line => line.trim()).map(line => {
+        let cells = [];
+        let cell = '';
+        let inQuote = false;
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+                inQuote = !inQuote;
+            } else if (char === ',' && !inQuote) {
+                cells.push(cell.trim());
+                cell = '';
+            } else {
+                cell += char;
+            }
+        }
+        cells.push(cell.trim());
+        return cells;
+    });
+}
+
+/**
+ * 事業所名とIDのマッピングを取得
+ */
+async function fetchOfficeMap() {
+    try {
+        const response = await fetch('/api/offices', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
+        });
+        const data = await response.json();
+        const map = {};
+        if (data.success) {
+            data.offices.forEach(o => {
+                map[o.office_name] = o.office_id;
+            });
+        }
+        return map;
+    } catch (err) {
+        console.error('Fetch office map error:', err);
+        return {};
+    }
+}
+
+/**
+ * 機種名とIDのマッピングを取得
+ */
+async function fetchMachineTypeMap() {
+    try {
+        const response = await fetch('/api/machine-types', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
+        });
+        const data = await response.json();
+        const map = {};
+        if (data.success) {
+            data.data.forEach(mt => {
+                map[mt.model_name] = mt.id;
+            });
+        }
+        return map;
+    } catch (err) {
+        console.error('Fetch machine type map error:', err);
+        return {};
+    }
 }
 
 // ========== データベース管理 ==========
@@ -4507,52 +4833,63 @@ async function handleCleanOrphanedImages() {
 /**
  * テンプレートダウンロード
  */
-function downloadUserTemplate() {
-    const headers = ['ログインユーザー名', '表示名', 'メールアドレス', '権限', '初期パスワード'];
-    const sampleData = [
-        ['user001', '山田太郎', 'yamada@example.com', 'user', 'Password123'],
-        ['user002', '佐藤花子', 'sato@example.com', 'user', 'Password456'],
-        ['admin001', '管理者', 'admin@example.com', 'system_admin', 'AdminPass789']
-    ];
+/**
+ * ユーザー管理用テンプレート'のダウンロード (CSV形式)
+ */
+async function downloadUserTemplate() {
+    const headers = ['ログインユーザー名', '表示名', 'メールアドレス', '権限(system_admin/operation_admin/admin/user)', '初期パスワード'];
+    const filename = 'ユーザー管理_テンプレート.csv';
 
-    downloadExcelTemplate(headers, sampleData);
+    const csvContent = "\uFEFF" + headers.join(',') + '\n';
+    await triggerFileDownload(csvContent, filename);
 }
 
 /**
- * Excelテンプレートダウンロード（簡易版：HTML table形式）
+ * 名前を付けて保存ダイアログを表示してファイルをダウンロード
+ * @param {string} content ファイル内容
+ * @param {string} suggestedName 推奨ファイル名
  */
-function downloadExcelTemplate(headers, sampleData) {
-    // Excel形式（実際はHTML table）
-    let htmlContent = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/1999/xhtml">';
-    htmlContent += '<head><meta charset="UTF-8"><!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>';
-    htmlContent += '<x:Name>ユーザーインポート</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet>';
-    htmlContent += '</x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]--></head><body>';
-    htmlContent += '<table border="1"><thead><tr>';
+async function triggerFileDownload(content, suggestedName) {
+    // 1. File System Access API が利用可能な場合 (モダンブラウザ)
+    if ('showSaveFilePicker' in window) {
+        try {
+            const handle = await window.showSaveFilePicker({
+                suggestedName: suggestedName,
+                types: [{
+                    description: 'CSV File',
+                    accept: { 'text/csv': ['.csv'] },
+                }],
+            });
+            const writable = await handle.createWritable();
+            await writable.write(content);
+            await writable.close();
+            showToast('ファイルを保存しました', 'success');
+            return;
+        } catch (err) {
+            // ユーザーがキャンセルした場合は何もしない
+            if (err.name === 'AbortError') return;
+            console.error('File sync save error:', err);
+            // エラーの場合はフォールバックへ
+        }
+    }
 
-    headers.forEach(header => {
-        htmlContent += `<th style="background-color: #4CAF50; color: white; font-weight: bold;">${header}</th>`;
-    });
-    htmlContent += '</tr></thead><tbody>';
-
-    sampleData.forEach(row => {
-        htmlContent += '<tr>';
-        row.forEach(cell => {
-            htmlContent += `<td>${cell}</td>`;
-        });
-        htmlContent += '</tr>';
-    });
-
-    htmlContent += '</tbody></table></body></html>';
-
-    const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'user_import_template.xls';
+    // 2. フォールバック: 従来のダウンロード方法 (保存場所はブラウザ設定に依存)
+    console.log('[Download] Falling back to traditional download method');
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", suggestedName);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(link.href);
-
-    showToast('Excelテンプレートをダウンロードしました', 'success');
+    document.body.removeChild(link);
+    showToast('テンプレートをダウンロードしました', 'success');
 }
+
+// 既存の downloadExcelTemplate は不要になったため削除
+
+// 旧テンプレートダウンロード処理の残骸を削除しました。
 
 /**
  * ユーザーインポート処理

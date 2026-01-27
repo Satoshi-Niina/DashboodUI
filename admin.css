@@ -12,7 +12,8 @@ body {
 }
 
 .admin-container {
-    max-width: 1944px; /* 1620px * 1.2 = 1944px */
+    max-width: 1944px;
+    /* 1620px * 1.2 = 1944px */
     margin: 0 auto;
     background: white;
     border-radius: 16px;
@@ -30,7 +31,8 @@ body {
 }
 
 .admin-header h1 {
-    font-size: 33.6px; /* 28px * 1.2 = 33.6px */
+    font-size: 33.6px;
+    /* 28px * 1.2 = 33.6px */
     font-weight: 600;
 }
 
@@ -58,7 +60,8 @@ body {
     border-radius: 8px 8px 0 0;
     cursor: pointer;
     transition: all 0.3s;
-    font-size: 22px; /* 20px * 1.1 = 22px */
+    font-size: 22px;
+    /* 20px * 1.1 = 22px */
     font-weight: 700;
     color: #666;
     box-shadow: inset 0 -3px 0 rgba(21, 101, 192, 0.1);
@@ -136,7 +139,8 @@ body {
 
 .info-banner p {
     color: #1565c0;
-    font-size: 16.8px; /* 14px * 1.2 = 16.8px */
+    font-size: 16.8px;
+    /* 14px * 1.2 = 16.8px */
 }
 
 .config-section {
@@ -150,7 +154,8 @@ body {
 }
 
 .config-section h2 {
-    font-size: 26.4px; /* 22px * 1.2 = 26.4px - AI管理タブと統一 */
+    font-size: 26.4px;
+    /* 22px * 1.2 = 26.4px - AI管理タブと統一 */
     color: #333;
     margin-bottom: 10px;
 }
@@ -158,7 +163,8 @@ body {
 /* 全タブのh3見出しを統一 */
 .config-section h3,
 .tab-content h3 {
-    font-size: 21.6px; /* 18px * 1.2 - AI管理タブと同じサイズ */
+    font-size: 21.6px;
+    /* 18px * 1.2 - AI管理タブと同じサイズ */
     color: #333;
     margin-bottom: 15px;
     font-weight: 600;
@@ -188,7 +194,8 @@ body {
 
 .section-desc {
     color: #666;
-    font-size: 16.8px; /* 14px * 1.2 - AI管理タブと統一 */
+    font-size: 16.8px;
+    /* 14px * 1.2 - AI管理タブと統一 */
     margin-bottom: 25px;
 }
 
@@ -201,7 +208,8 @@ body {
     font-weight: 600;
     color: #333;
     margin-bottom: 8px;
-    font-size: 16.8px; /* 15px → 16.8px に拡大 */
+    font-size: 16.8px;
+    /* 15px → 16.8px に拡大 */
 }
 
 .form-group input {
@@ -209,7 +217,8 @@ body {
     padding: 12px 15px;
     border: 2px solid #e0e0e0;
     border-radius: 8px;
-    font-size: 15.6px; /* 14px → 15.6px に拡大 */
+    font-size: 15.6px;
+    /* 14px → 15.6px に拡大 */
     transition: all 0.3s;
 }
 
@@ -264,14 +273,16 @@ body {
     padding: 12px 24px;
     border: none;
     border-radius: 8px;
-    font-size: 15.6px; /* 14px → 15.6px に拡大 */
+    font-size: 15.6px;
+    /* 14px → 15.6px に拡大 */
     font-weight: 600;
     cursor: pointer;
     transition: all 0.3s;
 }
 
 #back-to-main-btn {
-    font-size: 21px; /* 14px * 1.5 = 21px */
+    font-size: 21px;
+    /* 14px * 1.5 = 21px */
     font-weight: 700;
 }
 
@@ -286,13 +297,42 @@ body {
     box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
 }
 
-.btn-secondary {
-    background: #f5f5f5;
-    color: #333;
-}
-
 .btn-secondary:hover {
     background: #e0e0e0;
+}
+
+/* 追加・インポートボタンの調整 */
+.btn-add-width-33 {
+    flex: none !important;
+    width: 33.33% !important;
+}
+
+.btn-import-large {
+    flex: none !important;
+    font-size: 15.6px !important;
+    /* 新規追加ボタンと同じサイズ */
+    padding: 12px 60px !important;
+    /* 縦幅を合わせつつ横幅を広く */
+    min-width: 250px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    height: auto;
+    /* コンテンツに応じた高さ */
+}
+
+.btn-import-large span {
+    font-size: 24px;
+    /* アイコンを少し強調 */
+    line-height: 1;
+}
+
+.btn-import-large:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(76, 175, 80, 0.4);
 }
 
 .history-list {
@@ -680,7 +720,8 @@ body {
 
 .users-table td {
     padding: 15px;
-    font-size: 15.6px; /* 14px → 15.6px に拡大 */
+    font-size: 15.6px;
+    /* 14px → 15.6px に拡大 */
     color: #333;
 }
 
@@ -693,7 +734,8 @@ body {
     display: inline-block;
     padding: 4px 12px;
     border-radius: 12px;
-    font-size: 13.2px; /* 12px → 13.2px に拡大 */
+    font-size: 13.2px;
+    /* 12px → 13.2px に拡大 */
     font-weight: 600;
 }
 
@@ -989,13 +1031,15 @@ body {
     padding: 12px;
     text-align: left;
     font-weight: 600;
-    font-size: 14.4px; /* 13px → 14.4px に拡大 */
+    font-size: 14.4px;
+    /* 13px → 14.4px に拡大 */
 }
 
 .data-table td {
     padding: 12px;
     border-bottom: 1px solid #e0e0e0;
-    font-size: 14.4px; /* 13px → 14.4px に拡大 */
+    font-size: 14.4px;
+    /* 13px → 14.4px に拡大 */
 }
 
 .data-table tbody tr:hover {
@@ -1010,7 +1054,8 @@ body {
 .data-table .btn-edit,
 .data-table .btn-delete {
     padding: 6px 12px;
-    font-size: 13.2px; /* 12px → 13.2px に拡大 */
+    font-size: 13.2px;
+    /* 12px → 13.2px に拡大 */
     border: none;
     border-radius: 4px;
     cursor: pointer;
@@ -1319,7 +1364,8 @@ body {
     border-radius: 8px;
     cursor: pointer;
     transition: all 0.3s;
-    font-size: 20px; /* 16.8px * 1.2 = 20.16px */
+    font-size: 20px;
+    /* 16.8px * 1.2 = 20.16px */
     font-weight: 600;
     color: #666;
     box-shadow: 3px 3px 6px rgba(0, 0, 0, 0.15), -2px -2px 4px rgba(255, 255, 255, 0.8);
@@ -1377,13 +1423,15 @@ body {
 }
 
 .upload-area p {
-    font-size: 18px; /* 15px * 1.2 */
+    font-size: 18px;
+    /* 15px * 1.2 */
     color: #333;
     margin: 0;
 }
 
 .upload-hint {
-    font-size: 16.8px; /* 14px * 1.2 */
+    font-size: 16.8px;
+    /* 14px * 1.2 */
     color: #999;
     font-style: italic;
 }
@@ -1426,19 +1474,22 @@ body {
 }
 
 .stat-label {
-    font-size: 16.8px; /* 14px * 1.2 */
+    font-size: 16.8px;
+    /* 14px * 1.2 */
     color: #666;
     margin-bottom: 8px;
 }
 
 .stat-value {
-    font-size: 36px; /* 30px * 1.2 */
+    font-size: 36px;
+    /* 30px * 1.2 */
     font-weight: bold;
     color: #667eea;
 }
 
 .stat-unit {
-    font-size: 16.8px; /* 14px * 1.2 */
+    font-size: 16.8px;
+    /* 14px * 1.2 */
     color: #999;
     margin-top: 4px;
 }
@@ -1478,14 +1529,16 @@ body {
 }
 
 .knowledge-name {
-    font-size: 18px; /* 15px * 1.2 */
+    font-size: 18px;
+    /* 15px * 1.2 */
     font-weight: 600;
     color: #333;
     margin-bottom: 5px;
 }
 
 .knowledge-meta {
-    font-size: 16.8px; /* 14px * 1.2 */
+    font-size: 16.8px;
+    /* 14px * 1.2 */
     color: #666;
 }
 
@@ -1508,7 +1561,8 @@ body {
     background: white;
     cursor: pointer;
     transition: all 0.3s;
-    font-size: 16.8px; /* 14px * 1.2 */
+    font-size: 16.8px;
+    /* 14px * 1.2 */
 }
 
 .style-btn:hover {
@@ -1535,7 +1589,8 @@ body {
     color: white;
     padding: 8px 16px;
     border-radius: 20px;
-    font-size: 16.8px; /* 14px * 1.2 */
+    font-size: 16.8px;
+    /* 14px * 1.2 */
     font-weight: 600;
     min-width: 80px;
     text-align: center;
@@ -1546,7 +1601,8 @@ body {
     padding: 12px 15px;
     border: 2px solid #e0e0e0;
     border-radius: 8px;
-    font-size: 16.8px; /* 14px * 1.2 */
+    font-size: 16.8px;
+    /* 14px * 1.2 */
     transition: all 0.3s;
 }
 
@@ -1629,7 +1685,8 @@ body {
 
 /* AI管理タブのh3スタイル */
 #ai-management-tab h3 {
-    font-size: 21.6px; /* 18px * 1.2 */
+    font-size: 21.6px;
+    /* 18px * 1.2 */
     color: #333;
     margin-bottom: 15px;
     font-weight: 600;
@@ -1637,7 +1694,8 @@ body {
 
 /* セクション説明文 */
 .section-desc {
-    font-size: 16.8px; /* 14px * 1.2 */
+    font-size: 16.8px;
+    /* 14px * 1.2 */
     color: #666;
     margin-bottom: 20px;
 }
@@ -1716,8 +1774,8 @@ body {
     transform: translateY(-2px);
 }
 
-.radio-option input[type="radio"]:checked ~ span,
-.checkbox-option input[type="checkbox"]:checked ~ span {
+.radio-option input[type="radio"]:checked~span,
+.checkbox-option input[type="checkbox"]:checked~span {
     color: #667eea;
 }
 
@@ -1731,6 +1789,7 @@ body {
         opacity: 0;
         transform: translateY(10px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);
@@ -1758,6 +1817,7 @@ body {
         max-height: 0;
         transform: translateY(-20px);
     }
+
     to {
         opacity: 1;
         max-height: 1000px;
@@ -1781,7 +1841,7 @@ body {
 }
 
 /* セクション区切り */
-.config-section + .config-section {
+.config-section+.config-section {
     margin-top: 30px;
 }
 
@@ -1795,13 +1855,15 @@ body {
     outline: none;
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
+
 /* =========================================
    System Operations Dashboard
    ========================================= */
 
 .system-dashboard-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr; /* 2 columns */
+    grid-template-columns: 1fr 1fr;
+    /* 2 columns */
     gap: 20px;
     margin-top: 20px;
     align-items: start;
@@ -1809,13 +1871,15 @@ body {
 
 @media (max-width: 1200px) {
     .system-dashboard-grid {
-        grid-template-columns: 1fr; /* Stack on smaller screens */
+        grid-template-columns: 1fr;
+        /* Stack on smaller screens */
     }
 }
 
 /* Panel Styles override for dashboard look */
 .system-dashboard-grid .config-section {
-    height: 100%; /* Match height if needed */
+    height: 100%;
+    /* Match height if needed */
     margin-bottom: 0;
 }
 
@@ -1827,22 +1891,26 @@ body {
 
 /* Security Panel Specifics */
 .security-panel {
-    border-top: 5px solid #ff7043; /* Orange accent */
+    border-top: 5px solid #ff7043;
+    /* Orange accent */
 }
 
 .maintenance-panel {
-    border-top: 5px solid #5c6bc0; /* Indigo accent */
+    border-top: 5px solid #5c6bc0;
+    /* Indigo accent */
 }
 
 .governance-panel {
-    border-top: 5px solid #eca400; /* Gold accent */
+    border-top: 5px solid #eca400;
+    /* Gold accent */
 }
 
 /* Alert Summary Area */
 .alert-summary {
     display: flex;
     align-items: center;
-    background-color: #fff4e5; /* Light orange bg */
+    background-color: #fff4e5;
+    /* Light orange bg */
     border-radius: 8px;
     padding: 20px;
     margin-bottom: 20px;
@@ -2036,7 +2104,10 @@ body {
     font-weight: 600;
     transition: background 0.2s;
 }
-.btn-danger-block:hover { background-color: #d32f2f; }
+
+.btn-danger-block:hover {
+    background-color: #d32f2f;
+}
 
 .btn-warning-outline-block {
     display: block;
@@ -2050,7 +2121,10 @@ body {
     font-weight: 600;
     transition: all 0.2s;
 }
-.btn-warning-outline-block:hover { background-color: #fff8e1; }
+
+.btn-warning-outline-block:hover {
+    background-color: #fff8e1;
+}
 
 .btn-outline-full {
     width: 100%;
@@ -2062,6 +2136,7 @@ body {
     cursor: pointer;
     margin-top: 10px;
 }
+
 .btn-outline-full:hover {
     background: #f5f5f5;
     border-color: #bbb;
@@ -2071,6 +2146,7 @@ body {
 .storage-stats {
     margin-bottom: 15px;
 }
+
 .progress-bar-bg {
     height: 10px;
     background-color: #eceff1;
@@ -2078,11 +2154,15 @@ body {
     margin: 8px 0;
     overflow: hidden;
 }
+
 .progress-bar-fill {
     height: 100%;
     border-radius: 5px;
 }
-.progress-bar-fill.warning { background-color: #ffa726; }
+
+.progress-bar-fill.warning {
+    background-color: #ffa726;
+}
 
 .storage-details {
     list-style: none;
@@ -2090,11 +2170,13 @@ body {
     color: #666;
     margin-top: 5px;
 }
-.storage-details li { margin-bottom: 3px; }
+
+.storage-details li {
+    margin-bottom: 3px;
+}
 
 .divider {
     border: none;
     border-top: 1px solid #eee;
     margin: 20px 0;
 }
-

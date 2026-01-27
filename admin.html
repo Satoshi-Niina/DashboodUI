@@ -70,37 +70,44 @@
 
                 <section class="config-section">
                     <div class="user-actions" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-                        <button type="button" id="add-new-user-btn" class="btn-primary">
+                        <button type="button" id="add-new-user-btn" class="btn-primary btn-add-width-33">
                             ➕ 新規ユーザー追加
                         </button>
-                        <button type="button" id="import-users-btn" class="btn-success">
-                            📥 ユーザーインポート
+                        <button type="button" id="import-users-btn" class="btn-success btn-import-large">
+                            <span>📥</span> ユーザーインポート
                         </button>
                         <button type="button" id="download-excel-template-btn" class="btn-info">
-                            📄 Excelテンプレート
+                            📄 テンプレートのダウンロード
                         </button>
                         <input type="file" id="user-import-file" accept=".xlsx,.xls" style="display: none;">
                     </div>
 
                     <!-- フィルター機能 -->
-                    <div class="filter-section" style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 8px;">
+                    <div class="filter-section"
+                        style="margin: 20px 0; padding: 15px; background: #f5f5f5; border-radius: 8px;">
                         <h4 style="margin: 0 0 10px 0; font-size: 1.1em;">🔍 フィルター</h4>
                         <div style="display: flex; gap: 15px; flex-wrap: wrap; align-items: flex-end;">
                             <div style="flex: 1; min-width: 200px;">
-                                <label for="filter-display-name" style="display: block; font-size: 0.9em; margin-bottom: 5px;">表示名</label>
-                                <select id="filter-display-name" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <label for="filter-display-name"
+                                    style="display: block; font-size: 0.9em; margin-bottom: 5px;">表示名</label>
+                                <select id="filter-display-name"
+                                    style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
                                     <option value="">すべて</option>
                                 </select>
                             </div>
                             <div style="flex: 1; min-width: 200px;">
-                                <label for="filter-username" style="display: block; font-size: 0.9em; margin-bottom: 5px;">ログインユーザー名</label>
-                                <select id="filter-username" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <label for="filter-username"
+                                    style="display: block; font-size: 0.9em; margin-bottom: 5px;">ログインユーザー名</label>
+                                <select id="filter-username"
+                                    style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
                                     <option value="">すべて</option>
                                 </select>
                             </div>
                             <div style="flex: 1; min-width: 200px;">
-                                <label for="filter-role" style="display: block; font-size: 0.9em; margin-bottom: 5px;">権限</label>
-                                <select id="filter-role" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                                <label for="filter-role"
+                                    style="display: block; font-size: 0.9em; margin-bottom: 5px;">権限</label>
+                                <select id="filter-role"
+                                    style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
                                     <option value="">すべて</option>
                                     <option value="system_admin">システム管理者</option>
                                     <option value="operation_admin">運用管理者</option>
@@ -109,7 +116,7 @@
                                 </select>
                             </div>
                             <div>
-                                <button type="button" id="clear-filters-btn" class="btn-secondary" 
+                                <button type="button" id="clear-filters-btn" class="btn-secondary"
                                     style="padding: 8px 16px; white-space: nowrap;">
                                     🔄 クリア
                                 </button>
@@ -132,10 +139,17 @@
                 <!-- 機種マスタ管理 -->
                 <section class="config-section">
                     <h3>🔧 機種マスタ</h3>
-                    <div class="user-actions">
-                        <button type="button" id="add-new-machine-type-btn" class="btn-primary">
+                    <div class="user-actions" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                        <button type="button" id="add-new-machine-type-btn" class="btn-primary btn-add-width-33">
                             ➕ 新規機種追加
                         </button>
+                        <button type="button" id="import-machine-types-btn" class="btn-success btn-import-large">
+                            <span>📥</span> インポート
+                        </button>
+                        <button type="button" id="download-machine-types-template-btn" class="btn-info">
+                            📄 テンプレートのダウンロード
+                        </button>
+                        <input type="file" id="machine-types-import-file" accept=".csv" style="display: none;">
                     </div>
 
                     <div id="machine-types-list" class="vehicles-list">
@@ -146,10 +160,17 @@
                 <!-- 保守用車管理マスタ -->
                 <section class="config-section">
                     <h3>🚛 保守用車管理マスタ</h3>
-                    <div class="user-actions">
-                        <button type="button" id="add-new-machine-btn" class="btn-primary">
+                    <div class="user-actions" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                        <button type="button" id="add-new-machine-btn" class="btn-primary btn-add-width-33">
                             ➕ 新規保守用車追加
                         </button>
+                        <button type="button" id="import-machines-btn" class="btn-success btn-import-large">
+                            <span>📥</span> インポート
+                        </button>
+                        <button type="button" id="download-machines-template-btn" class="btn-info">
+                            📄 テンプレートのダウンロード
+                        </button>
+                        <input type="file" id="machines-import-file" accept=".csv" style="display: none;">
                     </div>
 
                     <div id="machines-list" class="vehicles-list">
@@ -166,10 +187,17 @@
                 </div>
 
                 <section class="config-section">
-                    <div class="user-actions">
-                        <button type="button" id="add-new-office-btn" class="btn-primary">
+                    <div class="user-actions" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                        <button type="button" id="add-new-office-btn" class="btn-primary btn-add-width-33">
                             ➕ 新規事業所追加
                         </button>
+                        <button type="button" id="import-offices-btn" class="btn-success btn-import-large">
+                            <span>📥</span> インポート
+                        </button>
+                        <button type="button" id="download-offices-template-btn" class="btn-info">
+                            📄 テンプレートのダウンロード
+                        </button>
+                        <input type="file" id="offices-import-file" accept=".csv" style="display: none;">
                     </div>
 
                     <div id="offices-list" class="vehicles-list">
@@ -185,10 +213,17 @@
                 </div>
 
                 <section class="config-section">
-                    <div class="user-actions">
-                        <button type="button" id="add-new-base-btn" class="btn-primary">
+                    <div class="user-actions" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                        <button type="button" id="add-new-base-btn" class="btn-primary btn-add-width-33">
                             ➕ 新規保守基地追加
                         </button>
+                        <button type="button" id="import-bases-btn" class="btn-success btn-import-large">
+                            <span>📥</span> インポート
+                        </button>
+                        <button type="button" id="download-bases-template-btn" class="btn-info">
+                            📄 テンプレートのダウンロード
+                        </button>
+                        <input type="file" id="bases-import-file" accept=".csv" style="display: none;">
                     </div>
 
                     <div id="bases-list" class="vehicles-list">
@@ -309,7 +344,8 @@
                             <option value="operations.schedules">運転計画 (operations.schedules)</option>
                             <option value="maintenance.fault_records">故障記録 (maintenance.fault_records)</option>
                             <option value="master_data.inspection_types">検修種別マスタ (master_data.inspection_types)</option>
-                            <option value="master_data.inspection_schedules">検修周期・期間設定 (master_data.inspection_schedules)</option>
+                            <option value="master_data.inspection_schedules">検修周期・期間設定
+                                (master_data.inspection_schedules)</option>
                         </select>
                         <button id="load-table-btn" class="btn-primary">📋 読み込み</button>
                         <button id="add-record-btn" class="btn-success">➕ 新規追加</button>
@@ -355,12 +391,12 @@
                 <div class="info-banner">
                     <p>💡 システムの健全性監視、メンテナンス、セキュリティ状態を一元管理します</p>
                 </div>
-                
+
                 <div class="system-dashboard-grid">
                     <!-- 左側：セキュリティ (GCP連携) -->
                     <section class="config-section security-panel">
                         <h3>🔐 セキュリティ監視 <span class="badge-alert">3件</span></h3>
-                        
+
                         <div class="security-card-content">
                             <div class="alert-summary">
                                 <div class="alert-icon-box">
@@ -375,7 +411,7 @@
                                     </ul>
                                 </div>
                             </div>
-            
+
                             <div class="security-list-section">
                                 <h4>ブロックされたアクセス</h4>
                                 <table class="simple-table">
@@ -391,7 +427,7 @@
                                     </tbody>
                                 </table>
                             </div>
-            
+
                             <div class="security-list-section">
                                 <h4>登録デバイス</h4>
                                 <div class="device-item">
@@ -414,13 +450,13 @@
                             </div>
                         </div>
                     </section>
-            
+
                     <!-- 右側列 -->
                     <div class="maintenance-column">
-                         <!-- システムメンテナンス -->
+                        <!-- システムメンテナンス -->
                         <section class="config-section maintenance-panel">
                             <h3>⚙️ システムメンテナンス</h3>
-                            
+
                             <div class="maintenance-item">
                                 <div class="maint-header">
                                     <span class="maint-icon">①</span>
@@ -429,7 +465,7 @@
                                 <p class="maint-desc">ファイルアップロード時に作成される一時的なファイルです。処理完了後も残っている場合があり、ストレージ容量を圧迫します。</p>
                                 <button id="btn-clean-tmp" class="btn-danger-block">🗑️ 一時ファイルを削除</button>
                             </div>
-            
+
                             <div class="maintenance-item">
                                 <div class="maint-header">
                                     <span class="maint-icon">①</span>
@@ -438,7 +474,7 @@
                                 <p class="maint-desc">システムログファイルをZIP形式でアーカイブします。バックアップ後、ダウンロードボタンからローカルに保存できます。</p>
                                 <button id="btn-backup-log" class="btn-warning-outline-block">📦 ログファイルバックアップ</button>
                             </div>
-            
+
                             <div class="maintenance-item">
                                 <div class="maint-header">
                                     <span class="maint-icon">①</span>
@@ -448,11 +484,11 @@
                                 <button id="btn-clean-images" class="btn-danger-block">🧹 孤立画像を削除</button>
                             </div>
                         </section>
-            
+
                         <!-- 保守管理 -->
                         <section class="config-section governance-panel">
                             <h3>🏷️ 保守管理</h3>
-                            
+
                             <div class="governance-item">
                                 <div class="gov-header">
                                     <span class="gov-icon">📦</span>
@@ -466,9 +502,9 @@
                                 </div>
                                 <button class="btn-outline-full">更新を確認</button>
                             </div>
-            
+
                             <hr class="divider">
-            
+
                             <div class="governance-item">
                                 <div class="gov-header">
                                     <span class="gov-icon">📅</span>
@@ -489,9 +525,9 @@
                                     </div>
                                 </div>
                             </div>
-            
+
                             <hr class="divider">
-            
+
                             <div class="governance-item">
                                 <div class="gov-header">
                                     <span class="gov-icon">💾</span>
@@ -628,12 +664,13 @@
                     <section class="config-section">
                         <h3>📥 機械故障情報インポート</h3>
                         <p class="section-desc">チャット履歴から保存されたJSONファイルをインポートし、AIの知識に加えます</p>
-                        
+
                         <div class="form-group">
                             <label for="fault-json-file" style="font-size: 1.2em;">エクスポート済みJSONファイルを選択</label>
-                            <input type="file" id="fault-json-file" accept=".json" class="file-input" style="font-size: 1.2em; border: 2px dashed #333;">
+                            <input type="file" id="fault-json-file" accept=".json" class="file-input"
+                                style="font-size: 1.2em; border: 2px dashed #333;">
                         </div>
-                        
+
                         <button type="button" id="import-fault-json-btn" class="btn-primary">
                             📤 機械故障報告をインポート
                         </button>
@@ -642,9 +679,11 @@
                     <section class="config-section">
                         <h3>📄 基礎マニュアルファイルインポート</h3>
                         <p class="section-desc">PDF、TXT、XLSX、画像、JSON形式のマニュアルファイルをインポートします（複数選択可能）</p>
-                        
+
                         <div class="upload-area" id="manual-upload-area">
-                            <input type="file" id="manual-files" multiple accept=".pdf,.txt,.xlsx,.docx,.md,.json,.png,.jpg,.jpeg,.gif,.svg,.webp,.bmp" class="file-input" style="display: none;">
+                            <input type="file" id="manual-files" multiple
+                                accept=".pdf,.txt,.xlsx,.docx,.md,.json,.png,.jpg,.jpeg,.gif,.svg,.webp,.bmp"
+                                class="file-input" style="display: none;">
                             <label for="manual-files" class="upload-label">
                                 <div class="upload-content">
                                     <span class="upload-icon">📁</span>
@@ -653,16 +692,16 @@
                                 </div>
                             </label>
                         </div>
-                        
+
                         <div id="manual-file-list" class="file-list"></div>
-                        
+
                         <div class="form-group">
                             <label class="checkbox-inline-label">
                                 <span class="checkbox-text">元のファイルをアーカイブ保存する（通常不要）</span>
                                 <input type="checkbox" id="save-original-file" class="checkbox-compact">
                             </label>
                         </div>
-                        
+
                         <button type="button" id="import-manuals-btn" class="btn-primary">
                             📤 インポート実行
                         </button>
@@ -671,18 +710,19 @@
                     <section class="config-section">
                         <h3>☁️ GCSストレージからインポート</h3>
                         <p class="section-desc">Google Cloud Storageに既存のファイルを直接インポートします</p>
-                        
+
                         <div class="form-group">
                             <label for="gcs-file-path">GCSファイルパス</label>
                             <input type="text" id="gcs-file-path" placeholder="ai-knowledge/manuals/manual-2024.pdf">
                             <small>バケット内のファイルパスを入力してください</small>
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="gcs-description">説明</label>
-                            <textarea id="gcs-description" cols="70" rows="6" placeholder="このファイルの内容を簡単に説明してください" style="resize: both; width: 100%; min-width: 600px; font-size: 14px; padding: 10px;"></textarea>
+                            <textarea id="gcs-description" cols="70" rows="6" placeholder="このファイルの内容を簡単に説明してください"
+                                style="resize: both; width: 100%; min-width: 600px; font-size: 14px; padding: 10px;"></textarea>
                         </div>
-                        
+
                         <button type="button" id="import-gcs-btn" class="btn-primary">
                             ☁️ GCSからインポート
                         </button>
@@ -734,30 +774,39 @@
                 <!-- RAG詳細設定サブタブ -->
                 <div id="ai-rag-subtab" class="sub-tab-content" style="display: none;">
                     <!-- RAG (Retrieval-Augmented Generation) 設定 -->
-                    <section class="config-section" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <section class="config-section"
+                        style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
                         <h3 style="color: white; margin: 0;">⚙️ RAG (Retrieval-Augmented Generation) 設定</h3>
-                        <p style="margin: 10px 0 0 0; font-size: 0.9em; opacity: 0.95;">AIがナレッジベースから情報を取得し、精度の高い回答を生成するための設定を行います</p>
+                        <p style="margin: 10px 0 0 0; font-size: 0.9em; opacity: 0.95;">
+                            AIがナレッジベースから情報を取得し、精度の高い回答を生成するための設定を行います</p>
                     </section>
 
                     <!-- テキスト分割設定 -->
                     <section class="config-section">
                         <h3>📄 テキスト分割設定</h3>
-                        <p class="section-desc" style="color: #666; margin-bottom: 15px;">ナレッジデータを適切なサイズに分割し、検索精度を向上させます</p>
-                        
-                        <div class="form-group" style="display: flex !important; gap: 40px !important; align-items: flex-start !important;">
+                        <p class="section-desc" style="color: #666; margin-bottom: 15px;">ナレッジデータを適切なサイズに分割し、検索精度を向上させます
+                        </p>
+
+                        <div class="form-group"
+                            style="display: flex !important; gap: 40px !important; align-items: flex-start !important;">
                             <div style="width: 420px !important;">
-                                <label for="rag-chunk-size" style="font-size: 1.2em !important; font-weight: 600 !important; display: block !important;">
+                                <label for="rag-chunk-size"
+                                    style="font-size: 1.2em !important; font-weight: 600 !important; display: block !important;">
                                     チャンクサイズ: <span id="chunk-size-value">500</span>文字
                                 </label>
-                                <input type="range" id="rag-chunk-size" min="200" max="2000" step="100" value="500" class="slider" style="width: 420px !important; display: block !important;">
-                                <p style="font-size: 0.85em; color: #666; margin-top: 5px;">各テキストチャンクの最大文字数（200〜2000文字）</p>
+                                <input type="range" id="rag-chunk-size" min="200" max="2000" step="100" value="500"
+                                    class="slider" style="width: 420px !important; display: block !important;">
+                                <p style="font-size: 0.85em; color: #666; margin-top: 5px;">各テキストチャンクの最大文字数（200〜2000文字）
+                                </p>
                             </div>
-                            
+
                             <div style="width: 420px !important;">
-                                <label for="rag-overlap" style="font-size: 1.2em !important; font-weight: 600 !important; display: block !important;">
+                                <label for="rag-overlap"
+                                    style="font-size: 1.2em !important; font-weight: 600 !important; display: block !important;">
                                     オーバーラップ: <span id="overlap-value">100</span>文字
                                 </label>
-                                <input type="range" id="rag-overlap" min="0" max="500" step="50" value="100" class="slider" style="width: 420px !important; display: block !important;">
+                                <input type="range" id="rag-overlap" min="0" max="500" step="50" value="100"
+                                    class="slider" style="width: 420px !important; display: block !important;">
                                 <p style="font-size: 0.85em; color: #666; margin-top: 5px;">チャンク間で重複させる文字数（0〜500文字）</p>
                             </div>
                         </div>
@@ -767,21 +816,27 @@
                     <section class="config-section">
                         <h3>🎯 検索精度設定</h3>
                         <p class="section-desc" style="color: #666; margin-bottom: 15px;">AI検索の精度と結果数を調整します</p>
-                        
-                        <div class="form-group" style="display: flex !important; gap: 40px !important; align-items: flex-start !important;">
+
+                        <div class="form-group"
+                            style="display: flex !important; gap: 40px !important; align-items: flex-start !important;">
                             <div style="width: 420px !important;">
-                                <label for="rag-similarity" style="font-size: 1.2em !important; font-weight: 600 !important; display: block !important;">
+                                <label for="rag-similarity"
+                                    style="font-size: 1.2em !important; font-weight: 600 !important; display: block !important;">
                                     類似度閾値: <span id="similarity-value">0.7</span>
                                 </label>
-                                <input type="range" id="rag-similarity" min="0" max="100" step="5" value="70" class="slider" style="width: 420px !important; display: block !important;">
-                                <p style="font-size: 0.85em; color: #666; margin-top: 5px;">検索結果として採用する最低類似度（0.0〜1.0）</p>
+                                <input type="range" id="rag-similarity" min="0" max="100" step="5" value="70"
+                                    class="slider" style="width: 420px !important; display: block !important;">
+                                <p style="font-size: 0.85em; color: #666; margin-top: 5px;">検索結果として採用する最低類似度（0.0〜1.0）
+                                </p>
                             </div>
-                            
+
                             <div style="width: auto !important;">
-                                <label for="rag-max-results" style="font-size: 1.2em !important; font-weight: 600 !important; display: block !important;">
+                                <label for="rag-max-results"
+                                    style="font-size: 1.2em !important; font-weight: 600 !important; display: block !important;">
                                     最大取得件数
                                 </label>
-                                <input type="number" id="rag-max-results" value="5" min="1" max="20" style="width: 5em !important; display: block !important; font-size: 1.5em !important;">
+                                <input type="number" id="rag-max-results" value="5" min="1" max="20"
+                                    style="width: 5em !important; display: block !important; font-size: 1.5em !important;">
                                 <p style="font-size: 0.85em; color: #666; margin-top: 5px;">AIに提供する検索結果の最大数（1〜20件）</p>
                             </div>
                         </div>
@@ -790,26 +845,34 @@
                     <!-- 検索手法 -->
                     <section class="config-section">
                         <h3>🔍 検索手法</h3>
-                        <p class="section-desc" style="color: #666; margin-bottom: 15px; font-size: 1.1em;">ナレッジ検索に使用するアルゴリズムを選択します</p>
-                        
+                        <p class="section-desc" style="color: #666; margin-bottom: 15px; font-size: 1.1em;">
+                            ナレッジ検索に使用するアルゴリズムを選択します</p>
+
                         <div class="form-group">
                             <div style="display: flex; gap: 26px; flex-wrap: wrap;">
-                                <label class="radio-option" style="display: flex; align-items: center; padding: 16px 20px; border: 2px solid #ddd; border-radius: 10px; cursor: pointer; transition: all 0.2s;">
-                                    <input type="radio" name="search-method" value="vector" checked style="margin-right: 13px; width: 20px; height: 20px;">
+                                <label class="radio-option"
+                                    style="display: flex; align-items: center; padding: 16px 20px; border: 2px solid #ddd; border-radius: 10px; cursor: pointer; transition: all 0.2s;">
+                                    <input type="radio" name="search-method" value="vector" checked
+                                        style="margin-right: 13px; width: 20px; height: 20px;">
                                     <span style="font-size: 1.15em;">
                                         <strong style="font-size: 1.2em;">ベクトル検索</strong><br>
                                         <small style="color: #666; font-size: 0.9em;">意味が似ている内容を探す（AIが文章の意味を理解）</small>
                                     </span>
                                 </label>
-                                <label class="radio-option" style="display: flex; align-items: center; padding: 16px 20px; border: 2px solid #ddd; border-radius: 10px; cursor: pointer; transition: all 0.2s;">
-                                    <input type="radio" name="search-method" value="keyword" style="margin-right: 13px; width: 20px; height: 20px;">
+                                <label class="radio-option"
+                                    style="display: flex; align-items: center; padding: 16px 20px; border: 2px solid #ddd; border-radius: 10px; cursor: pointer; transition: all 0.2s;">
+                                    <input type="radio" name="search-method" value="keyword"
+                                        style="margin-right: 13px; width: 20px; height: 20px;">
                                     <span style="font-size: 1.15em;">
                                         <strong style="font-size: 1.2em;">キーワード検索</strong><br>
-                                        <small style="color: #666; font-size: 0.9em;">完全一致・部分一致で探す（入力した単語と同じ単語を検索）</small>
+                                        <small
+                                            style="color: #666; font-size: 0.9em;">完全一致・部分一致で探す（入力した単語と同じ単語を検索）</small>
                                     </span>
                                 </label>
-                                <label class="radio-option" style="display: flex; align-items: center; padding: 16px 20px; border: 2px solid #ddd; border-radius: 10px; cursor: pointer; transition: all 0.2s;">
-                                    <input type="radio" name="search-method" value="hybrid" style="margin-right: 13px; width: 20px; height: 20px;">
+                                <label class="radio-option"
+                                    style="display: flex; align-items: center; padding: 16px 20px; border: 2px solid #ddd; border-radius: 10px; cursor: pointer; transition: all 0.2s;">
+                                    <input type="radio" name="search-method" value="hybrid"
+                                        style="margin-right: 13px; width: 20px; height: 20px;">
                                     <span style="font-size: 1.15em;">
                                         <strong style="font-size: 1.2em;">ハイブリッド検索</strong><br>
                                         <small style="color: #666; font-size: 0.9em;">ベクトル + キーワードの両方を使う（精度が高い）</small>
@@ -819,33 +882,44 @@
                         </div>
 
                         <h4 style="margin-top: 32px; margin-bottom: 13px; font-size: 1.3em;">📝 テキスト前処理</h4>
-                        <p class="section-desc" style="color: #666; margin-bottom: 15px; font-size: 1.1em;">検索前にテキストに適用する前処理を選択します</p>
-                        
+                        <p class="section-desc" style="color: #666; margin-bottom: 15px; font-size: 1.1em;">
+                            検索前にテキストに適用する前処理を選択します</p>
+
                         <div class="form-group">
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
-                                <label class="checkbox-option" style="display: flex; align-items: center; padding: 16px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;">
-                                    <input type="checkbox" id="preprocessing-stopwords" checked style="margin-right: 13px; width: 20px; height: 20px;">
+                            <div
+                                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px;">
+                                <label class="checkbox-option"
+                                    style="display: flex; align-items: center; padding: 16px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="preprocessing-stopwords" checked
+                                        style="margin-right: 13px; width: 20px; height: 20px;">
                                     <span style="font-size: 1.1em;">
                                         <strong style="font-size: 1.15em;">ストップワード除去</strong><br>
                                         <small style="color: #666; font-size: 0.9em;">「の」「は」など意味のない単語を自動で削除</small>
                                     </span>
                                 </label>
-                                <label class="checkbox-option" style="display: flex; align-items: center; padding: 16px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;">
-                                    <input type="checkbox" id="preprocessing-stemming" style="margin-right: 13px; width: 20px; height: 20px;">
+                                <label class="checkbox-option"
+                                    style="display: flex; align-items: center; padding: 16px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="preprocessing-stemming"
+                                        style="margin-right: 13px; width: 20px; height: 20px;">
                                     <span style="font-size: 1.1em;">
                                         <strong style="font-size: 1.15em;">ステミング処理</strong><br>
-                                        <small style="color: #666; font-size: 0.9em;">語幹を抽出して同じ意味の言葉をまとめる（例：走る→走）</small>
+                                        <small
+                                            style="color: #666; font-size: 0.9em;">語幹を抽出して同じ意味の言葉をまとめる（例：走る→走）</small>
                                     </span>
                                 </label>
-                                <label class="checkbox-option" style="display: flex; align-items: center; padding: 16px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;">
-                                    <input type="checkbox" id="preprocessing-lowercase" checked style="margin-right: 13px; width: 20px; height: 20px;">
+                                <label class="checkbox-option"
+                                    style="display: flex; align-items: center; padding: 16px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="preprocessing-lowercase" checked
+                                        style="margin-right: 13px; width: 20px; height: 20px;">
                                     <span style="font-size: 1.1em;">
                                         <strong style="font-size: 1.15em;">小文字変換</strong><br>
                                         <small style="color: #666; font-size: 0.9em;">全て小文字に統一（ABC→abc）</small>
                                     </span>
                                 </label>
-                                <label class="checkbox-option" style="display: flex; align-items: center; padding: 16px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;">
-                                    <input type="checkbox" id="preprocessing-normalize" checked style="margin-right: 13px; width: 20px; height: 20px;">
+                                <label class="checkbox-option"
+                                    style="display: flex; align-items: center; padding: 16px; border: 1px solid #ddd; border-radius: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="preprocessing-normalize" checked
+                                        style="margin-right: 13px; width: 20px; height: 20px;">
                                     <span style="font-size: 1.1em;">
                                         <strong style="font-size: 1.15em;">文字正規化</strong><br>
                                         <small style="color: #666; font-size: 0.9em;">全角/半角、旧字体を統一（１→1、髙→高など）</small>
@@ -857,9 +931,10 @@
 
                     <section class="config-section">
                         <h3>📝 システムプロンプト（AI回答ルール）</h3>
-                        
+
                         <div class="form-group">
-                            <textarea id="rag-system-prompt" cols="150" rows="12" style="resize: both; width: 100%; min-width: 600px; min-height: 280px; max-width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 18px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">【回答ルール】
+                            <textarea id="rag-system-prompt" cols="150" rows="12"
+                                style="resize: both; width: 100%; min-width: 600px; min-height: 280px; max-width: 100%; font-family: 'Segoe UI', sans-serif; font-size: 18px; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box;">【回答ルール】
 1. ユーザーの質問に対して1問1答形式で回答する
 2. 専門的な内容も分かりやすく説明する
 3. 安全に関わる情報は特に慎重に扱う
@@ -878,7 +953,8 @@
                     <!-- 現在のRAG設定 -->
                     <section class="config-section" style="background-color: #f8f9fa; border-left: 4px solid #667eea;">
                         <h3>📊 現在のRAG設定</h3>
-                        <div id="current-rag-settings" style="font-family: 'Courier New', monospace; background: white; padding: 15px; border-radius: 6px; margin-top: 10px;">
+                        <div id="current-rag-settings"
+                            style="font-family: 'Courier New', monospace; background: white; padding: 15px; border-radius: 6px; margin-top: 10px;">
                             <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px;">
                                 <div>
                                     <strong>チャンクサイズ:</strong> <span id="display-chunk-size">-</span>文字
@@ -909,32 +985,38 @@
                     <section class="config-section">
                         <h3>🧪 RAGパフォーマンステスト</h3>
                         <p class="section-desc" style="color: #666; margin-bottom: 15px;">現在の設定でRAGシステムの動作を検証します</p>
-                        
+
                         <div class="form-group">
-                            <label for="test-query" style="display: block; margin-bottom: 8px; font-weight: 600;">テストクエリ（質問）:</label>
-                            <input type="text" id="test-query" placeholder="例: 保守用車の点検方法について教えてください" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em;">
+                            <label for="test-query"
+                                style="display: block; margin-bottom: 8px; font-weight: 600;">テストクエリ（質問）:</label>
+                            <input type="text" id="test-query" placeholder="例: 保守用車の点検方法について教えてください"
+                                style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em;">
                         </div>
-                        
+
                         <div class="form-group">
                             <label style="display: block; margin-bottom: 8px; font-weight: 600;">検証項目:</label>
                             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
-                                <label class="checkbox-option" style="display: flex; align-items: center; justify-content: space-between;">
+                                <label class="checkbox-option"
+                                    style="display: flex; align-items: center; justify-content: space-between;">
                                     <span style="font-size: 1.4em; white-space: nowrap;">検索速度測定</span>
                                     <input type="checkbox" checked disabled style="margin-left: 8px;">
                                 </label>
-                                <label class="checkbox-option" style="display: flex; align-items: center; justify-content: space-between;">
+                                <label class="checkbox-option"
+                                    style="display: flex; align-items: center; justify-content: space-between;">
                                     <span style="font-size: 1.4em; white-space: nowrap;">関連性スコア分析</span>
                                     <input type="checkbox" checked disabled style="margin-left: 8px;">
                                 </label>
-                                <label class="checkbox-option" style="display: flex; align-items: center; justify-content: space-between;">
+                                <label class="checkbox-option"
+                                    style="display: flex; align-items: center; justify-content: space-between;">
                                     <span style="font-size: 1.4em; white-space: nowrap;">取得チャンク確認</span>
                                     <input type="checkbox" checked disabled style="margin-left: 8px;">
                                 </label>
                             </div>
                         </div>
-                        
+
                         <div class="form-actions">
-                            <button type="button" id="test-rag-btn" class="btn-secondary" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                            <button type="button" id="test-rag-btn" class="btn-secondary"
+                                style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
                                 🧪 パフォーマンステスト実行
                             </button>
                         </div>
@@ -943,19 +1025,23 @@
                     <!-- GCS接続診断 -->
                     <section class="config-section" style="border: 2px solid #34a853;">
                         <h3>☁️ GCS接続診断</h3>
-                        <p class="section-desc" style="color: #666; margin-bottom: 15px;">Google Cloud Storageへの接続状態とバケット構成を診断します</p>
-                        
-                        <div id="gcs-diagnosis-result" style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 15px; display: none;">
+                        <p class="section-desc" style="color: #666; margin-bottom: 15px;">Google Cloud
+                            Storageへの接続状態とバケット構成を診断します</p>
+
+                        <div id="gcs-diagnosis-result"
+                            style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin-bottom: 15px; display: none;">
                             <div id="gcs-diagnosis-content"></div>
                         </div>
-                        
+
                         <div class="form-actions">
-                            <button type="button" id="diagnose-gcs-btn" class="btn-secondary" style="background: linear-gradient(135deg, #34a853 0%, #0f9d58 100%); color: white;">
+                            <button type="button" id="diagnose-gcs-btn" class="btn-secondary"
+                                style="background: linear-gradient(135deg, #34a853 0%, #0f9d58 100%); color: white;">
                                 🔍 GCS接続診断を実行
                             </button>
                         </div>
-                        
-                        <div style="margin-top: 15px; padding: 12px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
+
+                        <div
+                            style="margin-top: 15px; padding: 12px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
                             <strong>💡 診断内容:</strong>
                             <ul style="margin: 8px 0 0 20px; font-size: 0.9em;">
                                 <li>GCSバケットへの接続確認</li>
@@ -1057,7 +1143,8 @@
 
                 <div class="form-group">
                     <label for="machine-type-model-name">メーカー型式 *</label>
-                    <input type="text" id="machine-type-model-name" name="model_name" required placeholder="例: PC200-10">
+                    <input type="text" id="machine-type-model-name" name="model_name" required
+                        placeholder="例: PC200-10">
                 </div>
 
                 <div class="form-group">
@@ -1164,7 +1251,7 @@
             </div>
             <form id="inspection-type-form">
                 <input type="hidden" id="inspection-type-id" name="id">
-                
+
                 <div class="form-group">
                     <label for="inspection-type-code">種別コード</label>
                     <input type="text" id="inspection-type-code" name="type_code" placeholder="自動採番（変更可）">
@@ -1179,7 +1266,8 @@
 
                 <div class="form-group">
                     <label for="inspection-type-description">説明</label>
-                    <textarea id="inspection-type-description" name="description" rows="3" placeholder="検修種別の説明を入力"></textarea>
+                    <textarea id="inspection-type-description" name="description" rows="3"
+                        placeholder="検修種別の説明を入力"></textarea>
                 </div>
 
                 <div class="form-group">
@@ -1244,13 +1332,15 @@
 
                 <div class="form-group">
                     <label for="inspection-schedule-cycle">検修周期（月単位） *</label>
-                    <input type="number" id="inspection-schedule-cycle" name="cycle_months" required min="1" placeholder="例: 6">
+                    <input type="number" id="inspection-schedule-cycle" name="cycle_months" required min="1"
+                        placeholder="例: 6">
                     <small>検修を実施する周期を月単位で入力してください</small>
                 </div>
 
                 <div class="form-group">
                     <label for="inspection-schedule-duration">検修期間（日数） *</label>
-                    <input type="number" id="inspection-schedule-duration" name="duration_days" required min="1" placeholder="例: 7">
+                    <input type="number" id="inspection-schedule-duration" name="duration_days" required min="1"
+                        placeholder="例: 7">
                     <small>検修にかかる期間を日数で入力してください</small>
                 </div>
 
