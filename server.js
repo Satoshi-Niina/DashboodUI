@@ -125,6 +125,12 @@ app.get('/config.js', async (req, res) => {
     const planning = await getConfigFromDB('app_url_planning', planningDefault);
     const equipment = await getConfigFromDB('app_url_equipment', equipmentDefault);
     const failure = await getConfigFromDB('app_url_failure', failureDefault);
+    const tokenParamName = process.env.AUTH_TOKEN_PARAM_NAME || 'auth_token';
+    const authTransferMode = process.env.AUTH_TRANSFER_MODE || 'url_param';
+    const tokenParamAliases = (process.env.AUTH_TOKEN_PARAM_ALIASES || 'token,jwt,sso_token')
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean);
 
     res.setHeader('Content-Type', 'application/javascript');
     res.send(`
@@ -134,7 +140,9 @@ app.get('/config.js', async (req, res) => {
        */
       const AppConfig = {
           // トークンをURLパラメータとして渡すときのキー名
-          tokenParamName: 'auth_token',
+          tokenParamName: '${tokenParamName}',
+          authTransferMode: '${authTransferMode}',
+          tokenParamAliases: ${JSON.stringify(tokenParamAliases)},
 
           // 各アプリケーションのエンドポイント設定
           endpoints: {

@@ -48,8 +48,9 @@ jobs:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           URL_FAILURE: ${{ secrets.URL_FAILURE }}
           URL_PLANNING: ${{ secrets.URL_PLANNING }}
+          OPERATION_MANAGEMENT_CLIENT_URL: ${{ secrets.URL_PLANNING }}
         run: |
-          for key in GCP_PROJECT_ID GCP_SA_KEY CLOUD_SQL_INSTANCE DB_USER DB_PASSWORD DB_NAME JWT_SECRET URL_FAILURE URL_PLANNING; do
+          for key in GCP_PROJECT_ID GCP_SA_KEY CLOUD_SQL_INSTANCE DB_USER DB_PASSWORD DB_NAME JWT_SECRET URL_FAILURE URL_PLANNING OPERATION_MANAGEMENT_CLIENT_URL; do
             if [ -z "${!key}" ]; then
               echo "ERROR: Required secret '$key' is not set"
               exit 1
@@ -155,6 +156,9 @@ jobs:
             --set-env-vars="CORS_ORIGIN=*" \
             --set-env-vars="OPERATION_MANAGEMENT_CLIENT_URL=${{ secrets.URL_PLANNING }}" \
             --set-env-vars="OPERATION_MANAGEMENT_SERVER_URL=https://operation-management-server-800711608362.asia-northeast2.run.app" \
+            --set-env-vars="AUTH_TRANSFER_MODE=url_param" \
+            --set-env-vars="AUTH_TOKEN_PARAM_NAME=auth_token" \
+            --set-env-vars="AUTH_TOKEN_PARAM_ALIASES=token,jwt,sso_token" \
             --set-env-vars="MACHINE_FAILURE_APP_URL=${{ secrets.URL_FAILURE }}" \
             --set-env-vars="URL_PLANNING=${{ secrets.URL_PLANNING }}" \
             --set-env-vars="URL_PLANNING_API=https://operation-management-server-800711608362.asia-northeast2.run.app" \

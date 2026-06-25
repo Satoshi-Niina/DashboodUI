@@ -54,6 +54,18 @@ async function loadDynamicConfig() {
                 }
             });
         }
+
+        if (config.tokenParamName) {
+            AppConfig.tokenParamName = config.tokenParamName;
+        }
+
+        if (config.authTransferMode) {
+            AppConfig.authTransferMode = config.authTransferMode;
+        }
+
+        if (Array.isArray(config.tokenParamAliases)) {
+            AppConfig.tokenParamAliases = config.tokenParamAliases;
+        }
         
        // 外部アプリ定義があれば追加（オプション）
        if (config.externalApps && Array.isArray(config.externalApps)) {
@@ -246,12 +258,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         // ローカルストレージからトークンを取得
         const token = localStorage.getItem('user_token');
 
-        // URLにトークンをクエリパラメータとして追加
+        // URLにトークンをクエリパラメータとして追加（認証連携）
         let finalUrl = baseUrl;
-        if (token) {
-            const separator = baseUrl.includes('?') ? '&' : '?';
+        if (token && (AppConfig.authTransferMode || 'url_param') === 'url_param') {
+            const urlObj = new URL(baseUrl, window.location.origin);
             const tokenParam = AppConfig.tokenParamName || 'auth_token';
-            finalUrl = `${baseUrl}${separator}${tokenParam}=${encodeURIComponent(token)}`;
+            const tokenAliases = Array.isArray(AppConfig.tokenParamAliases)
+                ? AppConfig.tokenParamAliases
+                : [];
+
+            urlObj.searchParams.set(tokenParam, token);
+            tokenAliases.forEach(alias => {
+                if (alias && alias !== tokenParam) {
+                    urlObj.searchParams.set(alias, token);
+                }
+            });
+
+            finalUrl = urlObj.toString();
         }
 
         // 新しいタブで開く

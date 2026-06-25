@@ -12,7 +12,12 @@ router.get('/', (req, res) => {
     res.setHeader('Expires', '0');
     res.setHeader('Surrogate-Control', 'no-store');
 
-    // 環境変数から 'URL_' で始まるものを収集、または特定のキーを指定してマッピング
+    const tokenParamAliases = (process.env.AUTH_TOKEN_PARAM_ALIASES || 'token,jwt,sso_token')
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean);
+
+    // 環境変数を優先してマッピング
     const config = {
         endpoints: {
             planning: process.env.OPERATION_MANAGEMENT_CLIENT_URL || process.env.URL_PLANNING || process.env.APP_URL_PLANNING || 'https://準備中',
@@ -21,6 +26,9 @@ router.get('/', (req, res) => {
             failure: process.env.MACHINE_FAILURE_APP_URL || process.env.URL_FAILURE || process.env.APP_URL_FAILURE || 'https://準備中'
         },
         planningApiUrl: process.env.OPERATION_MANAGEMENT_SERVER_URL || process.env.URL_PLANNING_API || '',
+        authTransferMode: process.env.AUTH_TRANSFER_MODE || 'url_param',
+        tokenParamName: process.env.AUTH_TOKEN_PARAM_NAME || 'auth_token',
+        tokenParamAliases,
         // 動的にアプリを追加するための定義（もし環境変数で定義されていれば）
         // JSON形式の文字列をパースする想定: EXTERNAL_APPS='[{"id":"test","title":"Test","url":"..."}]'
         externalApps: process.env.EXTERNAL_APPS ? JSON.parse(process.env.EXTERNAL_APPS) : []

@@ -5,19 +5,21 @@
 const AppConfig = {
     // トークンをURLパラメータとして渡すときのキー名
     tokenParamName: 'auth_token',
+    authTransferMode: 'url_param',
+    tokenParamAliases: ['token', 'jwt', 'sso_token'],
 
     // 各アプリケーションのエンドポイント設定
     endpoints: {
         // 応急復旧支援システム
-        emergency: 'https://emergency-client-u3tejuflja-dt.a.run.app/',
+        emergency: 'https://準備中',
 
         // 計画・実績管理システム
-        planning: 'https://operation-management-client-800711608362.asia-northeast2.run.app',
+        planning: 'https://準備中',
 
         // 保守用車管理システム
-        equipment: 'http://localhost:3003',
+        equipment: 'https://準備中',
 
         // 機械故障管理システム
-        failure: 'http://localhost:3004'
+        failure: 'https://準備中'
     }
 };
