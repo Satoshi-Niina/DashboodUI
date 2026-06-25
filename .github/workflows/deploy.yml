@@ -30,13 +30,40 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Validate required secrets
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+          CLOUD_SQL_INSTANCE: ${{ secrets.CLOUD_SQL_INSTANCE }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          URL_FAILURE: ${{ secrets.URL_FAILURE }}
+          URL_PLANNING: ${{ secrets.URL_PLANNING }}
+        run: |
+          for key in GCP_PROJECT_ID GCP_SA_KEY CLOUD_SQL_INSTANCE DB_USER DB_PASSWORD DB_NAME JWT_SECRET URL_FAILURE URL_PLANNING; do
+            if [ -z "${!key}" ]; then
+              echo "ERROR: Required secret '$key' is not set"
+              exit 1
+            fi
+          done
+
+      - name: Verify gcloud auth context
+        run: |
+          gcloud config set project ${{ env.PROJECT_ID }}
+          gcloud auth list
       
       - name: Configure Docker for GCR
         run: |
-          gcloud auth configure-docker gcr.io --quiet
+          gcloud auth configure-docker gcr.io,us.gcr.io,asia.gcr.io --quiet
       
       - name: Clear Docker Cache
         run: |
@@ -119,7 +146,7 @@ jobs:
             --set-env-vars="DB_NAME=${{ secrets.DB_NAME }}" \
             --set-env-vars="JWT_SECRET=${{ secrets.JWT_SECRET }}" \
             --set-env-vars="CORS_ORIGIN=*" \
-            --set-env-vars="URL_PLANNING=https://operation-management-client-800711608362.asia-northeast2.run.app" \
+            --set-env-vars="URL_PLANNING=${{ secrets.URL_PLANNING }}" \
             --set-env-vars="URL_PLANNING_API=https://operation-management-server-800711608362.asia-northeast2.run.app" \
             --set-env-vars="URL_FAILURE=${{ secrets.URL_FAILURE }}" \
             --set-env-vars="BUILD_TIMESTAMP=$TIMESTAMP" \
