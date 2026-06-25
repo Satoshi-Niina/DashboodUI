@@ -116,10 +116,15 @@ async function getAllConfig() {
 // Config Endpoint (データベースまたは環境変数から動的に生成)
 app.get('/config.js', async (req, res) => {
   try {
-    const emergency = await getConfigFromDB('app_url_emergency', 'http://localhost:3001');
-    const planning = await getConfigFromDB('app_url_planning', 'https://operation-management-client-800711608362.asia-northeast2.run.app');
-    const equipment = await getConfigFromDB('app_url_equipment', 'http://localhost:3003');
-    const failure = await getConfigFromDB('app_url_failure', 'http://localhost:3004');
+    const emergencyDefault = process.env.EMERGENCY_APP_URL || process.env.URL_EMERGENCY || process.env.APP_URL_EMERGENCY || 'https://準備中';
+    const planningDefault = process.env.OPERATION_MANAGEMENT_CLIENT_URL || process.env.URL_PLANNING || process.env.APP_URL_PLANNING || 'https://準備中';
+    const equipmentDefault = process.env.EQUIPMENT_APP_URL || process.env.URL_EQUIPMENT || process.env.APP_URL_EQUIPMENT || 'https://準備中';
+    const failureDefault = process.env.MACHINE_FAILURE_APP_URL || process.env.URL_FAILURE || process.env.APP_URL_FAILURE || 'https://準備中';
+
+    const emergency = await getConfigFromDB('app_url_emergency', emergencyDefault);
+    const planning = await getConfigFromDB('app_url_planning', planningDefault);
+    const equipment = await getConfigFromDB('app_url_equipment', equipmentDefault);
+    const failure = await getConfigFromDB('app_url_failure', failureDefault);
 
     res.setHeader('Content-Type', 'application/javascript');
     res.send(`

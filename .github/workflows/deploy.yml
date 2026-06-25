@@ -153,6 +153,9 @@ jobs:
             --set-env-vars="DB_NAME=${{ secrets.DB_NAME }}" \
             --set-env-vars="JWT_SECRET=${{ secrets.JWT_SECRET }}" \
             --set-env-vars="CORS_ORIGIN=*" \
+            --set-env-vars="OPERATION_MANAGEMENT_CLIENT_URL=${{ secrets.URL_PLANNING }}" \
+            --set-env-vars="OPERATION_MANAGEMENT_SERVER_URL=https://operation-management-server-800711608362.asia-northeast2.run.app" \
+            --set-env-vars="MACHINE_FAILURE_APP_URL=${{ secrets.URL_FAILURE }}" \
             --set-env-vars="URL_PLANNING=${{ secrets.URL_PLANNING }}" \
             --set-env-vars="URL_PLANNING_API=https://operation-management-server-800711608362.asia-northeast2.run.app" \
             --set-env-vars="URL_FAILURE=${{ secrets.URL_FAILURE }}" \
