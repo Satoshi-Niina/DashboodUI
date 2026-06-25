@@ -141,6 +141,31 @@ jobs:
           # Cloud Runにデプロイ
           # 注意: --tagオプションは使用しない（サービス名+タグで46文字制限あり）
           echo "🚀 Deploying to Cloud Run..."
+
+          # 特殊文字やカンマを含む値でも安全に渡せるよう env file を使用
+          cat > cloudrun-env.yaml <<EOF
+          NODE_ENV: "production"
+          APP_ID: "dashboard-ui"
+          CLOUD_SQL_INSTANCE: "${{ secrets.CLOUD_SQL_INSTANCE }}"
+          DB_USER: "${{ secrets.DB_USER }}"
+          DB_PASSWORD: "${{ secrets.DB_PASSWORD }}"
+          DB_NAME: "${{ secrets.DB_NAME }}"
+          JWT_SECRET: "${{ secrets.JWT_SECRET }}"
+          CORS_ORIGIN: "*"
+          URL_PLANNING: "https://railway-client-800711608362.asia-northeast2.run.app"
+          URL_EQUIPMENT: "https://operation-management-client-800711608362.asia-northeast2.run.app"
+          URL_EMERGENCY: "https://emergency-client-800711608362.asia-northeast2.run.app"
+          URL_FAILURE: "https://machine-failure-client-800711608362.asia-northeast2.run.app"
+          OPERATION_MANAGEMENT_CLIENT_URL: "https://operation-management-client-800711608362.asia-northeast2.run.app"
+          OPERATION_MANAGEMENT_SERVER_URL: "https://operation-management-server-800711608362.asia-northeast2.run.app"
+          AUTH_TRANSFER_MODE: "url_param"
+          AUTH_TOKEN_PARAM_NAME: "auth_token"
+          AUTH_TOKEN_PARAM_ALIASES: "token,jwt,sso_token"
+          MACHINE_FAILURE_APP_URL: "https://machine-failure-client-800711608362.asia-northeast2.run.app"
+          URL_PLANNING_API: "https://operation-management-server-800711608362.asia-northeast2.run.app"
+          BUILD_TIMESTAMP: "$TIMESTAMP"
+          EOF
+
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image=$IMAGE_TAG \
             --project=${{ env.PROJECT_ID }} \
@@ -148,26 +173,7 @@ jobs:
             --platform=managed \
             --allow-unauthenticated \
             --add-cloudsql-instances=${{ secrets.CLOUD_SQL_INSTANCE }} \
-            --set-env-vars="NODE_ENV=production" \
-            --set-env-vars="APP_ID=dashboard-ui" \
-            --set-env-vars="CLOUD_SQL_INSTANCE=${{ secrets.CLOUD_SQL_INSTANCE }}" \
-            --set-env-vars="DB_USER=${{ secrets.DB_USER }}" \
-            --set-env-vars="DB_PASSWORD=${{ secrets.DB_PASSWORD }}" \
-            --set-env-vars="DB_NAME=${{ secrets.DB_NAME }}" \
-            --set-env-vars="JWT_SECRET=${{ secrets.JWT_SECRET }}" \
-            --set-env-vars="CORS_ORIGIN=*" \
-            --set-env-vars="URL_PLANNING=https://railway-client-800711608362.asia-northeast2.run.app" \
-            --set-env-vars="URL_EQUIPMENT=https://operation-management-client-800711608362.asia-northeast2.run.app" \
-            --set-env-vars="URL_EMERGENCY=https://emergency-client-800711608362.asia-northeast2.run.app" \
-            --set-env-vars="URL_FAILURE=https://machine-failure-client-800711608362.asia-northeast2.run.app" \
-            --set-env-vars="OPERATION_MANAGEMENT_CLIENT_URL=https://operation-management-client-800711608362.asia-northeast2.run.app" \
-            --set-env-vars="OPERATION_MANAGEMENT_SERVER_URL=https://operation-management-server-800711608362.asia-northeast2.run.app" \
-            --set-env-vars="AUTH_TRANSFER_MODE=url_param" \
-            --set-env-vars="AUTH_TOKEN_PARAM_NAME=auth_token" \
-            --set-env-vars="AUTH_TOKEN_PARAM_ALIASES=token,jwt,sso_token" \
-            --set-env-vars="MACHINE_FAILURE_APP_URL=https://machine-failure-client-800711608362.asia-northeast2.run.app" \
-            --set-env-vars="URL_PLANNING_API=https://operation-management-server-800711608362.asia-northeast2.run.app" \
-            --set-env-vars="BUILD_TIMESTAMP=$TIMESTAMP" \
+            --env-vars-file=cloudrun-env.yaml \
             --min-instances=0 \
             --max-instances=10 \
             --memory=2Gi \
