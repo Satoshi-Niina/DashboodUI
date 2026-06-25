@@ -117,7 +117,7 @@ async function getAllConfig() {
 app.get('/config.js', async (req, res) => {
   try {
     const emergency = await getConfigFromDB('app_url_emergency', 'http://localhost:3001');
-    const planning = await getConfigFromDB('app_url_planning', 'http://localhost:3002');
+    const planning = await getConfigFromDB('app_url_planning', 'https://operation-management-client-800711608362.asia-northeast2.run.app');
     const equipment = await getConfigFromDB('app_url_equipment', 'http://localhost:3003');
     const failure = await getConfigFromDB('app_url_failure', 'http://localhost:3004');
 
