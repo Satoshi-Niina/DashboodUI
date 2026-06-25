@@ -259,10 +259,10 @@ ON CONFLICT (username) DO NOTHING;
 INSERT INTO master_data.app_config (config_key, config_value, description)
 VALUES 
     ('cors_origin', '*', 'CORS許可オリジン設定（開発環境用）'),
-    ('app_url_emergency', 'https://emergency-client-u3tejuflja-dt.a.run.app/', '応急復旧支援システムURL'),
-    ('app_url_planning', 'https://operation-management-client-800711608362.asia-northeast2.run.app', '計画・実績管理システムURL（運行管理）'),
-    ('app_url_equipment', 'https://準備中', '保守用車管理システムURL（準備中）'),
-    ('app_url_failure', 'https://準備中', '機械故障管理システムURL（準備中）')
+    ('app_url_emergency', 'https://emergency-client-800711608362.asia-northeast2.run.app', '応急復旧支援システムURL'),
+    ('app_url_planning', 'https://railway-client-800711608362.asia-northeast2.run.app', '計画・実績管理システムURL'),
+    ('app_url_equipment', 'https://operation-management-client-800711608362.asia-northeast2.run.app', '保守用車管理システムURL'),
+    ('app_url_failure', 'https://machine-failure-client-800711608362.asia-northeast2.run.app', '機械故障管理システムURL')
 ON CONFLICT (config_key) DO NOTHING;
 
 -- ========================================

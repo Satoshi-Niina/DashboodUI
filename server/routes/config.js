@@ -20,10 +20,10 @@ router.get('/', (req, res) => {
     // 環境変数を優先してマッピング
     const config = {
         endpoints: {
-            planning: process.env.OPERATION_MANAGEMENT_CLIENT_URL || process.env.URL_PLANNING || process.env.APP_URL_PLANNING || 'https://準備中',
-            equipment: process.env.EQUIPMENT_APP_URL || process.env.URL_EQUIPMENT || process.env.APP_URL_EQUIPMENT || 'https://準備中',
-            emergency: process.env.EMERGENCY_APP_URL || process.env.URL_EMERGENCY || process.env.APP_URL_EMERGENCY || 'https://準備中',
-            failure: process.env.MACHINE_FAILURE_APP_URL || process.env.URL_FAILURE || process.env.APP_URL_FAILURE || 'https://準備中'
+            planning: process.env.URL_PLANNING || process.env.OPERATION_MANAGEMENT_CLIENT_URL || process.env.APP_URL_PLANNING || 'https://準備中',
+            equipment: process.env.URL_EQUIPMENT || process.env.EQUIPMENT_APP_URL || process.env.APP_URL_EQUIPMENT || 'https://準備中',
+            emergency: process.env.URL_EMERGENCY || process.env.EMERGENCY_APP_URL || process.env.APP_URL_EMERGENCY || 'https://準備中',
+            failure: process.env.URL_FAILURE || process.env.MACHINE_FAILURE_APP_URL || process.env.APP_URL_FAILURE || 'https://準備中'
         },
         planningApiUrl: process.env.OPERATION_MANAGEMENT_SERVER_URL || process.env.URL_PLANNING_API || '',
         authTransferMode: process.env.AUTH_TRANSFER_MODE || 'url_param',

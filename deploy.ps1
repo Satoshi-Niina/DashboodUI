@@ -8,7 +8,7 @@ $CLOUD_SQL_INSTANCE = "maint-vehicle-management:asia-northeast2:free-trial-first
 $DB_NAME = "webappdb"
 $DB_USER = "postgres"
 $DB_PASSWORD = "Takabeni"  # 本番環境では必ず変更してください
-$JWT_SECRET = "supersecretkey123"  # 本番環境では必ず変更してください
+$JWT_SECRET = "I713ZkufHbpsKO81UnrwwrEhd5lyalvA5T36vuUcilNzuWhhCerkXr4EkzBSKNRU0"
 
 # サービス名
 $SERVICE_NAME = "dashboard-ui"
@@ -45,8 +45,11 @@ gcloud run deploy $SERVICE_NAME `
   --set-env-vars AUTH_TRANSFER_MODE=url_param `
   --set-env-vars AUTH_TOKEN_PARAM_NAME=auth_token `
   --set-env-vars AUTH_TOKEN_PARAM_ALIASES=token,jwt,sso_token `
-  --set-env-vars MACHINE_FAILURE_APP_URL=https://failure.example.com `
-  --set-env-vars URL_PLANNING=https://operation-management-client-800711608362.asia-northeast2.run.app `
+  --set-env-vars URL_PLANNING=https://railway-client-800711608362.asia-northeast2.run.app `
+  --set-env-vars URL_EQUIPMENT=https://operation-management-client-800711608362.asia-northeast2.run.app `
+  --set-env-vars URL_EMERGENCY=https://emergency-client-800711608362.asia-northeast2.run.app `
+  --set-env-vars URL_FAILURE=https://machine-failure-client-800711608362.asia-northeast2.run.app `
+  --set-env-vars MACHINE_FAILURE_APP_URL=https://machine-failure-client-800711608362.asia-northeast2.run.app `
   --set-env-vars URL_PLANNING_API=https://operation-management-server-800711608362.asia-northeast2.run.app `
   --add-cloudsql-instances $CLOUD_SQL_INSTANCE `
   --build-arg CACHEBUST=$TIMESTAMP `

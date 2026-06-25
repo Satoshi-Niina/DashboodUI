@@ -37,6 +37,11 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Activate service account for gcloud/docker
+        run: |
+          gcloud auth activate-service-account --key-file="${{ steps.auth.outputs.credentials_file_path }}"
+          gcloud config set project ${{ env.PROJECT_ID }}
+
       - name: Validate required secrets
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -46,11 +51,8 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          URL_FAILURE: ${{ secrets.URL_FAILURE }}
-          URL_PLANNING: ${{ secrets.URL_PLANNING }}
-          OPERATION_MANAGEMENT_CLIENT_URL: ${{ secrets.URL_PLANNING }}
         run: |
-          for key in GCP_PROJECT_ID GCP_SA_KEY CLOUD_SQL_INSTANCE DB_USER DB_PASSWORD DB_NAME JWT_SECRET URL_FAILURE URL_PLANNING OPERATION_MANAGEMENT_CLIENT_URL; do
+          for key in GCP_PROJECT_ID GCP_SA_KEY CLOUD_SQL_INSTANCE DB_USER DB_PASSWORD DB_NAME JWT_SECRET; do
             if [ -z "${!key}" ]; then
               echo "ERROR: Required secret '$key' is not set"
               exit 1
@@ -154,15 +156,17 @@ jobs:
             --set-env-vars="DB_NAME=${{ secrets.DB_NAME }}" \
             --set-env-vars="JWT_SECRET=${{ secrets.JWT_SECRET }}" \
             --set-env-vars="CORS_ORIGIN=*" \
-            --set-env-vars="OPERATION_MANAGEMENT_CLIENT_URL=${{ secrets.URL_PLANNING }}" \
+            --set-env-vars="URL_PLANNING=https://railway-client-800711608362.asia-northeast2.run.app" \
+            --set-env-vars="URL_EQUIPMENT=https://operation-management-client-800711608362.asia-northeast2.run.app" \
+            --set-env-vars="URL_EMERGENCY=https://emergency-client-800711608362.asia-northeast2.run.app" \
+            --set-env-vars="URL_FAILURE=https://machine-failure-client-800711608362.asia-northeast2.run.app" \
+            --set-env-vars="OPERATION_MANAGEMENT_CLIENT_URL=https://operation-management-client-800711608362.asia-northeast2.run.app" \
             --set-env-vars="OPERATION_MANAGEMENT_SERVER_URL=https://operation-management-server-800711608362.asia-northeast2.run.app" \
             --set-env-vars="AUTH_TRANSFER_MODE=url_param" \
             --set-env-vars="AUTH_TOKEN_PARAM_NAME=auth_token" \
             --set-env-vars="AUTH_TOKEN_PARAM_ALIASES=token,jwt,sso_token" \
-            --set-env-vars="MACHINE_FAILURE_APP_URL=${{ secrets.URL_FAILURE }}" \
-            --set-env-vars="URL_PLANNING=${{ secrets.URL_PLANNING }}" \
+            --set-env-vars="MACHINE_FAILURE_APP_URL=https://machine-failure-client-800711608362.asia-northeast2.run.app" \
             --set-env-vars="URL_PLANNING_API=https://operation-management-server-800711608362.asia-northeast2.run.app" \
-            --set-env-vars="URL_FAILURE=${{ secrets.URL_FAILURE }}" \
             --set-env-vars="BUILD_TIMESTAMP=$TIMESTAMP" \
             --min-instances=0 \
             --max-instances=10 \
