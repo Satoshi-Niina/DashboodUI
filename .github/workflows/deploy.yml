@@ -64,6 +64,13 @@ jobs:
       - name: Configure Docker for GCR
         run: |
           gcloud auth configure-docker gcr.io,us.gcr.io,asia.gcr.io --quiet
+
+      - name: Docker login with GCP access token
+        run: |
+          ACCESS_TOKEN=$(gcloud auth print-access-token)
+          echo "$ACCESS_TOKEN" | docker login -u oauth2accesstoken --password-stdin https://gcr.io
+          echo "$ACCESS_TOKEN" | docker login -u oauth2accesstoken --password-stdin https://us.gcr.io
+          echo "$ACCESS_TOKEN" | docker login -u oauth2accesstoken --password-stdin https://asia.gcr.io
       
       - name: Clear Docker Cache
         run: |
