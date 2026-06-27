@@ -41,6 +41,25 @@
         return parts[0] || 'demo';
     }
 
+    function tenantPathFromUrl(fullUrl) {
+        const normalizedPath = normalizePath(fullUrl);
+        if (normalizedPath === '/') return '/';
+        const parts = normalizedPath.split('/').filter(Boolean);
+        return parts.length > 0 ? `/${parts[0]}` : '/';
+    }
+
+    function findRouteByTenantId(routes, tenantId) {
+        const normalizedTenantId = String(tenantId || '').trim().toLowerCase();
+        if (!normalizedTenantId) return null;
+        return routes.find(route => {
+            const routeTenantId = String(route.tenant_id || '').trim().toLowerCase();
+            if (routeTenantId === normalizedTenantId) return true;
+
+            const routePathTenantId = tenantIdFromPath(route.tenant_path || '');
+            return routePathTenantId === normalizedTenantId;
+        }) || null;
+    }
+
     function getBasePath() {
         if (!tenantContext || !tenantContext.tenantPath || tenantContext.tenantPath === '/') {
             return '';
@@ -121,8 +140,13 @@
         }
 
         const companyName = (ctx.companyName || '').trim();
-        if (ctx.isDemo || !companyName) {
+        if (ctx.isDemo) {
             return 'デモ環境';
+        }
+
+        if (!companyName) {
+            const fallbackTenantId = (ctx.tenantId || '').trim();
+            return fallbackTenantId ? `${fallbackTenantId} 専用環境` : 'テナント環境';
         }
 
         return `${companyName} 様環境`;
@@ -153,17 +177,44 @@
         }
 
         const fullUrl = getCurrentFullUrl();
+        const urlTenantId = tenantIdFromPath(fullUrl);
+        const urlTenantPath = tenantPathFromUrl(fullUrl);
         const routes = await fetchTenantRoutes();
         const resolved = resolveTenant(fullUrl, routes);
 
+        // URLにテナントプレフィックスがある場合はURL判定を優先してdemo誤判定を防ぐ
+        let finalTenantId = resolved.tenantId;
+        let finalTenantPath = resolved.tenantPath;
+        let finalCompanyId = resolved.companyId;
+        let finalCompanyName = resolved.companyName;
+        let finalMatchedTenantPath = resolved.matchedTenantPath;
+        let finalIsDemo = resolved.isDemo;
+
+        if (urlTenantId !== 'demo') {
+            finalTenantId = urlTenantId;
+            finalTenantPath = urlTenantPath;
+            finalIsDemo = false;
+
+            const matchedRoute = findRouteByTenantId(routes, urlTenantId);
+            if (matchedRoute) {
+                finalCompanyId = matchedRoute.company_id || urlTenantId;
+                finalCompanyName = matchedRoute.company_name || '';
+                finalMatchedTenantPath = matchedRoute.tenant_path || '';
+            } else {
+                finalCompanyId = urlTenantId;
+                finalCompanyName = finalCompanyName || '';
+                finalMatchedTenantPath = finalMatchedTenantPath || '';
+            }
+        }
+
         tenantContext = {
             fullUrl,
-            tenantId: resolved.tenantId,
-            companyId: resolved.companyId,
-            companyName: resolved.companyName,
-            tenantPath: resolved.tenantPath,
-            matchedTenantPath: resolved.matchedTenantPath,
-            isDemo: resolved.isDemo,
+            tenantId: finalTenantId,
+            companyId: finalCompanyId,
+            companyName: finalCompanyName,
+            tenantPath: finalTenantPath,
+            matchedTenantPath: finalMatchedTenantPath,
+            isDemo: finalIsDemo,
             routes,
             resolvedAt: new Date().toISOString()
         };

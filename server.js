@@ -60,8 +60,7 @@ app.use(express.json());
 // APIリクエストごとにヘッダーのテナントIDを先に抽出して保持
 app.use((req, res, next) => {
   if (req.path.startsWith('/api')) {
-    const headerTenantId = req.headers['x-tenant-id'];
-    req.requestedTenantId = (headerTenantId ? String(headerTenantId) : 'demo').trim().toLowerCase() || 'demo';
+    req.requestedTenantId = extractTenantIdFromRequest(req);
   }
   next();
 });
@@ -167,6 +166,52 @@ function tenantIdFromPath(rawPath) {
   return parts[0] || 'demo';
 }
 
+function extractTenantIdFromRequest(req) {
+  const tenantIdHeader = String(req.headers['x-tenant-id'] || '').trim().toLowerCase();
+  const tenantFullUrlHeader = String(req.headers['x-tenant-full-url'] || '').trim();
+  const tenantPathHeader = String(req.headers['x-tenant-path'] || '').trim();
+  const parsedPathFromFullUrl = normalizePathForCompare(tenantFullUrlHeader || '/');
+  const parsedTenantPath = tenantPathHeader || parsedPathFromFullUrl;
+
+  console.log('[TenantDebug][Extract] Incoming headers:', {
+    tenantIdHeader,
+    tenantPathHeader,
+    tenantFullUrlHeader,
+    parsedPathFromFullUrl,
+    parsedTenantPath
+  });
+
+  if (tenantIdHeader && tenantIdHeader !== 'demo') {
+    console.log('[TenantDebug][Extract] Using X-Tenant-Id directly:', tenantIdHeader);
+    return tenantIdHeader;
+  }
+
+  const tenantIdFromPathHeader = tenantIdFromPath(tenantPathHeader);
+  if (tenantIdFromPathHeader && tenantIdFromPathHeader !== 'demo') {
+    console.log('[TenantDebug][Extract] Using tenant ID from X-Tenant-Path:', {
+      tenantPathHeader,
+      tenantIdFromPathHeader
+    });
+    return tenantIdFromPathHeader;
+  }
+
+  const tenantIdFromUrlHeader = tenantIdFromPath(tenantFullUrlHeader);
+  if (tenantIdFromUrlHeader && tenantIdFromUrlHeader !== 'demo') {
+    console.log('[TenantDebug][Extract] Using tenant ID from X-Tenant-Full-Url:', {
+      tenantFullUrlHeader,
+      tenantIdFromUrlHeader
+    });
+    return tenantIdFromUrlHeader;
+  }
+
+  console.log('[TenantDebug][Extract] Fallback to demo', {
+    tenantIdHeader,
+    tenantPathHeader,
+    tenantFullUrlHeader
+  });
+  return tenantIdHeader || 'demo';
+}
+
 function getControlPlanePool() {
   return controlPlanePool || pool;
 }
@@ -250,6 +295,12 @@ async function getCompanyRoutingRows() {
     FROM public.company_db_routing
   `;
   const result = await getControlPlanePool().query(query);
+
+  console.log('[TenantDebug][DB] company_db_routing rows loaded:', {
+    count: result.rows.length,
+    rows: result.rows
+  });
+
   companyRoutingCache.rows = result.rows;
   companyRoutingCache.timestamp = now;
   return companyRoutingCache.rows;
@@ -607,8 +658,63 @@ pool = new Proxy(controlPlanePool, {
 // APIリクエストのテナント文脈を解決し、以降のDB/GCS処理に引き継ぐ
 app.use('/api', async (req, res, next) => {
   const requestedTenantId = req.requestedTenantId || 'demo';
+
+  try {
+    const fullUrlHeader = String(req.headers['x-tenant-full-url'] || '').trim();
+    const currentNormalizedUrl = normalizeUrlForCompare(fullUrlHeader);
+    const currentParsedPath = normalizePathForCompare(fullUrlHeader || '/');
+    const currentTenantPath = String(req.headers['x-tenant-path'] || '').trim() || currentParsedPath;
+
+    console.log('[TenantDebug][Compare] Request URL parse:', {
+      fullUrlHeader,
+      currentNormalizedUrl,
+      currentParsedPath,
+      currentTenantPath,
+      requestedTenantId
+    });
+
+    const routingRows = await getCompanyRoutingRows();
+    for (const row of routingRows) {
+      const dbTenantPath = String(row.tenant_path || '').trim();
+      const normalizedDbUrl = normalizeUrlForCompare(dbTenantPath);
+      const normalizedDbPath = normalizePathForCompare(dbTenantPath);
+
+      const isUrlExactMatch = currentNormalizedUrl && normalizedDbUrl
+        ? currentNormalizedUrl === normalizedDbUrl
+        : false;
+      const isUrlPrefixMatch = currentNormalizedUrl && normalizedDbUrl
+        ? currentNormalizedUrl.startsWith(`${normalizedDbUrl}/`)
+        : false;
+      const isPathExactMatch = currentTenantPath && normalizedDbPath
+        ? normalizePathForCompare(currentTenantPath) === normalizedDbPath
+        : false;
+      const isPathPrefixMatch = currentTenantPath && normalizedDbPath
+        ? normalizePathForCompare(currentTenantPath).startsWith(`${normalizedDbPath}/`)
+        : false;
+
+      const matched = isUrlExactMatch || isUrlPrefixMatch || isPathExactMatch || isPathPrefixMatch;
+
+      console.log('[TenantDebug][Compare] URL vs tenant_path result:', {
+        requestFullUrl: fullUrlHeader,
+        requestTenantPath: currentTenantPath,
+        dbTenantPath,
+        companyId: row.company_id,
+        companyName: row.company_name,
+        isUrlExactMatch,
+        isUrlPrefixMatch,
+        isPathExactMatch,
+        isPathPrefixMatch,
+        matched
+      });
+    }
+  } catch (debugErr) {
+    console.warn('[TenantDebug] compare logging failed:', debugErr.message);
+  }
+
   const runtime = await resolveTenantRuntime(requestedTenantId);
   req.tenantContext = runtime;
+  res.setHeader('X-Resolved-Tenant-Id', runtime.resolvedTenantId || 'demo');
+  res.setHeader('X-Resolved-Db-Name', runtime.dbName || getDefaultDbName());
   requestTenantContextStorage.run(runtime, () => next());
 });
 
