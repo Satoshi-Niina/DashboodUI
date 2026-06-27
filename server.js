@@ -174,21 +174,26 @@ function normalizeTenantRoutingRow(row) {
 }
 
 async function getAllCompanyRoutingRows() {
-  const now = Date.now();
-  const cached = tenantRouteListCache.get('all');
-  if (cached && (now - cached.timestamp) < TENANT_ROUTE_CACHE_TTL) {
-    return cached.rows;
-  }
+  try {
+    const now = Date.now();
+    const cached = tenantRouteListCache.get('all');
+    if (cached && (now - cached.timestamp) < TENANT_ROUTE_CACHE_TTL) {
+      return cached.rows;
+    }
 
-  const query = `
-    SELECT company_id, company_name, db_name, storage_bucket_name, tenant_path
-    FROM public.company_db_routing
-    ORDER BY company_id
-  `;
-  const result = await getControlPlanePool().query(query);
-  const rows = result.rows.map(normalizeTenantRoutingRow).filter(Boolean);
-  tenantRouteListCache.set('all', { rows, timestamp: now });
-  return rows;
+    const query = `
+      SELECT company_id, company_name, db_name, storage_bucket_name, tenant_path
+      FROM public.company_db_routing
+      ORDER BY company_id
+    `;
+    const result = await getControlPlanePool().query(query);
+    const rows = result.rows.map(normalizeTenantRoutingRow).filter(Boolean);
+    tenantRouteListCache.set('all', { rows, timestamp: now });
+    return rows;
+  } catch (err) {
+    console.error('[TenantRouting] Failed to load routing rows:', err.message);
+    return [];
+  }
 }
 
 function extractTenantIdFromRequest(req) {
@@ -214,25 +219,30 @@ function extractTenantIdFromRequest(req) {
 }
 
 async function getCompanyRoutingByTenantRequest({ tenantId = '', tenantPath = '', fullUrl = '' } = {}) {
-  const normalizedTenantId = String(tenantId || '').trim().toLowerCase();
-  const normalizedTenantPath = normalizePathForCompare(tenantPath || fullUrl || '');
-  const normalizedFullUrl = normalizeUrlForCompare(fullUrl || tenantPath || '');
-  const allRows = await getAllCompanyRoutingRows();
+  try {
+    const normalizedTenantId = String(tenantId || '').trim().toLowerCase();
+    const normalizedTenantPath = normalizePathForCompare(tenantPath || fullUrl || '');
+    const normalizedFullUrl = normalizeUrlForCompare(fullUrl || tenantPath || '');
+    const allRows = await getAllCompanyRoutingRows();
 
-  if (normalizedTenantId) {
-    const byCompanyId = allRows.find((row) => row.normalizedCompanyId === normalizedTenantId);
-    if (byCompanyId) {
-      return byCompanyId;
+    if (normalizedTenantId) {
+      const byCompanyId = allRows.find((row) => row.normalizedCompanyId === normalizedTenantId);
+      if (byCompanyId) {
+        return byCompanyId;
+      }
     }
+
+    const byUrl = allRows.find((row) => {
+      if (!row) return false;
+      return row.normalizedTenantPath === normalizedFullUrl
+        || row.normalizedTenantPathOnly === normalizedTenantPath;
+    });
+
+    return byUrl || null;
+  } catch (err) {
+    console.error('[TenantRouting] Failed to resolve tenant by request:', err.message);
+    return null;
   }
-
-  const byUrl = allRows.find((row) => {
-    if (!row) return false;
-    return row.normalizedTenantPath === normalizedFullUrl
-      || row.normalizedTenantPathOnly === normalizedTenantPath;
-  });
-
-  return byUrl || null;
 }
 
 function getControlPlanePool() {
@@ -675,18 +685,38 @@ pool = new Proxy(controlPlanePool, {
 
 // APIリクエストのテナント文脈を解決し、以降のDB/GCS処理に引き継ぐ
 app.use('/api', async (req, res, next) => {
-  const requestedTenantId = req.requestedTenantId || 'demo_env';
+  try {
+    const requestedTenantId = req.requestedTenantId || 'demo_env';
 
-  const runtime = await resolveTenantRuntime(requestedTenantId, {
-    tenantPath: String(req.headers['x-tenant-path'] || req.query.tenant_path || '').trim(),
-    fullUrl: String(req.headers['x-tenant-full-url'] || req.query.full_url || '').trim()
-  });
-  req.tenantContext = runtime;
-  res.setHeader('X-Resolved-Tenant-Id', runtime.resolvedTenantId || 'demo_env');
-  res.setHeader('X-Resolved-Db-Name', runtime.dbName || getDefaultDbName());
-  res.setHeader('X-Resolved-Company-Name', runtime.companyName || '');
-  res.setHeader('X-Resolved-Bucket-Name', runtime.storageBucketName || '');
-  requestTenantContextStorage.run(runtime, () => next());
+    const runtime = await resolveTenantRuntime(requestedTenantId, {
+      tenantPath: String(req.headers['x-tenant-path'] || req.query.tenant_path || '').trim(),
+      fullUrl: String(req.headers['x-tenant-full-url'] || req.query.full_url || '').trim()
+    });
+    req.tenantContext = runtime;
+    res.setHeader('X-Resolved-Tenant-Id', runtime.resolvedTenantId || 'demo_env');
+    res.setHeader('X-Resolved-Db-Name', runtime.dbName || getDefaultDbName());
+    res.setHeader('X-Resolved-Company-Name', runtime.companyName || '');
+    res.setHeader('X-Resolved-Bucket-Name', runtime.storageBucketName || '');
+    requestTenantContextStorage.run(runtime, () => next());
+  } catch (err) {
+    console.error('[TenantRouting] Middleware failed, falling back to demo_env:', err.message);
+    const fallbackRuntime = {
+      requestedTenantId: 'demo_env',
+      resolvedTenantId: 'demo_env',
+      companyId: 'demo_env',
+      companyName: '',
+      dbName: getDefaultDbName(),
+      storageBucketName: getDefaultBucketName(),
+      pool: getControlPlanePool(),
+      isFallback: true
+    };
+    req.tenantContext = fallbackRuntime;
+    res.setHeader('X-Resolved-Tenant-Id', 'demo_env');
+    res.setHeader('X-Resolved-Db-Name', fallbackRuntime.dbName || getDefaultDbName());
+    res.setHeader('X-Resolved-Company-Name', '');
+    res.setHeader('X-Resolved-Bucket-Name', fallbackRuntime.storageBucketName || '');
+    requestTenantContextStorage.run(fallbackRuntime, () => next());
+  }
 });
 
 // APIルート定義（テナント解決ミドルウェアの後に登録）
