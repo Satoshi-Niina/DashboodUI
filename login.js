@@ -35,6 +35,10 @@ document.addEventListener('DOMContentLoaded', () => {
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
 
+        if (window.TenantContext && typeof window.TenantContext.init === 'function') {
+            await window.TenantContext.init();
+        }
+
         // UIの状態をリセット
         hideError();
         setLoading(true);
@@ -70,7 +74,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 成功アニメーションを表示してから遷移
                 btnText.textContent = 'リダイレクト中...';
                 setTimeout(() => {
-                    window.location.href = '/index.html';
+                    const dashboardPath = window.TenantContext && typeof window.TenantContext.buildPath === 'function'
+                        ? window.TenantContext.buildPath('/index.html')
+                        : '/index.html';
+                    window.location.href = dashboardPath;
                 }, 800);
             } else {
                 // 認証失敗

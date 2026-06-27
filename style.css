@@ -47,6 +47,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 1rem;
 }
 
 .logo {
@@ -101,6 +102,32 @@ body {
     display: flex;
     align-items: center;
     gap: 1.5rem;
+}
+
+.tenant-environment-badge {
+    padding: 0.45rem 0.95rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    color: #f8fafc;
+    text-align: center;
+    min-width: 11rem;
+}
+
+@media (max-width: 1200px) {
+    .main-header {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+
+    .tenant-environment-badge {
+        order: 3;
+        width: 100%;
+        min-width: 0;
+    }
 }
 
 /* Header Action Buttons */

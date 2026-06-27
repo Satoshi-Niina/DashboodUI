@@ -85,6 +85,17 @@ async function loadDynamicConfig() {
 document.addEventListener('DOMContentLoaded', async () => {
     // 設定をサーバーから読み込む
     await loadDynamicConfig();
+    if (window.TenantContext && typeof window.TenantContext.init === 'function') {
+        await window.TenantContext.init();
+    }
+
+    const tenantEnvironmentLabel = document.getElementById('tenant-environment-label');
+    if (tenantEnvironmentLabel) {
+        const tenantLabel = window.TenantContext && typeof window.TenantContext.getTenantLabel === 'function'
+            ? window.TenantContext.getTenantLabel()
+            : 'デモ環境';
+        tenantEnvironmentLabel.textContent = tenantLabel;
+    }
     
     const appGrid = document.getElementById('app-grid');
     const tooltip = document.getElementById('app-tooltip');
@@ -112,7 +123,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.log('[App] Footer nav found:', !!footerNav);
         console.log('[App] Footer nav element:', footerNav);
 
-        const adminLink = footerNav ? footerNav.querySelector('a[href="/admin.html"]') : null;
+        const adminLink = footerNav
+            ? (footerNav.querySelector('a[href="admin.html"]') || footerNav.querySelector('a[href="/admin.html"]'))
+            : null;
         console.log('[App] Admin link found:', !!adminLink);
         console.log('[App] Admin link element:', adminLink);
 
@@ -266,6 +279,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             const tokenAliases = Array.isArray(AppConfig.tokenParamAliases)
                 ? AppConfig.tokenParamAliases
                 : [];
+            const tenantId = window.TenantContext && typeof window.TenantContext.getTenantId === 'function'
+                ? window.TenantContext.getTenantId()
+                : 'demo';
+            const tenantPath = window.TenantContext && typeof window.TenantContext.getTenantPath === 'function'
+                ? window.TenantContext.getTenantPath()
+                : '/';
 
             urlObj.searchParams.set(tokenParam, token);
             tokenAliases.forEach(alias => {
@@ -273,6 +292,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                     urlObj.searchParams.set(alias, token);
                 }
             });
+            urlObj.searchParams.set('tenant_id', tenantId);
+            urlObj.searchParams.set('tenant_path', tenantPath);
 
             finalUrl = urlObj.toString();
         }
@@ -297,7 +318,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                 localStorage.removeItem('user_info');
                 // ログインフォームをクリアするフラグを設定
                 sessionStorage.setItem('clearLoginForm', 'true');
-                window.location.href = '/login.html';
+                const loginPath = window.TenantContext && typeof window.TenantContext.buildPath === 'function'
+                    ? window.TenantContext.buildPath('/login.html')
+                    : '/login.html';
+                window.location.href = loginPath;
             }
         });
     }

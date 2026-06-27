@@ -1,5 +1,6 @@
 const express = require('express');
 const { Pool } = require('pg');
+const { AsyncLocalStorage } = require('async_hooks');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
@@ -39,9 +40,6 @@ console.log(`✅ Will listen on port: ${PORT}`);
 
 console.log('Express app created');
 
-// APIルート定義
-app.use('/api/config', configRoutes);
-
 // CORS設定
 const corsOptions = {
 
@@ -58,6 +56,15 @@ console.log('CORS configured:', corsOptions.origin);
 // Middleware
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// APIリクエストごとにヘッダーのテナントIDを先に抽出して保持
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api')) {
+    const headerTenantId = req.headers['x-tenant-id'];
+    req.requestedTenantId = (headerTenantId ? String(headerTenantId) : 'demo').trim().toLowerCase() || 'demo';
+  }
+  next();
+});
 
 console.log('Middleware configured');
 
@@ -112,6 +119,299 @@ async function getAllConfig() {
     return {};
   }
 }
+
+const tenantRoutingCache = {
+  routes: [],
+  timestamp: 0
+};
+const TENANT_ROUTING_CACHE_TTL = 60 * 1000;
+
+const requestTenantContextStorage = new AsyncLocalStorage();
+const tenantDbPoolCache = new Map();
+const companyRoutingCache = {
+  rows: [],
+  timestamp: 0
+};
+const COMPANY_ROUTING_CACHE_TTL = 60 * 1000;
+let controlPlanePool = null;
+
+function normalizeUrlForCompare(rawUrl) {
+  if (!rawUrl) return '';
+  try {
+    const parsed = new URL(String(rawUrl));
+    const normalizedPath = parsed.pathname.replace(/\/+$/, '') || '/';
+    return `${parsed.origin}${normalizedPath}`.toLowerCase();
+  } catch (_) {
+    return String(rawUrl).trim().replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function normalizePathForCompare(rawPath) {
+  if (!rawPath) return '/';
+  try {
+    const parsed = new URL(String(rawPath));
+    const normalizedPath = parsed.pathname.replace(/\/+$/, '') || '/';
+    return normalizedPath.toLowerCase();
+  } catch (_) {
+    const normalized = String(rawPath).trim();
+    if (!normalized) return '/';
+    const withSlash = normalized.startsWith('/') ? normalized : `/${normalized}`;
+    return (withSlash.replace(/\/+$/, '') || '/').toLowerCase();
+  }
+}
+
+function tenantIdFromPath(rawPath) {
+  const normalizedPath = normalizePathForCompare(rawPath);
+  if (normalizedPath === '/') return 'demo';
+  const parts = normalizedPath.split('/').filter(Boolean);
+  return parts[0] || 'demo';
+}
+
+function getControlPlanePool() {
+  return controlPlanePool || pool;
+}
+
+function getDefaultDbName() {
+  if (poolConfig && poolConfig.database) {
+    return poolConfig.database;
+  }
+  if (poolConfig && poolConfig.connectionString) {
+    try {
+      const parsed = new URL(poolConfig.connectionString);
+      const dbName = parsed.pathname.replace(/^\//, '');
+      return dbName || 'webappdb';
+    } catch (_) {
+      return 'webappdb';
+    }
+  }
+  return process.env.DB_NAME || 'webappdb';
+}
+
+function getDefaultBucketName() {
+  return process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET || 'maint-vehicle-management-storage';
+}
+
+function buildPoolConfigForDb(dbName) {
+  const config = {
+    ...poolConfig,
+    database: undefined,
+    connectionString: poolConfig.connectionString || undefined
+  };
+
+  if (config.connectionString) {
+    try {
+      const parsed = new URL(config.connectionString);
+      parsed.pathname = `/${dbName}`;
+      config.connectionString = parsed.toString();
+    } catch (_) {
+      config.connectionString = poolConfig.connectionString;
+      config.database = dbName;
+    }
+  } else {
+    config.database = dbName;
+  }
+
+  return config;
+}
+
+function getOrCreateTenantPool(dbName) {
+  if (!dbName) return getControlPlanePool();
+
+  if (tenantDbPoolCache.has(dbName)) {
+    const cached = tenantDbPoolCache.get(dbName);
+    cached.lastUsedAt = Date.now();
+    return cached.pool;
+  }
+
+  const tenantPoolConfig = buildPoolConfigForDb(dbName);
+  const tenantPool = new Pool(tenantPoolConfig);
+  tenantPool.on('error', (err) => {
+    console.error(`[TenantDB] Unexpected error on tenant pool ${dbName}:`, err.message);
+  });
+
+  tenantDbPoolCache.set(dbName, {
+    pool: tenantPool,
+    dbName,
+    lastUsedAt: Date.now()
+  });
+
+  console.log(`[TenantDB] Created pool for database: ${dbName}`);
+  return tenantPool;
+}
+
+async function getCompanyRoutingRows() {
+  const now = Date.now();
+  if (companyRoutingCache.rows.length > 0 && (now - companyRoutingCache.timestamp) < COMPANY_ROUTING_CACHE_TTL) {
+    return companyRoutingCache.rows;
+  }
+
+  const query = `
+    SELECT company_id, company_name, db_name, storage_bucket_name, tenant_path
+    FROM public.company_db_routing
+  `;
+  const result = await getControlPlanePool().query(query);
+  companyRoutingCache.rows = result.rows;
+  companyRoutingCache.timestamp = now;
+  return companyRoutingCache.rows;
+}
+
+function resolveRoutingRowByTenantId(rows, tenantId) {
+  const normalized = (tenantId || '').trim().toLowerCase();
+  if (!normalized || normalized === 'demo') return null;
+
+  let matched = rows.find(row => (row.company_id || '').toLowerCase() === normalized);
+  if (matched) return matched;
+
+  matched = rows.find(row => tenantIdFromPath(row.tenant_path || '') === normalized);
+  return matched || null;
+}
+
+async function resolveTenantRuntime(tenantId) {
+  const normalizedTenantId = (tenantId || 'demo').trim().toLowerCase() || 'demo';
+  const defaultDbName = getDefaultDbName();
+  const defaultBucketName = getDefaultBucketName();
+
+  if (normalizedTenantId === 'demo') {
+    return {
+      requestedTenantId: normalizedTenantId,
+      resolvedTenantId: 'demo',
+      companyId: 'demo',
+      dbName: defaultDbName,
+      storageBucketName: defaultBucketName,
+      pool: getControlPlanePool(),
+      isFallback: false
+    };
+  }
+
+  try {
+    const routingRows = await getCompanyRoutingRows();
+    const routingRow = resolveRoutingRowByTenantId(routingRows, normalizedTenantId);
+
+    if (!routingRow) {
+      console.warn(`[TenantRouting] Tenant not found: ${normalizedTenantId}. Falling back to demo.`);
+      return {
+        requestedTenantId: normalizedTenantId,
+        resolvedTenantId: 'demo',
+        companyId: 'demo',
+        dbName: defaultDbName,
+        storageBucketName: defaultBucketName,
+        pool: getControlPlanePool(),
+        isFallback: true
+      };
+    }
+
+    const tenantDbName = routingRow.db_name || defaultDbName;
+    const tenantPool = tenantDbName === defaultDbName
+      ? getControlPlanePool()
+      : getOrCreateTenantPool(tenantDbName);
+
+    return {
+      requestedTenantId: normalizedTenantId,
+      resolvedTenantId: normalizedTenantId,
+      companyId: routingRow.company_id || normalizedTenantId,
+      dbName: tenantDbName,
+      storageBucketName: routingRow.storage_bucket_name || defaultBucketName,
+      tenantPath: routingRow.tenant_path || '',
+      pool: tenantPool,
+      isFallback: false
+    };
+  } catch (err) {
+    console.error(`[TenantRouting] Failed to resolve tenant ${normalizedTenantId}:`, err.message);
+    return {
+      requestedTenantId: normalizedTenantId,
+      resolvedTenantId: 'demo',
+      companyId: 'demo',
+      dbName: defaultDbName,
+      storageBucketName: defaultBucketName,
+      pool: getControlPlanePool(),
+      isFallback: true
+    };
+  }
+}
+
+function getActiveTenantRuntime() {
+  return requestTenantContextStorage.getStore() || null;
+}
+
+function getActiveDbPool() {
+  const runtime = getActiveTenantRuntime();
+  return runtime && runtime.pool ? runtime.pool : getControlPlanePool();
+}
+
+function getRequestBucketName(req, fallbackBucketName = '') {
+  const runtimeFromReq = req && req.tenantContext ? req.tenantContext : null;
+  const runtime = runtimeFromReq || getActiveTenantRuntime();
+  return (runtime && runtime.storageBucketName) || fallbackBucketName || getDefaultBucketName();
+}
+
+async function getTenantRoutingRows() {
+  const now = Date.now();
+  if (tenantRoutingCache.routes.length > 0 && (now - tenantRoutingCache.timestamp) < TENANT_ROUTING_CACHE_TTL) {
+    return tenantRoutingCache.routes;
+  }
+
+  try {
+    const query = `
+      SELECT company_id, company_name, tenant_path
+      FROM public.company_db_routing
+      WHERE tenant_path IS NOT NULL
+      ORDER BY length(tenant_path) DESC
+    `;
+    const result = await getControlPlanePool().query(query);
+    tenantRoutingCache.routes = result.rows.map(row => {
+      const tenantPath = row.tenant_path;
+      return {
+        companyId: row.company_id,
+        companyName: row.company_name,
+        tenantPath,
+        normalizedUrl: normalizeUrlForCompare(tenantPath),
+        normalizedPath: normalizePathForCompare(tenantPath),
+        tenantId: tenantIdFromPath(tenantPath)
+      };
+    });
+    tenantRoutingCache.timestamp = now;
+    return tenantRoutingCache.routes;
+  } catch (err) {
+    console.warn('[TenantRouting] Failed to fetch tenant routing:', err.message);
+    return [];
+  }
+}
+
+// フロントエンドがtenant_path一覧を取得し、URL照合できるように公開
+app.get('/api/tenant-routing', async (req, res) => {
+  const routes = await getTenantRoutingRows();
+  res.json({
+    success: true,
+    routes: routes.map(route => ({
+      company_id: route.companyId,
+      company_name: route.companyName,
+      tenant_path: route.tenantPath,
+      tenant_id: route.tenantId
+    }))
+  });
+});
+
+// /kosei や /daitetsu 配下でも同じ静的ファイルへ解決できるようにする
+app.use((req, res, next) => {
+  const excludedPrefixes = new Set(['api', 'assets', 'health', '_ah', 'ready']);
+  const [pathname, searchPart] = req.url.split('?');
+  const parts = pathname.split('/').filter(Boolean);
+
+  if (parts.length === 0) return next();
+
+  const firstSegment = parts[0].toLowerCase();
+  const hasFileExtension = firstSegment.includes('.');
+
+  if (excludedPrefixes.has(firstSegment) || hasFileExtension) {
+    return next();
+  }
+
+  const strippedPath = `/${parts.slice(1).join('/')}`;
+  const rewrittenPath = strippedPath === '/' ? '/' : strippedPath;
+  req.url = `${rewrittenPath}${searchPart ? `?${searchPart}` : ''}`;
+
+  return next();
+});
 
 // Config Endpoint (データベースまたは環境変数から動的に生成)
 app.get('/config.js', async (req, res) => {
@@ -269,11 +569,51 @@ try {
   };
 }
 
+controlPlanePool = pool;
+
 // Error handling for pool
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);
   // Don't exit the process
 });
+
+// 既存コードの pool.query/pool.connect 呼び出しを、リクエストごとのテナントDBへ自動ルーティング
+pool = new Proxy(controlPlanePool, {
+  get(target, prop) {
+    if (prop === 'query') {
+      return (...args) => getActiveDbPool().query(...args);
+    }
+    if (prop === 'connect') {
+      return (...args) => getActiveDbPool().connect(...args);
+    }
+    if (prop === 'end') {
+      return async (...args) => {
+        for (const entry of tenantDbPoolCache.values()) {
+          try {
+            await entry.pool.end();
+          } catch (err) {
+            console.warn(`[TenantDB] Failed to close tenant pool ${entry.dbName}:`, err.message);
+          }
+        }
+        tenantDbPoolCache.clear();
+        return target.end(...args);
+      };
+    }
+    const value = Reflect.get(target, prop);
+    return typeof value === 'function' ? value.bind(target) : value;
+  }
+});
+
+// APIリクエストのテナント文脈を解決し、以降のDB/GCS処理に引き継ぐ
+app.use('/api', async (req, res, next) => {
+  const requestedTenantId = req.requestedTenantId || 'demo';
+  const runtime = await resolveTenantRuntime(requestedTenantId);
+  req.tenantContext = runtime;
+  requestTenantContextStorage.run(runtime, () => next());
+});
+
+// APIルート定義（テナント解決ミドルウェアの後に登録）
+app.use('/api/config', configRoutes);
 
 // データベース初期化（サーバー起動後に非同期で実行）
 setImmediate(async () => {
@@ -2239,9 +2579,10 @@ app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async 
     const settingsResult = await pool.query(settingsQuery);
     const storageSettings = settingsResult.rows[0]?.settings_json || {};
 
-    const bucketName = (storageSettings.gcsBucketName && storageSettings.gcsBucketName.trim())
+    const configuredBucketName = (storageSettings.gcsBucketName && storageSettings.gcsBucketName.trim())
       ? storageSettings.gcsBucketName.trim()
       : (process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET || 'maint-vehicle-management-storage');
+    const bucketName = getRequestBucketName(req, configuredBucketName);
 
     const folderPath = (storageSettings.gcsKnowledgeFolder && storageSettings.gcsKnowledgeFolder.trim())
       ? storageSettings.gcsKnowledgeFolder.trim()
@@ -2555,7 +2896,7 @@ app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
 
     // 4. GCSファイルの削除（3つのファイルすべて - エラーでもロールバックしない）
     try {
-      const bucketName = process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET;
+      const bucketName = getRequestBucketName(req, process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET);
 
       if (bucketName && storage) {
         const bucket = storage.bucket(bucketName);
@@ -2650,7 +2991,7 @@ app.get('/api/ai/diagnose-gcs', requireAdmin, async (req, res) => {
     console.log('[GCS Diagnosis] Starting diagnosis...');
 
     // GCS設定の確認
-    const bucketName = process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET || 'vehicle-management-storage';
+    const bucketName = getRequestBucketName(req, process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET || 'vehicle-management-storage');
 
     if (!bucketName) {
       return res.status(500).json({

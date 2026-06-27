@@ -11,7 +11,17 @@ const MACHINE_CATEGORIES = [
     'その他'
 ];
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    if (window.TenantContext && typeof window.TenantContext.init === 'function') {
+        await window.TenantContext.init();
+    }
+
+    const buildTenantPath = (targetPath) => (
+        window.TenantContext && typeof window.TenantContext.buildPath === 'function'
+            ? window.TenantContext.buildPath(targetPath)
+            : targetPath
+    );
+
     // 認証チェック
     const token = localStorage.getItem('user_token');
     console.log('[Admin] Version: 20260107-1400');
@@ -20,7 +30,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (!token) {
         console.error('[Admin] No token, redirecting to login');
-        window.location.href = '/';
+        window.location.href = buildTenantPath('/');
         return;
     }
 
@@ -34,7 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (userInfo.role !== 'system_admin' && userInfo.role !== 'operation_admin' && userInfo.role !== 'admin') {
         console.error('[Admin] Access denied - role:', userInfo.role);
         alert('アクセス権限がありません。管理者権限が必要です。');
-        window.location.href = '/index.html';
+        window.location.href = buildTenantPath('/index.html');
         return;
     }
 
@@ -45,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // メイン画面に戻る
     document.getElementById('back-to-main-btn').addEventListener('click', () => {
-        window.location.href = '/index.html';
+        window.location.href = buildTenantPath('/index.html');
     });
 
     // タブ機能の初期化
