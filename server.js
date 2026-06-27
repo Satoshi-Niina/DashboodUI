@@ -119,19 +119,10 @@ async function getAllConfig() {
   }
 }
 
-const tenantRoutingCache = {
-  routes: [],
-  timestamp: 0
-};
-const TENANT_ROUTING_CACHE_TTL = 60 * 1000;
-
 const requestTenantContextStorage = new AsyncLocalStorage();
 const tenantDbPoolCache = new Map();
-const companyRoutingCache = {
-  rows: [],
-  timestamp: 0
-};
-const COMPANY_ROUTING_CACHE_TTL = 60 * 1000;
+const tenantRouteCache = new Map();
+const TENANT_ROUTE_CACHE_TTL = 60 * 1000;
 let controlPlanePool = null;
 
 function normalizeUrlForCompare(rawUrl) {
@@ -159,57 +150,37 @@ function normalizePathForCompare(rawPath) {
   }
 }
 
-function tenantIdFromPath(rawPath) {
+function resolveTenantIdFromUrlPath(rawPath) {
   const normalizedPath = normalizePathForCompare(rawPath);
-  if (normalizedPath === '/') return 'demo';
-  const parts = normalizedPath.split('/').filter(Boolean);
-  return parts[0] || 'demo';
+  if (normalizedPath === '/kosei' || normalizedPath.startsWith('/kosei/')) {
+    return 'kosei';
+  }
+  if (normalizedPath === '/daitetsu' || normalizedPath.startsWith('/daitetsu/')) {
+    return 'daitetsu';
+  }
+  return 'demo_env';
 }
 
 function extractTenantIdFromRequest(req) {
   const tenantIdHeader = String(req.headers['x-tenant-id'] || '').trim().toLowerCase();
   const tenantFullUrlHeader = String(req.headers['x-tenant-full-url'] || '').trim();
   const tenantPathHeader = String(req.headers['x-tenant-path'] || '').trim();
-  const parsedPathFromFullUrl = normalizePathForCompare(tenantFullUrlHeader || '/');
-  const parsedTenantPath = tenantPathHeader || parsedPathFromFullUrl;
 
-  console.log('[TenantDebug][Extract] Incoming headers:', {
-    tenantIdHeader,
-    tenantPathHeader,
-    tenantFullUrlHeader,
-    parsedPathFromFullUrl,
-    parsedTenantPath
-  });
+  const fromFullUrl = resolveTenantIdFromUrlPath(tenantFullUrlHeader || '/');
+  if (fromFullUrl !== 'demo_env') {
+    return fromFullUrl;
+  }
 
-  if (tenantIdHeader && tenantIdHeader !== 'demo') {
-    console.log('[TenantDebug][Extract] Using X-Tenant-Id directly:', tenantIdHeader);
+  const fromTenantPathHeader = resolveTenantIdFromUrlPath(tenantPathHeader || '/');
+  if (fromTenantPathHeader !== 'demo_env') {
+    return fromTenantPathHeader;
+  }
+
+  if (tenantIdHeader === 'kosei' || tenantIdHeader === 'daitetsu' || tenantIdHeader === 'demo_env') {
     return tenantIdHeader;
   }
 
-  const tenantIdFromPathHeader = tenantIdFromPath(tenantPathHeader);
-  if (tenantIdFromPathHeader && tenantIdFromPathHeader !== 'demo') {
-    console.log('[TenantDebug][Extract] Using tenant ID from X-Tenant-Path:', {
-      tenantPathHeader,
-      tenantIdFromPathHeader
-    });
-    return tenantIdFromPathHeader;
-  }
-
-  const tenantIdFromUrlHeader = tenantIdFromPath(tenantFullUrlHeader);
-  if (tenantIdFromUrlHeader && tenantIdFromUrlHeader !== 'demo') {
-    console.log('[TenantDebug][Extract] Using tenant ID from X-Tenant-Full-Url:', {
-      tenantFullUrlHeader,
-      tenantIdFromUrlHeader
-    });
-    return tenantIdFromUrlHeader;
-  }
-
-  console.log('[TenantDebug][Extract] Fallback to demo', {
-    tenantIdHeader,
-    tenantPathHeader,
-    tenantFullUrlHeader
-  });
-  return tenantIdHeader || 'demo';
+  return 'demo_env';
 }
 
 function getControlPlanePool() {
@@ -284,49 +255,37 @@ function getOrCreateTenantPool(dbName) {
   return tenantPool;
 }
 
-async function getCompanyRoutingRows() {
+async function getCompanyRoutingByCompanyId(companyId) {
   const now = Date.now();
-  if (companyRoutingCache.rows.length > 0 && (now - companyRoutingCache.timestamp) < COMPANY_ROUTING_CACHE_TTL) {
-    return companyRoutingCache.rows;
+  const cacheKey = String(companyId || '').trim().toLowerCase();
+
+  const cached = tenantRouteCache.get(cacheKey);
+  if (cached && (now - cached.timestamp) < TENANT_ROUTE_CACHE_TTL) {
+    return cached.row;
   }
 
   const query = `
     SELECT company_id, company_name, db_name, storage_bucket_name, tenant_path
     FROM public.company_db_routing
+    WHERE company_id = $1
+    LIMIT 1
   `;
-  const result = await getControlPlanePool().query(query);
-
-  console.log('[TenantDebug][DB] company_db_routing rows loaded:', {
-    count: result.rows.length,
-    rows: result.rows
-  });
-
-  companyRoutingCache.rows = result.rows;
-  companyRoutingCache.timestamp = now;
-  return companyRoutingCache.rows;
-}
-
-function resolveRoutingRowByTenantId(rows, tenantId) {
-  const normalized = (tenantId || '').trim().toLowerCase();
-  if (!normalized || normalized === 'demo') return null;
-
-  let matched = rows.find(row => (row.company_id || '').toLowerCase() === normalized);
-  if (matched) return matched;
-
-  matched = rows.find(row => tenantIdFromPath(row.tenant_path || '') === normalized);
-  return matched || null;
+  const result = await getControlPlanePool().query(query, [cacheKey]);
+  const row = result.rows[0] || null;
+  tenantRouteCache.set(cacheKey, { row, timestamp: now });
+  return row;
 }
 
 async function resolveTenantRuntime(tenantId) {
-  const normalizedTenantId = (tenantId || 'demo').trim().toLowerCase() || 'demo';
+  const normalizedTenantId = (tenantId || 'demo_env').trim().toLowerCase() || 'demo_env';
   const defaultDbName = getDefaultDbName();
   const defaultBucketName = getDefaultBucketName();
 
-  if (normalizedTenantId === 'demo') {
+  if (normalizedTenantId === 'demo_env') {
     return {
       requestedTenantId: normalizedTenantId,
-      resolvedTenantId: 'demo',
-      companyId: 'demo',
+      resolvedTenantId: 'demo_env',
+      companyId: 'demo_env',
       dbName: defaultDbName,
       storageBucketName: defaultBucketName,
       pool: getControlPlanePool(),
@@ -335,15 +294,14 @@ async function resolveTenantRuntime(tenantId) {
   }
 
   try {
-    const routingRows = await getCompanyRoutingRows();
-    const routingRow = resolveRoutingRowByTenantId(routingRows, normalizedTenantId);
+    const routingRow = await getCompanyRoutingByCompanyId(normalizedTenantId);
 
     if (!routingRow) {
-      console.warn(`[TenantRouting] Tenant not found: ${normalizedTenantId}. Falling back to demo.`);
+      console.warn(`[TenantRouting] Tenant not found: ${normalizedTenantId}. Falling back to demo_env.`);
       return {
         requestedTenantId: normalizedTenantId,
-        resolvedTenantId: 'demo',
-        companyId: 'demo',
+        resolvedTenantId: 'demo_env',
+        companyId: 'demo_env',
         dbName: defaultDbName,
         storageBucketName: defaultBucketName,
         pool: getControlPlanePool(),
@@ -370,8 +328,8 @@ async function resolveTenantRuntime(tenantId) {
     console.error(`[TenantRouting] Failed to resolve tenant ${normalizedTenantId}:`, err.message);
     return {
       requestedTenantId: normalizedTenantId,
-      resolvedTenantId: 'demo',
-      companyId: 'demo',
+      resolvedTenantId: 'demo_env',
+      companyId: 'demo_env',
       dbName: defaultDbName,
       storageBucketName: defaultBucketName,
       pool: getControlPlanePool(),
@@ -395,50 +353,21 @@ function getRequestBucketName(req, fallbackBucketName = '') {
   return (runtime && runtime.storageBucketName) || fallbackBucketName || getDefaultBucketName();
 }
 
-async function getTenantRoutingRows() {
-  const now = Date.now();
-  if (tenantRoutingCache.routes.length > 0 && (now - tenantRoutingCache.timestamp) < TENANT_ROUTING_CACHE_TTL) {
-    return tenantRoutingCache.routes;
-  }
-
-  try {
-    const query = `
-      SELECT company_id, company_name, tenant_path
-      FROM public.company_db_routing
-      WHERE tenant_path IS NOT NULL
-      ORDER BY length(tenant_path) DESC
-    `;
-    const result = await getControlPlanePool().query(query);
-    tenantRoutingCache.routes = result.rows.map(row => {
-      const tenantPath = row.tenant_path;
-      return {
-        companyId: row.company_id,
-        companyName: row.company_name,
-        tenantPath,
-        normalizedUrl: normalizeUrlForCompare(tenantPath),
-        normalizedPath: normalizePathForCompare(tenantPath),
-        tenantId: tenantIdFromPath(tenantPath)
-      };
-    });
-    tenantRoutingCache.timestamp = now;
-    return tenantRoutingCache.routes;
-  } catch (err) {
-    console.warn('[TenantRouting] Failed to fetch tenant routing:', err.message);
-    return [];
-  }
-}
-
-// フロントエンドがtenant_path一覧を取得し、URL照合できるように公開
+// フロントエンドが現在テナントのcompany_nameなどを取得できるように公開
 app.get('/api/tenant-routing', async (req, res) => {
-  const routes = await getTenantRoutingRows();
+  const tenantId = String(req.query.tenant_id || req.requestedTenantId || 'demo_env').trim().toLowerCase() || 'demo_env';
+  const row = await getCompanyRoutingByCompanyId(tenantId);
   res.json({
     success: true,
-    routes: routes.map(route => ({
-      company_id: route.companyId,
-      company_name: route.companyName,
-      tenant_path: route.tenantPath,
-      tenant_id: route.tenantId
-    }))
+    route: row,
+    routes: row ? [
+      {
+        company_id: row.company_id,
+        company_name: row.company_name,
+        tenant_path: row.tenant_path,
+        tenant_id: row.company_id
+      }
+    ] : []
   });
 });
 
@@ -657,63 +586,11 @@ pool = new Proxy(controlPlanePool, {
 
 // APIリクエストのテナント文脈を解決し、以降のDB/GCS処理に引き継ぐ
 app.use('/api', async (req, res, next) => {
-  const requestedTenantId = req.requestedTenantId || 'demo';
-
-  try {
-    const fullUrlHeader = String(req.headers['x-tenant-full-url'] || '').trim();
-    const currentNormalizedUrl = normalizeUrlForCompare(fullUrlHeader);
-    const currentParsedPath = normalizePathForCompare(fullUrlHeader || '/');
-    const currentTenantPath = String(req.headers['x-tenant-path'] || '').trim() || currentParsedPath;
-
-    console.log('[TenantDebug][Compare] Request URL parse:', {
-      fullUrlHeader,
-      currentNormalizedUrl,
-      currentParsedPath,
-      currentTenantPath,
-      requestedTenantId
-    });
-
-    const routingRows = await getCompanyRoutingRows();
-    for (const row of routingRows) {
-      const dbTenantPath = String(row.tenant_path || '').trim();
-      const normalizedDbUrl = normalizeUrlForCompare(dbTenantPath);
-      const normalizedDbPath = normalizePathForCompare(dbTenantPath);
-
-      const isUrlExactMatch = currentNormalizedUrl && normalizedDbUrl
-        ? currentNormalizedUrl === normalizedDbUrl
-        : false;
-      const isUrlPrefixMatch = currentNormalizedUrl && normalizedDbUrl
-        ? currentNormalizedUrl.startsWith(`${normalizedDbUrl}/`)
-        : false;
-      const isPathExactMatch = currentTenantPath && normalizedDbPath
-        ? normalizePathForCompare(currentTenantPath) === normalizedDbPath
-        : false;
-      const isPathPrefixMatch = currentTenantPath && normalizedDbPath
-        ? normalizePathForCompare(currentTenantPath).startsWith(`${normalizedDbPath}/`)
-        : false;
-
-      const matched = isUrlExactMatch || isUrlPrefixMatch || isPathExactMatch || isPathPrefixMatch;
-
-      console.log('[TenantDebug][Compare] URL vs tenant_path result:', {
-        requestFullUrl: fullUrlHeader,
-        requestTenantPath: currentTenantPath,
-        dbTenantPath,
-        companyId: row.company_id,
-        companyName: row.company_name,
-        isUrlExactMatch,
-        isUrlPrefixMatch,
-        isPathExactMatch,
-        isPathPrefixMatch,
-        matched
-      });
-    }
-  } catch (debugErr) {
-    console.warn('[TenantDebug] compare logging failed:', debugErr.message);
-  }
+  const requestedTenantId = req.requestedTenantId || 'demo_env';
 
   const runtime = await resolveTenantRuntime(requestedTenantId);
   req.tenantContext = runtime;
-  res.setHeader('X-Resolved-Tenant-Id', runtime.resolvedTenantId || 'demo');
+  res.setHeader('X-Resolved-Tenant-Id', runtime.resolvedTenantId || 'demo_env');
   res.setHeader('X-Resolved-Db-Name', runtime.dbName || getDefaultDbName());
   requestTenantContextStorage.run(runtime, () => next());
 });

@@ -36,28 +36,20 @@
 
     function tenantIdFromPath(pathname) {
         const normalizedPath = normalizePath(pathname);
-        if (normalizedPath === '/') return 'demo';
-        const parts = normalizedPath.split('/').filter(Boolean);
-        return parts[0] || 'demo';
+        if (normalizedPath === '/kosei' || normalizedPath.startsWith('/kosei/')) {
+            return 'kosei';
+        }
+        if (normalizedPath === '/daitetsu' || normalizedPath.startsWith('/daitetsu/')) {
+            return 'daitetsu';
+        }
+        return 'demo_env';
     }
 
     function tenantPathFromUrl(fullUrl) {
-        const normalizedPath = normalizePath(fullUrl);
-        if (normalizedPath === '/') return '/';
-        const parts = normalizedPath.split('/').filter(Boolean);
-        return parts.length > 0 ? `/${parts[0]}` : '/';
-    }
-
-    function findRouteByTenantId(routes, tenantId) {
-        const normalizedTenantId = String(tenantId || '').trim().toLowerCase();
-        if (!normalizedTenantId) return null;
-        return routes.find(route => {
-            const routeTenantId = String(route.tenant_id || '').trim().toLowerCase();
-            if (routeTenantId === normalizedTenantId) return true;
-
-            const routePathTenantId = tenantIdFromPath(route.tenant_path || '');
-            return routePathTenantId === normalizedTenantId;
-        }) || null;
+        const tenantId = tenantIdFromPath(fullUrl);
+        if (tenantId === 'kosei') return '/kosei';
+        if (tenantId === 'daitetsu') return '/daitetsu';
+        return '/';
     }
 
     function getBasePath() {
@@ -79,58 +71,13 @@
         return `${window.location.origin}${buildPath(targetPath)}`;
     }
 
-    function isExactOrPrefixMatch(current, candidate) {
-        if (!current || !candidate) return false;
-        return current === candidate || current.startsWith(`${candidate}/`);
-    }
-
-    function resolveTenant(fullUrl, routes) {
-        const currentUrl = normalizeUrl(fullUrl);
-        const currentPath = normalizePath(fullUrl);
-
-        let bestMatch = null;
-        for (const route of routes) {
-            const routeUrl = normalizeUrl(route.tenant_path);
-            const routePath = normalizePath(route.tenant_path);
-
-            const urlMatched = isExactOrPrefixMatch(currentUrl, routeUrl);
-            const pathMatched = isExactOrPrefixMatch(currentPath, routePath);
-
-            if (!urlMatched && !pathMatched) {
-                continue;
-            }
-
-            const matchScore = Math.max(routeUrl.length, routePath.length);
-            if (!bestMatch || matchScore > bestMatch.matchScore) {
-                bestMatch = {
-                    route,
-                    tenantPath: routePath,
-                    tenantId: route.tenant_id || tenantIdFromPath(routePath),
-                    companyName: route.company_name || '',
-                    companyId: route.company_id || '',
-                    matchScore
-                };
-            }
-        }
-
-        if (bestMatch) {
-            return {
-                tenantId: bestMatch.tenantId,
-                companyId: bestMatch.companyId,
-                companyName: bestMatch.companyName,
-                tenantPath: bestMatch.tenantPath,
-                matchedTenantPath: bestMatch.route.tenant_path,
-                isDemo: bestMatch.tenantPath === '/'
-            };
-        }
-
+    function resolveTenant(fullUrl) {
+        const tenantId = tenantIdFromPath(fullUrl);
+        const tenantPath = tenantPathFromUrl(fullUrl);
         return {
-            tenantId: 'demo',
-            companyId: 'demo',
-            companyName: 'デモ環境',
-            tenantPath: '/',
-            matchedTenantPath: '',
-            isDemo: true
+            tenantId,
+            tenantPath,
+            isDemo: tenantId === 'demo_env'
         };
     }
 
@@ -154,20 +101,27 @@
 
     async function fetchTenantRoutes() {
         try {
-            const response = await nativeFetch('/api/tenant-routing', {
+            const currentTenantId = tenantIdFromPath(window.location.pathname);
+            const response = await nativeFetch(`/api/tenant-routing?tenant_id=${encodeURIComponent(currentTenantId)}`, {
                 method: 'GET',
                 headers: {
                     'Cache-Control': 'no-cache'
                 }
             });
             if (!response.ok) {
-                return [];
+                return null;
             }
             const payload = await response.json();
-            return Array.isArray(payload.routes) ? payload.routes : [];
+            if (payload && payload.route) {
+                return payload.route;
+            }
+            if (Array.isArray(payload.routes) && payload.routes.length > 0) {
+                return payload.routes[0];
+            }
+            return null;
         } catch (error) {
             console.warn('[TenantContext] failed to fetch tenant routes:', error);
-            return [];
+            return null;
         }
     }
 
@@ -177,45 +131,21 @@
         }
 
         const fullUrl = getCurrentFullUrl();
-        const urlTenantId = tenantIdFromPath(fullUrl);
-        const urlTenantPath = tenantPathFromUrl(fullUrl);
-        const routes = await fetchTenantRoutes();
-        const resolved = resolveTenant(fullUrl, routes);
-
-        // URLにテナントプレフィックスがある場合はURL判定を優先してdemo誤判定を防ぐ
-        let finalTenantId = resolved.tenantId;
-        let finalTenantPath = resolved.tenantPath;
-        let finalCompanyId = resolved.companyId;
-        let finalCompanyName = resolved.companyName;
-        let finalMatchedTenantPath = resolved.matchedTenantPath;
-        let finalIsDemo = resolved.isDemo;
-
-        if (urlTenantId !== 'demo') {
-            finalTenantId = urlTenantId;
-            finalTenantPath = urlTenantPath;
-            finalIsDemo = false;
-
-            const matchedRoute = findRouteByTenantId(routes, urlTenantId);
-            if (matchedRoute) {
-                finalCompanyId = matchedRoute.company_id || urlTenantId;
-                finalCompanyName = matchedRoute.company_name || '';
-                finalMatchedTenantPath = matchedRoute.tenant_path || '';
-            } else {
-                finalCompanyId = urlTenantId;
-                finalCompanyName = finalCompanyName || '';
-                finalMatchedTenantPath = finalMatchedTenantPath || '';
-            }
-        }
+        const resolved = resolveTenant(fullUrl);
+        const routeRow = await fetchTenantRoutes();
+        const companyId = routeRow ? (routeRow.company_id || resolved.tenantId) : resolved.tenantId;
+        const companyName = routeRow ? (routeRow.company_name || '') : '';
+        const matchedTenantPath = routeRow ? (routeRow.tenant_path || '') : '';
 
         tenantContext = {
             fullUrl,
-            tenantId: finalTenantId,
-            companyId: finalCompanyId,
-            companyName: finalCompanyName,
-            tenantPath: finalTenantPath,
-            matchedTenantPath: finalMatchedTenantPath,
-            isDemo: finalIsDemo,
-            routes,
+            tenantId: resolved.tenantId,
+            companyId,
+            companyName,
+            tenantPath: resolved.tenantPath,
+            matchedTenantPath,
+            isDemo: resolved.isDemo,
+            routes: routeRow ? [routeRow] : [],
             resolvedAt: new Date().toISOString()
         };
 
@@ -272,7 +202,7 @@
     window.TenantContext = {
         init: ensureInitialized,
         getContext: () => tenantContext,
-        getTenantId: () => (tenantContext ? tenantContext.tenantId : 'demo'),
+        getTenantId: () => (tenantContext ? tenantContext.tenantId : 'demo_env'),
         getTenantPath: () => (tenantContext ? tenantContext.tenantPath : '/'),
         getCompanyName: () => (tenantContext ? (tenantContext.companyName || '') : ''),
         getTenantLabel: () => toTenantLabel(tenantContext),
