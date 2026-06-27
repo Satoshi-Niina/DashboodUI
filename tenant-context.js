@@ -87,22 +87,23 @@
         }
 
         const companyName = (ctx.companyName || '').trim();
+        if (companyName) {
+            return ctx.isDemo ? companyName : `${companyName} 様環境`;
+        }
+
         if (ctx.isDemo) {
             return 'デモ環境';
         }
 
-        if (!companyName) {
-            const fallbackTenantId = (ctx.tenantId || '').trim();
-            return fallbackTenantId ? `${fallbackTenantId} 専用環境` : 'テナント環境';
-        }
-
-        return `${companyName} 様環境`;
+        const fallbackTenantId = (ctx.tenantId || '').trim();
+        return fallbackTenantId ? `${fallbackTenantId} 専用環境` : 'テナント環境';
     }
 
     async function fetchTenantRoutes() {
         try {
             const currentTenantId = tenantIdFromPath(window.location.pathname);
-            const response = await nativeFetch(`/api/tenant-routing?tenant_id=${encodeURIComponent(currentTenantId)}`, {
+            const currentTenantPath = tenantPathFromUrl(window.location.href);
+            const response = await nativeFetch(`/api/tenant-routing?tenant_id=${encodeURIComponent(currentTenantId)}&tenant_path=${encodeURIComponent(currentTenantPath)}&full_url=${encodeURIComponent(window.location.href)}`, {
                 method: 'GET',
                 headers: {
                     'Cache-Control': 'no-cache'
@@ -136,12 +137,16 @@
         const companyId = routeRow ? (routeRow.company_id || resolved.tenantId) : resolved.tenantId;
         const companyName = routeRow ? (routeRow.company_name || '') : '';
         const matchedTenantPath = routeRow ? (routeRow.tenant_path || '') : '';
+        const dbName = routeRow ? (routeRow.db_name || '') : '';
+        const storageBucketName = routeRow ? (routeRow.storage_bucket_name || '') : '';
 
         tenantContext = {
             fullUrl,
             tenantId: resolved.tenantId,
             companyId,
             companyName,
+            dbName,
+            storageBucketName,
             tenantPath: resolved.tenantPath,
             matchedTenantPath,
             isDemo: resolved.isDemo,
@@ -205,6 +210,8 @@
         getTenantId: () => (tenantContext ? tenantContext.tenantId : 'demo_env'),
         getTenantPath: () => (tenantContext ? tenantContext.tenantPath : '/'),
         getCompanyName: () => (tenantContext ? (tenantContext.companyName || '') : ''),
+        getDbName: () => (tenantContext ? (tenantContext.dbName || '') : ''),
+        getStorageBucketName: () => (tenantContext ? (tenantContext.storageBucketName || '') : ''),
         getTenantLabel: () => toTenantLabel(tenantContext),
         getCurrentFullUrl,
         buildPath,
