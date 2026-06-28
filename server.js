@@ -620,6 +620,10 @@ app.use((req, res, next) => {
     return next();
   }
 
+  if (!req.requestedTenantId || req.requestedTenantId === 'demo_env') {
+    req.requestedTenantId = firstSegment;
+  }
+
   const strippedPath = `/${parts.slice(1).join('/')}`;
   const rewrittenPath = strippedPath === '/' ? '/' : strippedPath;
   req.url = `${rewrittenPath}${searchPart ? `?${searchPart}` : ''}`;
