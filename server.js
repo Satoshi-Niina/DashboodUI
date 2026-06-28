@@ -224,6 +224,10 @@ function extractTenantIdFromRequest(req) {
   const tenantPathHeader = String(req.headers['x-tenant-path'] || '').trim();
   const refererHeader = String(req.headers.referer || '').trim();
 
+  if (tenantIdHeader && /^[a-z0-9_-]+$/.test(tenantIdHeader)) {
+    return tenantIdHeader;
+  }
+
   const fromFullUrl = getTenantKeyFromPath(tenantFullUrlHeader || '/');
   if (fromFullUrl !== 'demo_env') {
     return fromFullUrl;
@@ -232,10 +236,6 @@ function extractTenantIdFromRequest(req) {
   const fromTenantPathHeader = getTenantKeyFromPath(tenantPathHeader || '/');
   if (fromTenantPathHeader !== 'demo_env') {
     return fromTenantPathHeader;
-  }
-
-  if (tenantIdHeader && /^[a-z0-9_-]+$/.test(tenantIdHeader)) {
-    return tenantIdHeader;
   }
 
   const fromOriginalUrl = getTenantKeyFromPath(req.originalUrl || req.url || req.path || '/');
@@ -381,6 +381,10 @@ async function getCompanyRoutingByCompanyId(companyId) {
   const now = Date.now();
   const cacheKey = String(companyId || '').trim().toLowerCase();
 
+  if (!cacheKey) {
+    return null;
+  }
+
   const cached = tenantRouteCache.get(cacheKey);
   if (cached && (now - cached.timestamp) < TENANT_ROUTE_CACHE_TTL) {
     return cached.row;
@@ -389,13 +393,33 @@ async function getCompanyRoutingByCompanyId(companyId) {
   const query = `
     SELECT company_id, company_name, db_name, storage_bucket_name, tenant_path
     FROM public.company_db_routing
-    WHERE company_id = $1
+    WHERE LOWER(TRIM(company_id)) = $1
     LIMIT 1
   `;
   const result = await getControlPlanePool().query(query, [cacheKey]);
-  const row = result.rows[0] || null;
+  const row = normalizeTenantRoutingRow(result.rows[0] || null);
   tenantRouteCache.set(cacheKey, { row, timestamp: now });
   return row;
+}
+
+function buildTenantRuntimeFromRoutingRow(routingRow, requestedTenantId, defaultDbName, defaultBucketName, fallbackTenantKey = '') {
+  const resolvedTenantId = routingRow.company_id || fallbackTenantKey || requestedTenantId || 'demo_env';
+  const tenantDbName = routingRow.db_name || defaultDbName;
+  const tenantPool = tenantDbName === defaultDbName
+    ? getControlPlanePool()
+    : getOrCreateTenantPool(tenantDbName);
+
+  return {
+    requestedTenantId,
+    resolvedTenantId,
+    companyId: routingRow.company_id || resolvedTenantId,
+    companyName: routingRow.company_name || '',
+    dbName: tenantDbName,
+    storageBucketName: routingRow.storage_bucket_name || defaultBucketName,
+    tenantPath: routingRow.tenant_path || '',
+    pool: tenantPool,
+    isFallback: false
+  };
 }
 
 async function resolveTenantRuntime(tenantId, requestHint = {}) {
@@ -409,6 +433,19 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
     ? normalizedTenantId
     : resolveFirstTenantKey(requestTenantPath, requestFullUrl, requestOriginalUrl, requestHint.referer || '');
 
+  if (normalizedTenantId !== 'demo_env') {
+    const exactHeaderRoutingRow = await getCompanyRoutingByCompanyId(normalizedTenantId);
+    if (exactHeaderRoutingRow) {
+      return buildTenantRuntimeFromRoutingRow(
+        exactHeaderRoutingRow,
+        normalizedTenantId,
+        defaultDbName,
+        defaultBucketName,
+        expectedTenantKey
+      );
+    }
+  }
+
   const matchedRoutingRow = await getCompanyRoutingByTenantRequest({
     tenantId: expectedTenantKey,
     tenantPath: requestTenantPath,
@@ -418,22 +455,13 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
   const strictMatchedRoutingRow = matchedRoutingRow || await getCompanyRoutingByTenantKey(expectedTenantKey);
 
   if (strictMatchedRoutingRow) {
-    const tenantDbName = strictMatchedRoutingRow.db_name || defaultDbName;
-    const tenantPool = tenantDbName === defaultDbName
-      ? getControlPlanePool()
-      : getOrCreateTenantPool(tenantDbName);
-
-    return {
-      requestedTenantId: normalizedTenantId,
-      resolvedTenantId: strictMatchedRoutingRow.company_id || expectedTenantKey,
-      companyId: strictMatchedRoutingRow.company_id || expectedTenantKey,
-      companyName: strictMatchedRoutingRow.company_name || '',
-      dbName: tenantDbName,
-      storageBucketName: strictMatchedRoutingRow.storage_bucket_name || defaultBucketName,
-      tenantPath: strictMatchedRoutingRow.tenant_path || '',
-      pool: tenantPool,
-      isFallback: false
-    };
+    return buildTenantRuntimeFromRoutingRow(
+      strictMatchedRoutingRow,
+      normalizedTenantId,
+      defaultDbName,
+      defaultBucketName,
+      expectedTenantKey
+    );
   }
 
   if (expectedTenantKey !== 'demo_env') {
@@ -470,22 +498,13 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
       };
     }
 
-    const tenantDbName = routingRow.db_name || defaultDbName;
-    const tenantPool = tenantDbName === defaultDbName
-      ? getControlPlanePool()
-      : getOrCreateTenantPool(tenantDbName);
-
-    return {
-      requestedTenantId: normalizedTenantId,
-      resolvedTenantId: normalizedTenantId,
-      companyId: routingRow.company_id || normalizedTenantId,
-      companyName: routingRow.company_name || '',
-      dbName: tenantDbName,
-      storageBucketName: routingRow.storage_bucket_name || defaultBucketName,
-      tenantPath: routingRow.tenant_path || '',
-      pool: tenantPool,
-      isFallback: false
-    };
+    return buildTenantRuntimeFromRoutingRow(
+      routingRow,
+      normalizedTenantId,
+      defaultDbName,
+      defaultBucketName,
+      normalizedTenantId
+    );
   } catch (err) {
     console.error(`[TenantRouting] Failed to resolve tenant ${normalizedTenantId}:`, err.message);
     return {
