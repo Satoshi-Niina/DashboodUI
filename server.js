@@ -223,7 +223,7 @@ async function getAllCompanyRoutingRows() {
       FROM public.company_db_routing
       ORDER BY company_id
     `;
-    const result = await getControlPlanePool().query(query);
+    const result = await queryCompanyRouting(query);
     const rows = result.rows.map(normalizeTenantRoutingRow).filter(Boolean);
     tenantRouteListCache.set('all', { rows, timestamp: now });
     return rows;
@@ -353,6 +353,10 @@ function getDefaultBucketName() {
   return process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET || 'maint-vehicle-management-storage';
 }
 
+function getTenantRoutingDbName() {
+  return (process.env.TENANT_ROUTING_DB_NAME || process.env.CONTROL_PLANE_DB_NAME || 'common_db').trim();
+}
+
 function buildPoolConfigForDb(dbName) {
   const config = {
     ...poolConfig,
@@ -401,6 +405,34 @@ function getOrCreateTenantPool(dbName) {
   return tenantPool;
 }
 
+function getTenantRoutingPool() {
+  const routingDbName = getTenantRoutingDbName();
+  const defaultDbName = getDefaultDbName();
+  if (!routingDbName || routingDbName.toLowerCase() === String(defaultDbName || '').toLowerCase()) {
+    return getControlPlanePool();
+  }
+  return getOrCreateTenantPool(routingDbName);
+}
+
+async function queryCompanyRouting(query, params = []) {
+  const routingPool = getTenantRoutingPool();
+  const defaultPool = getControlPlanePool();
+
+  try {
+    return await routingPool.query(query, params);
+  } catch (err) {
+    const message = String(err.message || '').toLowerCase();
+    const isMissingRoutingTable = message.includes('company_db_routing') && message.includes('does not exist');
+
+    if (routingPool !== defaultPool && isMissingRoutingTable) {
+      console.warn('[TenantRouting] company_db_routing not found in routing DB. Falling back to default DB.');
+      return defaultPool.query(query, params);
+    }
+
+    throw err;
+  }
+}
+
 async function getCompanyRoutingByCompanyId(companyId) {
   const now = Date.now();
   const cacheKey = String(companyId || '').trim().toLowerCase();
@@ -421,7 +453,7 @@ async function getCompanyRoutingByCompanyId(companyId) {
     WHERE LOWER(TRIM(company_id)) = $1
     LIMIT 1
   `;
-  const result = await getControlPlanePool().query(query, [cacheKey]);
+  const result = await queryCompanyRouting(query, [cacheKey]);
   let row = normalizeTenantRoutingRow(result.rows[0] || null);
   if (!row && aliasKey && aliasKey !== cacheKey) {
     const allRows = await getAllCompanyRoutingRows();
