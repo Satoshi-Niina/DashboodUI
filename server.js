@@ -515,7 +515,11 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
       dbName: defaultDbName,
       storageBucketName: defaultBucketName,
       pool: getControlPlanePool(),
-      isFallback: true
+      isFallback: true,
+      tenantResolutionError: {
+        message: err.message || String(err),
+        stack: err.stack || ''
+      }
     };
   }
 }
@@ -535,29 +539,70 @@ function getRequestBucketName(req, fallbackBucketName = '') {
   return (runtime && runtime.storageBucketName) || fallbackBucketName || getDefaultBucketName();
 }
 
+function applyTenantErrorHeaders(res, err) {
+  if (!res || !err) {
+    return;
+  }
+
+  const errorMessage = String(err.message || err).replace(/[\r\n]+/g, ' ').slice(0, 1024);
+  const errorStack = err.stack ? String(err.stack).replace(/[\r\n]+/g, ' ').slice(0, 8192) : '';
+  res.setHeader('X-Tenant-Error', errorMessage);
+  res.setHeader('X-Tenant-Error-Stack', errorStack);
+}
+
 // フロントエンドが現在テナントのcompany_nameなどを取得できるように公開
 app.get('/api/tenant-routing', async (req, res) => {
   const tenantId = String(req.query.tenant_id || req.requestedTenantId || '').trim().toLowerCase();
   const tenantPath = String(req.query.tenant_path || req.headers['x-tenant-path'] || '').trim();
   const fullUrl = String(req.query.full_url || req.headers['x-tenant-full-url'] || '').trim();
-  const row = await getCompanyRoutingByTenantRequest({ tenantId, tenantPath, fullUrl })
-    || (tenantId ? await getCompanyRoutingByCompanyId(tenantId) : null)
-    || (tenantId ? await getCompanyRoutingByTenantKey(tenantId) : null);
 
-  res.json({
-    success: true,
-    route: row,
-    routes: row ? [
-      {
-        company_id: row.company_id,
-        company_name: row.company_name,
-        db_name: row.db_name,
-        storage_bucket_name: row.storage_bucket_name,
-        tenant_path: row.tenant_path,
-        tenant_id: row.company_id
+  try {
+    let lookupSource = '';
+    let row = await getCompanyRoutingByTenantRequest({ tenantId, tenantPath, fullUrl });
+    if (row) {
+      lookupSource = 'request_match';
+    }
+
+    if (!row && tenantId) {
+      row = await getCompanyRoutingByCompanyId(tenantId);
+      if (row) {
+        lookupSource = 'company_id';
       }
-    ] : []
-  });
+    }
+
+    if (!row && tenantId) {
+      row = await getCompanyRoutingByTenantKey(tenantId);
+      if (row) {
+        lookupSource = 'tenant_key';
+      }
+    }
+
+    res.json({
+      success: true,
+      route: row,
+      routes: row ? [
+        {
+          company_id: row.company_id,
+          company_name: row.company_name,
+          db_name: row.db_name,
+          storage_bucket_name: row.storage_bucket_name,
+          tenant_path: row.tenant_path,
+          tenant_id: row.company_id
+        }
+      ] : [],
+      error: row
+        ? null
+        : `Tenant routing row not found (tenantId=${tenantId || 'empty'}, tenantPath=${tenantPath || 'empty'}, fullUrl=${fullUrl || 'empty'}, lookupSource=${lookupSource || 'none'})`
+    });
+  } catch (err) {
+    applyTenantErrorHeaders(res, err);
+    res.status(500).json({
+      success: false,
+      route: null,
+      routes: [],
+      error: err.message || String(err)
+    });
+  }
 });
 
 // /kosei や /daitetsu 配下でも同じ静的ファイルへ解決できるようにする
@@ -789,6 +834,9 @@ app.use('/api', async (req, res, next) => {
     res.setHeader('X-Resolved-Db-Name', runtime.dbName || getDefaultDbName());
     res.setHeader('X-Resolved-Company-Name', runtime.companyName || '');
     res.setHeader('X-Resolved-Bucket-Name', runtime.storageBucketName || '');
+    if (runtime.tenantResolutionError) {
+      applyTenantErrorHeaders(res, runtime.tenantResolutionError);
+    }
     requestTenantContextStorage.run(runtime, () => next());
   } catch (err) {
     console.error('[TenantRouting] Middleware failed, falling back to demo_env:', err.message);
@@ -800,13 +848,18 @@ app.use('/api', async (req, res, next) => {
       dbName: getDefaultDbName(),
       storageBucketName: getDefaultBucketName(),
       pool: getControlPlanePool(),
-      isFallback: true
+      isFallback: true,
+      tenantResolutionError: {
+        message: err.message || String(err),
+        stack: err.stack || ''
+      }
     };
     req.tenantContext = fallbackRuntime;
     res.setHeader('X-Resolved-Tenant-Id', 'demo_env');
     res.setHeader('X-Resolved-Db-Name', fallbackRuntime.dbName || getDefaultDbName());
     res.setHeader('X-Resolved-Company-Name', '');
     res.setHeader('X-Resolved-Bucket-Name', fallbackRuntime.storageBucketName || '');
+    applyTenantErrorHeaders(res, err);
     requestTenantContextStorage.run(fallbackRuntime, () => next());
   }
 });
