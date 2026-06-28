@@ -822,6 +822,7 @@ pool = new Proxy(controlPlanePool, {
 app.use('/api', async (req, res, next) => {
   try {
     const requestedTenantId = req.requestedTenantId || extractTenantIdFromRequest(req) || 'demo_env';
+    const defaultDbName = getDefaultDbName();
 
     const runtime = await resolveTenantRuntime(requestedTenantId, {
       tenantPath: String(req.headers['x-tenant-path'] || req.query.tenant_path || '').trim(),
@@ -831,12 +832,33 @@ app.use('/api', async (req, res, next) => {
     });
     req.tenantContext = runtime;
     res.setHeader('X-Resolved-Tenant-Id', runtime.resolvedTenantId || 'demo_env');
-    res.setHeader('X-Resolved-Db-Name', runtime.dbName || getDefaultDbName());
+    res.setHeader('X-Resolved-Db-Name', runtime.dbName || defaultDbName);
     res.setHeader('X-Resolved-Company-Name', runtime.companyName || '');
     res.setHeader('X-Resolved-Bucket-Name', runtime.storageBucketName || '');
     if (runtime.tenantResolutionError) {
       applyTenantErrorHeaders(res, runtime.tenantResolutionError);
     }
+
+    const normalizedRequestedTenantId = String(requestedTenantId || '').trim().toLowerCase();
+    const normalizedResolvedTenantId = String(runtime.resolvedTenantId || 'demo_env').trim().toLowerCase();
+    const normalizedResolvedDbName = String(runtime.dbName || '').trim().toLowerCase();
+    const normalizedDefaultDbName = String(defaultDbName || '').trim().toLowerCase();
+    const requiresIsolation = normalizedRequestedTenantId !== 'demo_env' || normalizedResolvedTenantId !== 'demo_env';
+
+    if (requiresIsolation && (!normalizedResolvedDbName || normalizedResolvedDbName === normalizedDefaultDbName)) {
+      const isolationError = new Error(`[TenantRouting] Isolation violation: requested=${normalizedRequestedTenantId || 'empty'}, resolved=${normalizedResolvedTenantId || 'empty'}, db=${runtime.dbName || 'empty'}, defaultDb=${defaultDbName}. Check public.company_db_routing.db_name and tenant_path.`);
+      applyTenantErrorHeaders(res, isolationError);
+      return res.status(503).json({
+        success: false,
+        message: 'Tenant DB isolation check failed',
+        error: isolationError.message,
+        requestedTenantId: normalizedRequestedTenantId || 'demo_env',
+        resolvedTenantId: normalizedResolvedTenantId || 'demo_env',
+        resolvedDbName: runtime.dbName || '',
+        defaultDbName
+      });
+    }
+
     requestTenantContextStorage.run(runtime, () => next());
   } catch (err) {
     console.error('[TenantRouting] Middleware failed, falling back to demo_env:', err.message);
