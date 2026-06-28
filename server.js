@@ -173,6 +173,16 @@ function getTenantKeyFromPath(rawPath) {
   return first;
 }
 
+function normalizeTenantAliasKey(rawKey) {
+  const key = String(rawKey || '').trim().toLowerCase();
+  if (!key) return '';
+
+  // 代表的なローマ字ゆれ（例: kousei -> kosei）を吸収
+  return key
+    .replace(/ou/g, 'o')
+    .replace(/oo/g, 'o');
+}
+
 function resolveFirstTenantKey(...candidates) {
   for (const candidate of candidates) {
     const key = getTenantKeyFromPath(candidate || '/');
@@ -186,12 +196,17 @@ function resolveFirstTenantKey(...candidates) {
 function normalizeTenantRoutingRow(row) {
   if (!row) return null;
 
+  const normalizedCompanyId = String(row.company_id || '').trim().toLowerCase();
+  const normalizedTenantKey = getTenantKeyFromPath(row.tenant_path || '');
+
   return {
     ...row,
-    normalizedCompanyId: String(row.company_id || '').trim().toLowerCase(),
+    normalizedCompanyId,
+    normalizedCompanyAliasId: normalizeTenantAliasKey(normalizedCompanyId),
     normalizedTenantPath: normalizeUrlForCompare(row.tenant_path || ''),
     normalizedTenantPathOnly: normalizePathForCompare(row.tenant_path || ''),
-    normalizedTenantKey: getTenantKeyFromPath(row.tenant_path || '')
+    normalizedTenantKey,
+    normalizedTenantAliasKey: normalizeTenantAliasKey(normalizedTenantKey)
   };
 }
 
@@ -254,15 +269,19 @@ function extractTenantIdFromRequest(req) {
 async function getCompanyRoutingByTenantRequest({ tenantId = '', tenantPath = '', fullUrl = '' } = {}) {
   try {
     const normalizedTenantId = String(tenantId || '').trim().toLowerCase();
+    const normalizedTenantAliasId = normalizeTenantAliasKey(normalizedTenantId);
     const normalizedTenantPath = normalizePathForCompare(tenantPath || fullUrl || '');
     const normalizedFullUrl = normalizeUrlForCompare(fullUrl || tenantPath || '');
     const requestTenantKey = getTenantKeyFromPath(tenantPath || fullUrl || '');
+    const requestTenantAliasKey = normalizeTenantAliasKey(requestTenantKey);
     const allRows = await getAllCompanyRoutingRows();
 
     if (normalizedTenantId && normalizedTenantId !== 'demo_env') {
       const byCompanyId = allRows.find((row) => (
         row.normalizedCompanyId === normalizedTenantId
+        || row.normalizedCompanyAliasId === normalizedTenantAliasId
         || row.normalizedTenantKey === normalizedTenantId
+        || row.normalizedTenantAliasKey === normalizedTenantAliasId
       ));
       if (byCompanyId) {
         return byCompanyId;
@@ -272,7 +291,9 @@ async function getCompanyRoutingByTenantRequest({ tenantId = '', tenantPath = ''
     if (requestTenantKey && requestTenantKey !== 'demo_env') {
       const byTenantKey = allRows.find((row) => (
         row.normalizedTenantKey === requestTenantKey
+        || row.normalizedTenantAliasKey === requestTenantAliasKey
         || row.normalizedCompanyId === requestTenantKey
+        || row.normalizedCompanyAliasId === requestTenantAliasKey
       ));
       if (byTenantKey) {
         return byTenantKey;
@@ -294,6 +315,7 @@ async function getCompanyRoutingByTenantRequest({ tenantId = '', tenantPath = ''
 
 async function getCompanyRoutingByTenantKey(tenantKey) {
   const normalizedTenantKey = String(tenantKey || '').trim().toLowerCase();
+  const normalizedTenantAliasKey = normalizeTenantAliasKey(normalizedTenantKey);
   if (!normalizedTenantKey || normalizedTenantKey === 'demo_env') {
     return null;
   }
@@ -301,7 +323,9 @@ async function getCompanyRoutingByTenantKey(tenantKey) {
   const allRows = await getAllCompanyRoutingRows();
   return allRows.find((row) => (
     row.normalizedCompanyId === normalizedTenantKey
+    || row.normalizedCompanyAliasId === normalizedTenantAliasKey
     || row.normalizedTenantKey === normalizedTenantKey
+    || row.normalizedTenantAliasKey === normalizedTenantAliasKey
   )) || null;
 }
 
@@ -380,6 +404,7 @@ function getOrCreateTenantPool(dbName) {
 async function getCompanyRoutingByCompanyId(companyId) {
   const now = Date.now();
   const cacheKey = String(companyId || '').trim().toLowerCase();
+  const aliasKey = normalizeTenantAliasKey(cacheKey);
 
   if (!cacheKey) {
     return null;
@@ -397,7 +422,14 @@ async function getCompanyRoutingByCompanyId(companyId) {
     LIMIT 1
   `;
   const result = await getControlPlanePool().query(query, [cacheKey]);
-  const row = normalizeTenantRoutingRow(result.rows[0] || null);
+  let row = normalizeTenantRoutingRow(result.rows[0] || null);
+  if (!row && aliasKey && aliasKey !== cacheKey) {
+    const allRows = await getAllCompanyRoutingRows();
+    row = allRows.find((candidate) => (
+      candidate.normalizedCompanyAliasId === aliasKey
+      || candidate.normalizedTenantAliasKey === aliasKey
+    )) || null;
+  }
   tenantRouteCache.set(cacheKey, { row, timestamp: now });
   return row;
 }
