@@ -117,11 +117,13 @@ jobs:
           TIMESTAMP=$(date +%s)
           SHORT_SHA="${GITHUB_SHA:0:7}"
           IMAGE_TAG="gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${TIMESTAMP}-${SHORT_SHA}"
+          REVISION_SUFFIX="${TIMESTAMP}-${SHORT_SHA}"
           
           echo "🔨 Building Docker image with timestamp: $TIMESTAMP"
           echo "🚫 Cache disabled: --no-cache"
           echo "📦 Image tag: $IMAGE_TAG"
           echo "📌 Short SHA: $SHORT_SHA"
+          echo "🆕 Revision suffix: $REVISION_SUFFIX"
           
           # Dockerイメージをビルド（完全にキャッシュ無効化）
           docker build \
@@ -172,6 +174,8 @@ jobs:
             --region=${{ env.REGION }} \
             --platform=managed \
             --allow-unauthenticated \
+            --revision-suffix=$REVISION_SUFFIX \
+            --labels=deploy_mode=clean,commit_sha=${SHORT_SHA},deploy_ts=${TIMESTAMP} \
             --add-cloudsql-instances=${{ secrets.CLOUD_SQL_INSTANCE }} \
             --env-vars-file=cloudrun-env.yaml \
             --min-instances=0 \
