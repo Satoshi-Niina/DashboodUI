@@ -111,7 +111,7 @@
             const currentTenantId = tenantIdFromPath(window.location.pathname);
             const currentTenantPath = tenantPathFromUrl(window.location.href);
             const cacheBuster = Date.now();
-            const response = await nativeFetch(`/api/tenant-routing?tenant_id=${encodeURIComponent(currentTenantId)}&tenant_path=${encodeURIComponent(currentTenantPath)}&full_url=${encodeURIComponent(window.location.href)}&_ts=${cacheBuster}`, {
+            const response = await nativeFetch(`/api/tenant-context?tenant_id=${encodeURIComponent(currentTenantId)}&tenant_path=${encodeURIComponent(currentTenantPath)}&full_url=${encodeURIComponent(window.location.href)}&_ts=${cacheBuster}`, {
                 method: 'GET',
                 headers: {
                     'Cache-Control': 'no-cache, no-store, max-age=0',
@@ -190,10 +190,13 @@
         }
     }
 
-    function isTenantRoutingApi(urlLike) {
+    function isTenantBootstrapApi(urlLike) {
         try {
             const parsed = new URL(urlLike, window.location.origin);
-            return parsed.origin === window.location.origin && parsed.pathname === '/api/tenant-routing';
+            if (parsed.origin !== window.location.origin) {
+                return false;
+            }
+            return parsed.pathname === '/api/tenant-routing' || parsed.pathname === '/api/tenant-context';
         } catch (_) {
             return false;
         }
@@ -202,7 +205,7 @@
     window.fetch = async function (input, init) {
         const requestUrl = typeof input === 'string' ? input : (input && input.url ? input.url : '');
 
-        if (!isApiRequest(requestUrl) || isTenantRoutingApi(requestUrl)) {
+        if (!isApiRequest(requestUrl) || isTenantBootstrapApi(requestUrl)) {
             return nativeFetch(input, init);
         }
 

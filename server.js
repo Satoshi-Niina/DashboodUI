@@ -930,6 +930,53 @@ app.use('/api', async (req, res, next) => {
 // APIルート定義（テナント解決ミドルウェアの後に登録）
 app.use('/api/config', configRoutes);
 
+// 現在リクエストのテナント解決結果を確認するための診断用API
+app.get('/api/tenant-context', async (req, res) => {
+  try {
+    const runtime = req.tenantContext || getActiveTenantRuntime() || {
+      requestedTenantId: req.requestedTenantId || 'demo_env',
+      resolvedTenantId: 'demo_env',
+      companyId: 'demo_env',
+      companyName: '',
+      dbName: getDefaultDbName(),
+      storageBucketName: getDefaultBucketName(),
+      isFallback: true
+    };
+
+    const route = await getCompanyRoutingByTenantRequest({
+      tenantId: runtime.resolvedTenantId || runtime.requestedTenantId || '',
+      tenantPath: String(req.headers['x-tenant-path'] || req.query.tenant_path || '').trim(),
+      fullUrl: String(req.headers['x-tenant-full-url'] || req.query.full_url || req.headers.referer || '').trim()
+    }) || (runtime.companyId ? await getCompanyRoutingByCompanyId(runtime.companyId) : null);
+
+    return res.json({
+      success: true,
+      tenant: {
+        requestedTenantId: runtime.requestedTenantId || 'demo_env',
+        resolvedTenantId: runtime.resolvedTenantId || 'demo_env',
+        companyId: runtime.companyId || '',
+        companyName: runtime.companyName || '',
+        dbName: runtime.dbName || '',
+        storageBucketName: runtime.storageBucketName || '',
+        isFallback: !!runtime.isFallback
+      },
+      route: route ? {
+        company_id: route.company_id,
+        company_name: route.company_name,
+        db_name: route.db_name,
+        storage_bucket_name: route.storage_bucket_name,
+        tenant_path: route.tenant_path
+      } : null
+    });
+  } catch (err) {
+    applyTenantErrorHeaders(res, err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || String(err)
+    });
+  }
+});
+
 // データベース初期化（サーバー起動後に非同期で実行）
 setImmediate(async () => {
   try {
