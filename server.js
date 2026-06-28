@@ -614,6 +614,12 @@ function applyTenantErrorHeaders(res, err) {
   res.setHeader('X-Tenant-Error-Stack', errorStack);
 }
 
+function toSafeHeaderValue(rawValue) {
+  const value = String(rawValue || '');
+  // HTTPヘッダーはASCII前提のため、非ASCIIはURLエンコードして例外を防ぐ
+  return /[^\x20-\x7E]/.test(value) ? encodeURIComponent(value) : value;
+}
+
 // フロントエンドが現在テナントのcompany_nameなどを取得できるように公開
 app.get('/api/tenant-routing', async (req, res) => {
   const tenantId = String(req.query.tenant_id || req.requestedTenantId || '').trim().toLowerCase();
@@ -906,7 +912,7 @@ app.use('/api', async (req, res, next) => {
     req.tenantContext = runtime;
     res.setHeader('X-Resolved-Tenant-Id', runtime.resolvedTenantId || 'demo_env');
     res.setHeader('X-Resolved-Db-Name', runtime.dbName || defaultDbName);
-    res.setHeader('X-Resolved-Company-Name', runtime.companyName || '');
+    res.setHeader('X-Resolved-Company-Name', toSafeHeaderValue(runtime.companyName || ''));
     res.setHeader('X-Resolved-Bucket-Name', runtime.storageBucketName || '');
     if (runtime.tenantResolutionError) {
       applyTenantErrorHeaders(res, runtime.tenantResolutionError);
@@ -952,7 +958,7 @@ app.use('/api', async (req, res, next) => {
     req.tenantContext = fallbackRuntime;
     res.setHeader('X-Resolved-Tenant-Id', 'demo_env');
     res.setHeader('X-Resolved-Db-Name', fallbackRuntime.dbName || getDefaultDbName());
-    res.setHeader('X-Resolved-Company-Name', '');
+    res.setHeader('X-Resolved-Company-Name', toSafeHeaderValue(''));
     res.setHeader('X-Resolved-Bucket-Name', fallbackRuntime.storageBucketName || '');
     applyTenantErrorHeaders(res, err);
     requestTenantContextStorage.run(fallbackRuntime, () => next());
