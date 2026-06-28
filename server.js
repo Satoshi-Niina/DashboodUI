@@ -151,15 +151,19 @@ function normalizePathForCompare(rawPath) {
   }
 }
 
-function resolveTenantIdFromUrlPath(rawPath) {
+function getTenantKeyFromPath(rawPath) {
   const normalizedPath = normalizePathForCompare(rawPath);
-  if (normalizedPath === '/kosei' || normalizedPath.startsWith('/kosei/')) {
-    return 'kosei';
+  const segments = normalizedPath.split('/').filter(Boolean);
+  if (segments.length === 0) {
+    return 'demo_env';
   }
-  if (normalizedPath === '/daitetsu' || normalizedPath.startsWith('/daitetsu/')) {
-    return 'daitetsu';
+
+  const first = String(segments[0] || '').trim().toLowerCase();
+  if (!first || first === 'api' || first === 'assets' || first === 'health' || first === '_ah' || first === 'ready') {
+    return 'demo_env';
   }
-  return 'demo_env';
+
+  return first;
 }
 
 function normalizeTenantRoutingRow(row) {
@@ -169,7 +173,8 @@ function normalizeTenantRoutingRow(row) {
     ...row,
     normalizedCompanyId: String(row.company_id || '').trim().toLowerCase(),
     normalizedTenantPath: normalizeUrlForCompare(row.tenant_path || ''),
-    normalizedTenantPathOnly: normalizePathForCompare(row.tenant_path || '')
+    normalizedTenantPathOnly: normalizePathForCompare(row.tenant_path || ''),
+    normalizedTenantKey: getTenantKeyFromPath(row.tenant_path || '')
   };
 }
 
@@ -200,19 +205,30 @@ function extractTenantIdFromRequest(req) {
   const tenantIdHeader = String(req.headers['x-tenant-id'] || '').trim().toLowerCase();
   const tenantFullUrlHeader = String(req.headers['x-tenant-full-url'] || '').trim();
   const tenantPathHeader = String(req.headers['x-tenant-path'] || '').trim();
+  const refererHeader = String(req.headers.referer || '').trim();
 
-  const fromFullUrl = resolveTenantIdFromUrlPath(tenantFullUrlHeader || '/');
+  const fromFullUrl = getTenantKeyFromPath(tenantFullUrlHeader || '/');
   if (fromFullUrl !== 'demo_env') {
     return fromFullUrl;
   }
 
-  const fromTenantPathHeader = resolveTenantIdFromUrlPath(tenantPathHeader || '/');
+  const fromTenantPathHeader = getTenantKeyFromPath(tenantPathHeader || '/');
   if (fromTenantPathHeader !== 'demo_env') {
     return fromTenantPathHeader;
   }
 
-  if (tenantIdHeader === 'kosei' || tenantIdHeader === 'daitetsu' || tenantIdHeader === 'demo_env') {
+  if (tenantIdHeader && /^[a-z0-9_-]+$/.test(tenantIdHeader)) {
     return tenantIdHeader;
+  }
+
+  const fromOriginalUrl = getTenantKeyFromPath(req.originalUrl || req.url || req.path || '/');
+  if (fromOriginalUrl !== 'demo_env') {
+    return fromOriginalUrl;
+  }
+
+  const fromReferer = getTenantKeyFromPath(refererHeader || '/');
+  if (fromReferer !== 'demo_env') {
+    return fromReferer;
   }
 
   return 'demo_env';
@@ -223,12 +239,26 @@ async function getCompanyRoutingByTenantRequest({ tenantId = '', tenantPath = ''
     const normalizedTenantId = String(tenantId || '').trim().toLowerCase();
     const normalizedTenantPath = normalizePathForCompare(tenantPath || fullUrl || '');
     const normalizedFullUrl = normalizeUrlForCompare(fullUrl || tenantPath || '');
+    const requestTenantKey = getTenantKeyFromPath(tenantPath || fullUrl || '');
     const allRows = await getAllCompanyRoutingRows();
 
-    if (normalizedTenantId) {
-      const byCompanyId = allRows.find((row) => row.normalizedCompanyId === normalizedTenantId);
+    if (normalizedTenantId && normalizedTenantId !== 'demo_env') {
+      const byCompanyId = allRows.find((row) => (
+        row.normalizedCompanyId === normalizedTenantId
+        || row.normalizedTenantKey === normalizedTenantId
+      ));
       if (byCompanyId) {
         return byCompanyId;
+      }
+    }
+
+    if (requestTenantKey && requestTenantKey !== 'demo_env') {
+      const byTenantKey = allRows.find((row) => (
+        row.normalizedTenantKey === requestTenantKey
+        || row.normalizedCompanyId === requestTenantKey
+      ));
+      if (byTenantKey) {
+        return byTenantKey;
       }
     }
 

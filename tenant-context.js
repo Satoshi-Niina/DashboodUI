@@ -34,22 +34,29 @@
         }
     }
 
-    function tenantIdFromPath(pathname) {
+    function getTenantKeyFromPath(pathname) {
         const normalizedPath = normalizePath(pathname);
-        if (normalizedPath === '/kosei' || normalizedPath.startsWith('/kosei/')) {
-            return 'kosei';
+        const segments = normalizedPath.split('/').filter(Boolean);
+
+        if (segments.length === 0) {
+            return 'demo_env';
         }
-        if (normalizedPath === '/daitetsu' || normalizedPath.startsWith('/daitetsu/')) {
-            return 'daitetsu';
+
+        const first = String(segments[0] || '').trim().toLowerCase();
+        if (!first || first === 'api' || first === 'assets') {
+            return 'demo_env';
         }
-        return 'demo_env';
+
+        return first;
+    }
+
+    function tenantIdFromPath(pathname) {
+        return getTenantKeyFromPath(pathname);
     }
 
     function tenantPathFromUrl(fullUrl) {
         const tenantId = tenantIdFromPath(fullUrl);
-        if (tenantId === 'kosei') return '/kosei';
-        if (tenantId === 'daitetsu') return '/daitetsu';
-        return '/';
+        return tenantId === 'demo_env' ? '/' : `/${tenantId}`;
     }
 
     function getBasePath() {
@@ -134,22 +141,26 @@
         const fullUrl = getCurrentFullUrl();
         const resolved = resolveTenant(fullUrl);
         const routeRow = await fetchTenantRoutes();
+        const routeTenantId = routeRow ? String(routeRow.company_id || '').trim().toLowerCase() : '';
         const companyId = routeRow ? (routeRow.company_id || resolved.tenantId) : resolved.tenantId;
         const companyName = routeRow ? (routeRow.company_name || '') : '';
         const matchedTenantPath = routeRow ? (routeRow.tenant_path || '') : '';
         const dbName = routeRow ? (routeRow.db_name || '') : '';
         const storageBucketName = routeRow ? (routeRow.storage_bucket_name || '') : '';
+        const resolvedTenantPath = matchedTenantPath ? normalizePath(matchedTenantPath) : resolved.tenantPath;
+        const effectiveTenantId = routeTenantId || resolved.tenantId;
+        const isDemoTenant = effectiveTenantId === 'demo_env';
 
         tenantContext = {
             fullUrl,
-            tenantId: resolved.tenantId,
+            tenantId: effectiveTenantId,
             companyId,
             companyName,
             dbName,
             storageBucketName,
-            tenantPath: resolved.tenantPath,
+            tenantPath: resolvedTenantPath,
             matchedTenantPath,
-            isDemo: resolved.isDemo,
+            isDemo: isDemoTenant,
             routes: routeRow ? [routeRow] : [],
             resolvedAt: new Date().toISOString()
         };
