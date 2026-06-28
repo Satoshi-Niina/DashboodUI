@@ -824,6 +824,11 @@ pool = new Proxy(controlPlanePool, {
 
 // APIリクエストのテナント文脈を解決し、以降のDB/GCS処理に引き継ぐ
 app.use('/api', async (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  res.setHeader('Surrogate-Control', 'no-store');
+
   try {
     const requestedTenantId = req.requestedTenantId || extractTenantIdFromRequest(req) || 'demo_env';
     const defaultDbName = getDefaultDbName();

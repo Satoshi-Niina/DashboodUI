@@ -110,10 +110,13 @@
         try {
             const currentTenantId = tenantIdFromPath(window.location.pathname);
             const currentTenantPath = tenantPathFromUrl(window.location.href);
-            const response = await nativeFetch(`/api/tenant-routing?tenant_id=${encodeURIComponent(currentTenantId)}&tenant_path=${encodeURIComponent(currentTenantPath)}&full_url=${encodeURIComponent(window.location.href)}`, {
+            const cacheBuster = Date.now();
+            const response = await nativeFetch(`/api/tenant-routing?tenant_id=${encodeURIComponent(currentTenantId)}&tenant_path=${encodeURIComponent(currentTenantPath)}&full_url=${encodeURIComponent(window.location.href)}&_ts=${cacheBuster}`, {
                 method: 'GET',
                 headers: {
-                    'Cache-Control': 'no-cache'
+                    'Cache-Control': 'no-cache, no-store, max-age=0',
+                    Pragma: 'no-cache',
+                    Expires: '0'
                 }
             });
             if (!response.ok) {
