@@ -922,7 +922,11 @@ app.use('/api', async (req, res, next) => {
     const normalizedResolvedTenantId = String(runtime.resolvedTenantId || 'demo_env').trim().toLowerCase();
     const normalizedResolvedDbName = String(runtime.dbName || '').trim().toLowerCase();
     const normalizedDefaultDbName = String(defaultDbName || '').trim().toLowerCase();
-    const requiresIsolation = normalizedRequestedTenantId !== 'demo_env' || normalizedResolvedTenantId !== 'demo_env';
+    const isDemoTenant = (tenantKey) => {
+      const key = String(tenantKey || '').trim().toLowerCase();
+      return !key || key === 'demo_env' || key === 'demo';
+    };
+    const requiresIsolation = !(isDemoTenant(normalizedRequestedTenantId) && isDemoTenant(normalizedResolvedTenantId));
 
     if (requiresIsolation && (!normalizedResolvedDbName || normalizedResolvedDbName === normalizedDefaultDbName)) {
       const isolationError = new Error(`[TenantRouting] Isolation violation: requested=${normalizedRequestedTenantId || 'empty'}, resolved=${normalizedResolvedTenantId || 'empty'}, db=${runtime.dbName || 'empty'}, defaultDb=${defaultDbName}. Check public.company_db_routing.db_name and tenant_path.`);
