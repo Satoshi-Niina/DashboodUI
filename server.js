@@ -1072,7 +1072,7 @@ async function resolveTablePath(logicalName) {
     // common_dbへ接続したプールで public.app_resource_routing を引く。
     const query = routingContext.useCommonRouting
       ? `
-      SELECT id AS id, physical_schema, physical_table_name, physical_table_name AS physical_table
+      SELECT id AS id, app_id, physical_schema, physical_table_name, physical_table_name AS physical_table
       FROM public.app_resource_routing
       WHERE tenant_id = $1 AND app_id = $2 AND logical_resource_name = $3
       LIMIT 1
@@ -1096,9 +1096,25 @@ async function resolveTablePath(logicalName) {
     const result = await routingQueryPool.query(query, params);
 
     if (result.rows.length > 0) {
-      const { physical_schema, physical_table } = result.rows[0];
+      const row = result.rows[0] || {};
+      const physical_schema = row.physical_schema;
+      const physical_table = row.physical_table || row.physical_table_name;
+
+      if (!physical_schema || !physical_table) {
+        throw new Error(`[Gateway] Invalid routing row: missing schema/table for ${routingContext.tenantId}:${APP_ID}:${logicalName}`);
+      }
+
       const fullPath = `${physical_schema}."${physical_table}"`;
-      const resolved = { fullPath, schema: physical_schema, table: physical_table, timestamp: Date.now() };
+      const resolved = {
+        id: row.id || null,
+        appId: row.app_id || APP_ID,
+        fullPath,
+        schema: physical_schema,
+        table: physical_table,
+        physical_table_name: row.physical_table_name || physical_table,
+        physical_table: physical_table,
+        timestamp: Date.now()
+      };
 
       // キャッシュに保存
       routingCache.set(cacheKey, resolved);
@@ -3711,7 +3727,7 @@ app.get('/debug/tables', async (req, res) => {
       const routingContext = getRoutingLookupContext();
       const routingQuery = routingContext.useCommonRouting
         ? `
-        SELECT id AS id, logical_resource_name, physical_schema, physical_table_name, physical_table_name AS physical_table, is_active
+        SELECT id AS id, app_id, logical_resource_name, physical_schema, physical_table_name, physical_table_name AS physical_table, is_active
         FROM public.app_resource_routing
         WHERE tenant_id = $1
           AND app_id = 'dashboard-ui'
