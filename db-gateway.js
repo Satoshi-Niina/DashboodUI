@@ -11,6 +11,8 @@ const { Pool } = require('pg');
 const routingCache = new Map();
 const CACHE_TTL = 60000; // 1分
 const gatewayTenantPoolCache = new Map();
+const tenantDbNameCache = new Map();
+const TENANT_DB_NAME_CACHE_TTL = 60000;
 
 function getTenantRoutingDbName() {
     return (process.env.TENANT_ROUTING_DB_NAME || process.env.CONTROL_PLANE_DB_NAME || 'common_db').trim();
@@ -129,6 +131,43 @@ function getGatewayRoutingContext(options = {}) {
     return { tenantId, useCommonRouting };
 }
 
+async function resolveTenantDbNameFromCommonRouting(tenantId, appId) {
+    const normalizedTenantId = String(tenantId || '').trim().toLowerCase();
+    if (!normalizedTenantId || normalizedTenantId === 'demo_env') {
+        return null;
+    }
+
+    const normalizedAppId = String(appId || 'dashboard-ui').trim() || 'dashboard-ui';
+    const cacheKey = `${normalizedTenantId}:${normalizedAppId}`;
+    const cached = tenantDbNameCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < TENANT_DB_NAME_CACHE_TTL) {
+        return cached.dbName;
+    }
+
+    const routingPool = getOrCreateGatewayDbPool(getTenantRoutingDbName());
+    const result = await routingPool.query(
+        `SELECT physical_schema
+         FROM public.app_resource_routing
+         WHERE tenant_id = $1
+           AND app_id = $2
+           AND is_active = true
+         ORDER BY id
+         LIMIT 1`,
+        [normalizedTenantId, normalizedAppId]
+    );
+
+    const dbName = String(result.rows[0]?.physical_schema || '').trim();
+    if (dbName) {
+        tenantDbNameCache.set(cacheKey, {
+            dbName,
+            timestamp: Date.now()
+        });
+        return dbName;
+    }
+
+    return null;
+}
+
 /**
  * 論理リソース名から物理テーブルパスを取得
  * @param {string} logicalResourceName - 論理リソース名 (例: 'users', 'machines')
@@ -148,35 +187,23 @@ async function getTablePath(logicalResourceName, appIdOrOptions = 'dashboard-ui'
     }
     
     try {
-        const query = routingContext.useCommonRouting
-            ? `SELECT
-                   id,
-                   app_id,
-                   physical_schema,
-                   physical_table_name,
-                   physical_table_name AS physical_table
-               FROM public.app_resource_routing
-               WHERE tenant_id = $1
-                 AND app_id = $2
-                 AND logical_resource_name = $3
-                 AND is_active = true
-               LIMIT 1`
-            : `SELECT physical_schema, physical_table
+        let routingQueryPool = pool;
+
+        if (routingContext.tenantId && routingContext.tenantId !== 'demo_env') {
+            const tenantDbName = await resolveTenantDbNameFromCommonRouting(routingContext.tenantId, appId);
+            if (tenantDbName) {
+                routingQueryPool = getOrCreateGatewayDbPool(tenantDbName);
+            }
+        }
+
+        const query = `SELECT physical_schema, physical_table
                FROM public.app_resource_routing
                WHERE app_id = $1
                  AND logical_resource_name = $2
                  AND is_active = true
                LIMIT 1`;
 
-        const params = routingContext.useCommonRouting
-            ? [routingContext.tenantId, appId, logicalResourceName]
-            : [appId, logicalResourceName];
-
-        const routingQueryPool = routingContext.useCommonRouting
-            ? getOrCreateGatewayDbPool(getTenantRoutingDbName())
-            : pool;
-
-        const result = await routingQueryPool.query(query, params);
+        const result = await routingQueryPool.query(query, [appId, logicalResourceName]);
         
         if (result.rows.length > 0) {
             const row = result.rows[0] || {};
@@ -192,10 +219,6 @@ async function getTablePath(logicalResourceName, appIdOrOptions = 'dashboard-ui'
             // キャッシュに保存
             routingCache.set(cacheKey, {
                 path: fullPath,
-                id: row.id || null,
-                appId: row.app_id || appId,
-                physical_table_name: row.physical_table_name || physical_table,
-                physical_table: physical_table,
                 timestamp: Date.now()
             });
             
@@ -218,6 +241,7 @@ async function getTablePath(logicalResourceName, appIdOrOptions = 'dashboard-ui'
  */
 function clearCache() {
     routingCache.clear();
+    tenantDbNameCache.clear();
     console.log('Routing cache cleared');
 }
 
@@ -228,12 +252,16 @@ function clearCache() {
  */
 function clearCacheFor(appId, logicalResourceName) {
     if (appId && logicalResourceName) {
-        const cacheKey = `${appId}:${logicalResourceName}`;
-        routingCache.delete(cacheKey);
+        const suffix = `:${appId}:${logicalResourceName}`;
+        for (const key of routingCache.keys()) {
+            if (key.endsWith(suffix)) {
+                routingCache.delete(key);
+            }
+        }
     } else if (appId) {
         // 特定のアプリのキャッシュをクリア
         for (const key of routingCache.keys()) {
-            if (key.startsWith(`${appId}:`)) {
+            if (key.includes(`:${appId}:`)) {
                 routingCache.delete(key);
             }
         }

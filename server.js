@@ -486,10 +486,52 @@ function buildTenantRuntimeFromRoutingRow(routingRow, requestedTenantId, default
   };
 }
 
+const tenantDbNameCache = new Map();
+const TENANT_DB_NAME_CACHE_TTL = 60 * 1000;
+
+async function getTenantDbNameFromCommonRouting(tenantId, appId = 'dashboard-ui') {
+  const normalizedTenantId = String(tenantId || '').trim().toLowerCase();
+  const normalizedAppId = String(appId || 'dashboard-ui').trim();
+  if (!normalizedTenantId || normalizedTenantId === 'demo_env') {
+    return null;
+  }
+
+  const cacheKey = `${normalizedTenantId}:${normalizedAppId}`;
+  const now = Date.now();
+  const cached = tenantDbNameCache.get(cacheKey);
+  if (cached && (now - cached.timestamp) < TENANT_DB_NAME_CACHE_TTL) {
+    return cached.dbName;
+  }
+
+  const routingQuery = `
+    SELECT physical_schema
+    FROM public.app_resource_routing
+    WHERE tenant_id = $1
+      AND app_id = $2
+      AND is_active = true
+    ORDER BY id
+    LIMIT 1
+  `;
+
+  const result = await getTenantRoutingPool().query(routingQuery, [normalizedTenantId, normalizedAppId]);
+  const dbName = String(result.rows[0]?.physical_schema || '').trim();
+
+  if (dbName) {
+    tenantDbNameCache.set(cacheKey, {
+      dbName,
+      timestamp: now
+    });
+    return dbName;
+  }
+
+  return null;
+}
+
 async function resolveTenantRuntime(tenantId, requestHint = {}) {
   const normalizedTenantId = (tenantId || 'demo_env').trim().toLowerCase() || 'demo_env';
   const defaultDbName = getDefaultDbName();
   const defaultBucketName = getDefaultBucketName();
+  const appId = process.env.APP_ID || 'dashboard-ui';
   const requestTenantPath = requestHint.tenantPath || requestHint.fullUrl || '';
   const requestFullUrl = requestHint.fullUrl || requestHint.tenantPath || requestHint.referer || '';
   const requestOriginalUrl = requestHint.originalUrl || '';
@@ -497,42 +539,7 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
     ? normalizedTenantId
     : resolveFirstTenantKey(requestTenantPath, requestFullUrl, requestOriginalUrl, requestHint.referer || '');
 
-  if (normalizedTenantId !== 'demo_env') {
-    const exactHeaderRoutingRow = await getCompanyRoutingByCompanyId(normalizedTenantId);
-    if (exactHeaderRoutingRow) {
-      return buildTenantRuntimeFromRoutingRow(
-        exactHeaderRoutingRow,
-        normalizedTenantId,
-        defaultDbName,
-        defaultBucketName,
-        expectedTenantKey
-      );
-    }
-  }
-
-  const matchedRoutingRow = await getCompanyRoutingByTenantRequest({
-    tenantId: expectedTenantKey,
-    tenantPath: requestTenantPath,
-    fullUrl: requestFullUrl
-  });
-
-  const strictMatchedRoutingRow = matchedRoutingRow || await getCompanyRoutingByTenantKey(expectedTenantKey);
-
-  if (strictMatchedRoutingRow) {
-    return buildTenantRuntimeFromRoutingRow(
-      strictMatchedRoutingRow,
-      normalizedTenantId,
-      defaultDbName,
-      defaultBucketName,
-      expectedTenantKey
-    );
-  }
-
-  if (expectedTenantKey !== 'demo_env') {
-    console.warn(`[TenantRouting] Tenant key ${expectedTenantKey} is not registered. Falling back to demo_env.`);
-  }
-
-  if (normalizedTenantId === 'demo_env') {
+  if (expectedTenantKey === 'demo_env') {
     return {
       requestedTenantId: normalizedTenantId,
       resolvedTenantId: 'demo_env',
@@ -546,12 +553,12 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
   }
 
   try {
-    const routingRow = await getCompanyRoutingByCompanyId(normalizedTenantId);
+    const tenantDbName = await getTenantDbNameFromCommonRouting(expectedTenantKey, appId);
 
-    if (!routingRow) {
-      console.warn(`[TenantRouting] Tenant not found: ${normalizedTenantId}. Falling back to demo_env.`);
+    if (!tenantDbName) {
+      console.warn(`[TenantRouting] app_resource_routing not found for tenant=${expectedTenantKey}, appId=${appId}. Falling back to demo_env.`);
       return {
-        requestedTenantId: normalizedTenantId,
+        requestedTenantId: expectedTenantKey,
         resolvedTenantId: 'demo_env',
         companyId: 'demo_env',
         companyName: '',
@@ -562,17 +569,20 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
       };
     }
 
-    return buildTenantRuntimeFromRoutingRow(
-      routingRow,
-      normalizedTenantId,
-      defaultDbName,
-      defaultBucketName,
-      normalizedTenantId
-    );
-  } catch (err) {
-    console.error(`[TenantRouting] Failed to resolve tenant ${normalizedTenantId}:`, err.message);
     return {
       requestedTenantId: normalizedTenantId,
+      resolvedTenantId: expectedTenantKey,
+      companyId: expectedTenantKey,
+      companyName: '',
+      dbName: tenantDbName,
+      storageBucketName: defaultBucketName,
+      pool: tenantDbName === defaultDbName ? getControlPlanePool() : getOrCreateTenantPool(tenantDbName),
+      isFallback: false
+    };
+  } catch (err) {
+    console.error(`[TenantRouting] Failed to resolve tenant ${expectedTenantKey}:`, err.message);
+    return {
+      requestedTenantId: expectedTenantKey,
       resolvedTenantId: 'demo_env',
       companyId: 'demo_env',
       companyName: '',
@@ -1037,27 +1047,14 @@ const APP_ID = process.env.APP_ID || 'dashboard-ui';
 const routingCache = new Map(); // { key: { fullPath, schema, table, timestamp } }
 const CACHE_TTL = 60 * 1000; // 1分（本番での即座な反映を重視）
 
-function getRoutingLookupContext() {
-  const runtime = getActiveTenantRuntime();
-  const tenantId = String(
-    (runtime && (runtime.resolvedTenantId || runtime.requestedTenantId)) || 'demo_env'
-  ).trim().toLowerCase();
-  const useCommonRouting = tenantId === 'daitetsu';
-
-  return {
-    tenantId,
-    useCommonRouting
-  };
-}
-
 /**
  * 論理テーブル名から物理パスを解決
  * @param {string} logicalName - 論理テーブル名（例: 'users', 'offices'）
  * @returns {Promise<{fullPath: string, schema: string, table: string}>}
  */
 async function resolveTablePath(logicalName) {
-  const routingContext = getRoutingLookupContext();
-  const cacheKey = `${routingContext.tenantId}:${APP_ID}:${logicalName}`;
+  const runtime = getActiveTenantRuntime();
+  const cacheKey = `${runtime?.dbName || 'default'}:${APP_ID}:${logicalName}`;
 
   // キャッシュチェック
   const cached = routingCache.get(cacheKey);
@@ -1067,33 +1064,14 @@ async function resolveTablePath(logicalName) {
   }
 
   try {
-    // daitetsuのみ common_db 側の app_resource_routing(tenant_id = 'daitetsu') を参照
-    // PostgreSQLは「database.schema.table」の3階層指定ができないため、
-    // common_dbへ接続したプールで public.app_resource_routing を引く。
-    const query = routingContext.useCommonRouting
-      ? `
-      SELECT id AS id, app_id, physical_schema, physical_table_name, physical_table_name AS physical_table
-      FROM public.app_resource_routing
-      WHERE tenant_id = $1 AND app_id = $2 AND logical_resource_name = $3
-      LIMIT 1
-    `
-      : `
+    const query = `
       SELECT physical_schema, physical_table
       FROM public.app_resource_routing
       WHERE app_id = $1 AND logical_resource_name = $2
       LIMIT 1
     `;
 
-    const params = routingContext.useCommonRouting
-      ? [routingContext.tenantId, APP_ID, logicalName]
-      : [APP_ID, logicalName];
-
-    const routingQueryPool = routingContext.useCommonRouting
-      ? getTenantRoutingPool()
-      : pool;
-
-    console.log(`[Gateway] Querying routing for: ${routingContext.tenantId}:${APP_ID}:${logicalName}`);
-    const result = await routingQueryPool.query(query, params);
+    const result = await pool.query(query, [APP_ID, logicalName]);
 
     if (result.rows.length > 0) {
       const row = result.rows[0] || {};
@@ -1101,18 +1079,14 @@ async function resolveTablePath(logicalName) {
       const physical_table = row.physical_table || row.physical_table_name;
 
       if (!physical_schema || !physical_table) {
-        throw new Error(`[Gateway] Invalid routing row: missing schema/table for ${routingContext.tenantId}:${APP_ID}:${logicalName}`);
+        throw new Error(`[Gateway] Invalid routing row: missing schema/table for ${runtime?.resolvedTenantId || 'demo_env'}:${APP_ID}:${logicalName}`);
       }
 
       const fullPath = `${physical_schema}."${physical_table}"`;
       const resolved = {
-        id: row.id || null,
-        appId: row.app_id || APP_ID,
         fullPath,
         schema: physical_schema,
         table: physical_table,
-        physical_table_name: row.physical_table_name || physical_table,
-        physical_table: physical_table,
         timestamp: Date.now()
       };
 
@@ -1339,8 +1313,12 @@ async function dynamicDelete(logicalTableName, conditions, returning = false) {
  */
 function clearRoutingCache(logicalName = null) {
   if (logicalName) {
-    const cacheKey = `${APP_ID}:${logicalName}`;
-    routingCache.delete(cacheKey);
+    const suffix = `:${APP_ID}:${logicalName}`;
+    for (const key of routingCache.keys()) {
+      if (key.endsWith(suffix)) {
+        routingCache.delete(key);
+      }
+    }
     console.log(`[Gateway] Cache cleared for: ${logicalName}`);
   } else {
     routingCache.clear();
@@ -1362,25 +1340,7 @@ function clearRoutingCache(logicalName = null) {
 app.get('/api/debug/routing', async (req, res) => {
   try {
     console.log('[DEBUG] Fetching routing table...');
-    const routingContext = getRoutingLookupContext();
-    const query = routingContext.useCommonRouting
-      ? `
-      SELECT
-        id AS id,
-        id AS routing_id,
-        tenant_id,
-        app_id,
-        logical_resource_name,
-        physical_schema,
-        physical_table_name,
-        physical_table_name AS physical_table,
-        is_active
-      FROM public.app_resource_routing
-      WHERE tenant_id = $1
-        AND is_active = true
-      ORDER BY app_id, logical_resource_name
-    `
-      : `
+    const query = `
       SELECT 
         routing_id,
         app_id,
@@ -1392,9 +1352,7 @@ app.get('/api/debug/routing', async (req, res) => {
       WHERE is_active = true
       ORDER BY app_id, logical_resource_name
     `;
-    const params = routingContext.useCommonRouting ? [routingContext.tenantId] : [];
-    const routingQueryPool = routingContext.useCommonRouting ? getTenantRoutingPool() : pool;
-    const result = await routingQueryPool.query(query, params);
+    const result = await pool.query(query);
 
     res.json({
       success: true,
@@ -3724,24 +3682,13 @@ app.get('/debug/tables', async (req, res) => {
 
     // ルーティングテーブルの確認
     try {
-      const routingContext = getRoutingLookupContext();
-      const routingQuery = routingContext.useCommonRouting
-        ? `
-        SELECT id AS id, app_id, logical_resource_name, physical_schema, physical_table_name, physical_table_name AS physical_table, is_active
-        FROM public.app_resource_routing
-        WHERE tenant_id = $1
-          AND app_id = 'dashboard-ui'
-        ORDER BY logical_resource_name
-      `
-        : `
+      const routingQuery = `
         SELECT logical_resource_name, physical_schema, physical_table, is_active
         FROM public.app_resource_routing
         WHERE app_id = 'dashboard-ui'
         ORDER BY logical_resource_name
       `;
-      const routingParams = routingContext.useCommonRouting ? [routingContext.tenantId] : [];
-      const routingQueryPool = routingContext.useCommonRouting ? getTenantRoutingPool() : pool;
-      const routingResult = await routingQueryPool.query(routingQuery, routingParams);
+      const routingResult = await pool.query(routingQuery);
       results._routing = routingResult.rows;
     } catch (err) {
       results._routing = { error: err.message };
