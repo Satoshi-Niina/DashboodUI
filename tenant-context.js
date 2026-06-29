@@ -102,8 +102,7 @@
             return 'デモ環境';
         }
 
-        const fallbackTenantId = (ctx.tenantId || '').trim();
-        return fallbackTenantId ? `${fallbackTenantId} 専用環境` : 'テナント環境';
+        return 'テナント専用環境';
     }
 
     async function fetchTenantRoutes() {

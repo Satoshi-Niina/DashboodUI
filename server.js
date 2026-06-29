@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const multer = require('multer');
 const { Storage } = require('@google-cloud/storage');
 const configRoutes = require('./server/routes/config');
@@ -132,6 +133,11 @@ const tenantRouteCache = new Map();
 const tenantRouteListCache = new Map();
 const TENANT_ROUTE_CACHE_TTL = 60 * 1000;
 let controlPlanePool = null;
+const tenantDisplayNameCache = new Map();
+const TENANT_DISPLAY_NAME_CACHE_TTL = 60 * 1000;
+let tenantDisplayConfigCache = null;
+let tenantDisplayConfigLoadedAt = 0;
+const TENANT_DISPLAY_CONFIG_TTL = 60 * 1000;
 
 function normalizeUrlForCompare(rawUrl) {
   if (!rawUrl) return '';
@@ -191,6 +197,115 @@ function resolveFirstTenantKey(...candidates) {
     }
   }
   return 'demo_env';
+}
+
+async function resolveTenantDisplayNameFromDb(tenantPool, tenantKey) {
+  if (!tenantPool) {
+    return '';
+  }
+
+  const normalizedTenantKey = normalizeTenantAliasKey(tenantKey);
+  const cacheKey = normalizedTenantKey || 'unknown';
+  const now = Date.now();
+  const cached = tenantDisplayNameCache.get(cacheKey);
+  if (cached && (now - cached.timestamp) < TENANT_DISPLAY_NAME_CACHE_TTL) {
+    return cached.name;
+  }
+
+  try {
+    const appConfigQuery = `
+      SELECT config_value
+      FROM master_data.app_config
+      WHERE config_key IN ('tenant_display_name', 'company_name', 'tenant_name')
+        AND COALESCE(TRIM(config_value), '') <> ''
+      ORDER BY CASE config_key
+        WHEN 'tenant_display_name' THEN 1
+        WHEN 'company_name' THEN 2
+        WHEN 'tenant_name' THEN 3
+        ELSE 99
+      END
+      LIMIT 1
+    `;
+    const appConfigResult = await tenantPool.query(appConfigQuery);
+    const appConfigName = String(appConfigResult.rows[0]?.config_value || '').trim();
+    if (appConfigName) {
+      tenantDisplayNameCache.set(cacheKey, { name: appConfigName, timestamp: now });
+      return appConfigName;
+    }
+  } catch (_) {
+    // app_configが存在しない環境では次のフォールバックへ
+  }
+
+  try {
+    const officeQuery = `
+      SELECT office_name
+      FROM master_data.managements_offices
+      WHERE COALESCE(TRIM(office_name), '') <> ''
+      ORDER BY office_id
+      LIMIT 1
+    `;
+    const officeResult = await tenantPool.query(officeQuery);
+    const officeName = String(officeResult.rows[0]?.office_name || '').trim();
+    if (officeName) {
+      tenantDisplayNameCache.set(cacheKey, { name: officeName, timestamp: now });
+      return officeName;
+    }
+  } catch (_) {
+    // managements_officesが存在しない環境では空文字を返す
+  }
+
+  const configuredDisplayName = getConfiguredTenantDisplayName(tenantKey);
+  if (configuredDisplayName) {
+    tenantDisplayNameCache.set(cacheKey, { name: configuredDisplayName, timestamp: now });
+    return configuredDisplayName;
+  }
+
+  return '';
+}
+
+function loadTenantDisplayConfig() {
+  const now = Date.now();
+  if (tenantDisplayConfigCache && (now - tenantDisplayConfigLoadedAt) < TENANT_DISPLAY_CONFIG_TTL) {
+    return tenantDisplayConfigCache;
+  }
+
+  const configPath = process.env.TENANT_DISPLAY_CONFIG_PATH
+    ? path.resolve(process.env.TENANT_DISPLAY_CONFIG_PATH)
+    : path.join(__dirname, 'tenant-display-names.json');
+
+  try {
+    if (!fs.existsSync(configPath)) {
+      tenantDisplayConfigCache = {};
+      tenantDisplayConfigLoadedAt = now;
+      return tenantDisplayConfigCache;
+    }
+
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    tenantDisplayConfigCache = (parsed && typeof parsed === 'object') ? parsed : {};
+    tenantDisplayConfigLoadedAt = now;
+    return tenantDisplayConfigCache;
+  } catch (err) {
+    console.warn('[TenantRouting] Failed to load tenant display config:', err.message);
+    tenantDisplayConfigCache = {};
+    tenantDisplayConfigLoadedAt = now;
+    return tenantDisplayConfigCache;
+  }
+}
+
+function getConfiguredTenantDisplayName(tenantKey) {
+  const normalizedTenantKey = normalizeTenantAliasKey(tenantKey);
+  if (!normalizedTenantKey) {
+    return '';
+  }
+
+  const config = loadTenantDisplayConfig();
+  const direct = String(config[normalizedTenantKey] || '').trim();
+  if (direct) {
+    return direct;
+  }
+
+  return '';
 }
 
 function normalizeTenantRoutingRow(row) {
@@ -500,7 +615,7 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
       requestedTenantId: normalizedTenantId,
       resolvedTenantId: 'demo_env',
       companyId: 'demo_env',
-      companyName: '',
+      companyName: 'デモ環境',
       dbName: defaultDbName,
       storageBucketName: defaultBucketName,
       pool: getControlPlanePool(),
@@ -510,15 +625,17 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
 
   try {
     const tenantDbName = inferTenantDbName(expectedTenantKey, defaultDbName);
+    const tenantPool = tenantDbName === defaultDbName ? getControlPlanePool() : getOrCreateTenantPool(tenantDbName);
+    const companyName = await resolveTenantDisplayNameFromDb(tenantPool, expectedTenantKey);
 
     return {
       requestedTenantId: normalizedTenantId,
       resolvedTenantId: expectedTenantKey,
       companyId: expectedTenantKey,
-      companyName: '',
+      companyName,
       dbName: tenantDbName,
       storageBucketName: defaultBucketName,
-      pool: tenantDbName === defaultDbName ? getControlPlanePool() : getOrCreateTenantPool(tenantDbName),
+      pool: tenantPool,
       isFallback: false
     };
   } catch (err) {
@@ -943,6 +1060,14 @@ app.get('/api/tenant-context', async (req, res) => {
       fullUrl: String(req.headers['x-tenant-full-url'] || req.query.full_url || req.headers.referer || '').trim()
     }) || (runtime.companyId ? await getCompanyRoutingByCompanyId(runtime.companyId) : null);
 
+    const routeForResponse = route || {
+      company_id: runtime.companyId || runtime.resolvedTenantId || runtime.requestedTenantId || 'demo_env',
+      company_name: runtime.companyName || (String(runtime.resolvedTenantId || runtime.requestedTenantId || '').trim().toLowerCase() === 'demo_env' ? 'デモ環境' : ''),
+      db_name: runtime.dbName || '',
+      storage_bucket_name: runtime.storageBucketName || '',
+      tenant_path: runtime.tenantPath || (runtime.resolvedTenantId && runtime.resolvedTenantId !== 'demo_env' ? `/${runtime.resolvedTenantId}` : '/')
+    };
+
     return res.json({
       success: true,
       tenant: {
@@ -954,13 +1079,22 @@ app.get('/api/tenant-context', async (req, res) => {
         storageBucketName: runtime.storageBucketName || '',
         isFallback: !!runtime.isFallback
       },
-      route: route ? {
-        company_id: route.company_id,
-        company_name: route.company_name,
-        db_name: route.db_name,
-        storage_bucket_name: route.storage_bucket_name,
-        tenant_path: route.tenant_path
-      } : null
+      route: {
+        company_id: routeForResponse.company_id,
+        company_name: routeForResponse.company_name,
+        db_name: routeForResponse.db_name,
+        storage_bucket_name: routeForResponse.storage_bucket_name,
+        tenant_path: routeForResponse.tenant_path
+      },
+      routes: [
+        {
+          company_id: routeForResponse.company_id,
+          company_name: routeForResponse.company_name,
+          db_name: routeForResponse.db_name,
+          storage_bucket_name: routeForResponse.storage_bucket_name,
+          tenant_path: routeForResponse.tenant_path
+        }
+      ]
     });
   } catch (err) {
     applyTenantErrorHeaders(res, err);
@@ -989,6 +1123,7 @@ const APP_ID = process.env.APP_ID || 'dashboard-ui';
 const routingCache = new Map(); // { key: { fullPath, schema, table, timestamp } }
 const CACHE_TTL = 60 * 1000; // 1分（本番での即座な反映を重視）
 const routingColumnCache = new Map(); // { dbName: { columns: Set<string>, timestamp: number } }
+const physicalTableColumnCache = new Map(); // { cacheKey: { columns: Set<string>, timestamp: number } }
 
 async function getRoutingTableColumns() {
   const runtime = getActiveTenantRuntime();
@@ -1009,6 +1144,33 @@ async function getRoutingTableColumns() {
   const columns = new Set(result.rows.map((row) => String(row.column_name || '').trim().toLowerCase()));
   routingColumnCache.set(dbName, { columns, timestamp: now });
   return columns;
+}
+
+async function getPhysicalTableColumns(route) {
+  const runtime = getActiveTenantRuntime();
+  const dbName = runtime?.dbName || getDefaultDbName();
+  const cacheKey = `${dbName}:${route.schema}:${route.table}`;
+  const now = Date.now();
+  const cached = physicalTableColumnCache.get(cacheKey);
+  if (cached && (now - cached.timestamp) < CACHE_TTL) {
+    return cached.columns;
+  }
+
+  const query = `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = $1
+      AND table_name = $2
+  `;
+  const result = await pool.query(query, [route.schema, route.table]);
+  const columns = new Set(result.rows.map((row) => String(row.column_name || '').trim().toLowerCase()));
+  physicalTableColumnCache.set(cacheKey, { columns, timestamp: now });
+  return columns;
+}
+
+function filterDataByColumns(data, columnSet) {
+  const entries = Object.entries(data || {}).filter(([key]) => columnSet.has(String(key || '').trim().toLowerCase()));
+  return Object.fromEntries(entries);
 }
 
 /**
@@ -1183,10 +1345,18 @@ async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'],
 async function dynamicInsert(logicalTableName, data, returning = true) {
   let query = '';
   let route = null;
-  const keys = Object.keys(data);
-  const values = Object.values(data);
+  let keys = Object.keys(data);
+  let values = Object.values(data);
   try {
     route = await resolveTablePath(logicalTableName);
+    const columnSet = await getPhysicalTableColumns(route);
+    const filteredData = filterDataByColumns(data, columnSet);
+    keys = Object.keys(filteredData);
+    values = Object.values(filteredData);
+
+    if (keys.length === 0) {
+      throw new Error(`[DynamicDB] INSERT failed: no insertable columns for ${route.fullPath}`);
+    }
 
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
 
@@ -1225,12 +1395,28 @@ async function dynamicInsert(logicalTableName, data, returning = true) {
 async function dynamicUpdate(logicalTableName, data, conditions, returning = true) {
   let query = '';
   let route = null;
-  const setKeys = Object.keys(data);
-  const setValues = Object.values(data);
-  const conditionKeys = Object.keys(conditions);
-  const conditionValues = Object.values(conditions);
+  let setKeys = Object.keys(data);
+  let setValues = Object.values(data);
+  let conditionKeys = Object.keys(conditions);
+  let conditionValues = Object.values(conditions);
   try {
     route = await resolveTablePath(logicalTableName);
+    const columnSet = await getPhysicalTableColumns(route);
+
+    const filteredSetData = filterDataByColumns(data, columnSet);
+    setKeys = Object.keys(filteredSetData);
+    setValues = Object.values(filteredSetData);
+
+    const filteredConditionData = filterDataByColumns(conditions, columnSet);
+    conditionKeys = Object.keys(filteredConditionData);
+    conditionValues = Object.values(filteredConditionData);
+
+    if (setKeys.length === 0) {
+      throw new Error(`[DynamicDB] UPDATE failed: no updatable columns for ${route.fullPath}`);
+    }
+    if (conditionKeys.length === 0) {
+      throw new Error(`[DynamicDB] UPDATE failed: no valid condition columns for ${route.fullPath}`);
+    }
 
     const setClause = setKeys.map((key, i) => `${key} = $${i + 1}`).join(', ');
     const whereClause = conditionKeys.map((key, i) => `${key} = $${setKeys.length + i + 1}`).join(' AND ');
@@ -1321,6 +1507,9 @@ function clearRoutingCache(logicalName = null) {
     console.log(`[Gateway] Cache cleared for: ${logicalName}`);
   } else {
     routingCache.clear();
+    routingColumnCache.clear();
+    physicalTableColumnCache.clear();
+    tenantDisplayNameCache.clear();
     console.log('[Gateway] All cache cleared');
   }
 }
@@ -2295,7 +2484,7 @@ app.put('/api/offices/:id', requireAdmin, async (req, res) => {
         phone_number: phone_number || null,
         updated_at: new Date()
       },
-      { id: officeId }
+      { office_id: officeId }
     );
 
     if (offices.length === 0) {
@@ -2315,7 +2504,7 @@ app.delete('/api/offices/:id', requireAdmin, async (req, res) => {
   const officeId = req.params.id;
 
   try {
-    const offices = await dynamicDelete('management_offices', { id: officeId }, true);
+    const offices = await dynamicDelete('management_offices', { office_id: officeId }, true);
 
     if (offices.length === 0) {
       return res.status(404).json({ success: false, message: '事業所が見つかりません' });
