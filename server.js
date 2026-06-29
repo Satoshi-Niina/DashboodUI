@@ -1037,13 +1037,27 @@ const APP_ID = process.env.APP_ID || 'dashboard-ui';
 const routingCache = new Map(); // { key: { fullPath, schema, table, timestamp } }
 const CACHE_TTL = 60 * 1000; // 1分（本番での即座な反映を重視）
 
+function getRoutingLookupContext() {
+  const runtime = getActiveTenantRuntime();
+  const tenantId = String(
+    (runtime && (runtime.resolvedTenantId || runtime.requestedTenantId)) || 'demo_env'
+  ).trim().toLowerCase();
+  const useCommonRouting = tenantId === 'daitetsu';
+
+  return {
+    tenantId,
+    useCommonRouting
+  };
+}
+
 /**
  * 論理テーブル名から物理パスを解決
  * @param {string} logicalName - 論理テーブル名（例: 'users', 'offices'）
  * @returns {Promise<{fullPath: string, schema: string, table: string}>}
  */
 async function resolveTablePath(logicalName) {
-  const cacheKey = `${APP_ID}:${logicalName}`;
+  const routingContext = getRoutingLookupContext();
+  const cacheKey = `${routingContext.tenantId}:${APP_ID}:${logicalName}`;
 
   // キャッシュチェック
   const cached = routingCache.get(cacheKey);
@@ -1053,16 +1067,33 @@ async function resolveTablePath(logicalName) {
   }
 
   try {
-    // app_resource_routingテーブルから物理パスを取得
-    // app_id = 'dashboard-ui' の場合は小文字、'master_data' の場合は大文字
-    const query = `
+    // daitetsuのみ common_db 側の app_resource_routing(tenant_id = 'daitetsu') を参照
+    // PostgreSQLは「database.schema.table」の3階層指定ができないため、
+    // common_dbへ接続したプールで public.app_resource_routing を引く。
+    const query = routingContext.useCommonRouting
+      ? `
+      SELECT physical_schema, physical_table
+      FROM public.app_resource_routing
+      WHERE tenant_id = $1 AND app_id = $2 AND logical_resource_name = $3
+      LIMIT 1
+    `
+      : `
       SELECT physical_schema, physical_table
       FROM public.app_resource_routing
       WHERE app_id = $1 AND logical_resource_name = $2
       LIMIT 1
     `;
-    console.log(`[Gateway] Querying routing for: ${APP_ID}:${logicalName}`);
-    const result = await pool.query(query, [APP_ID, logicalName]);
+
+    const params = routingContext.useCommonRouting
+      ? [routingContext.tenantId, APP_ID, logicalName]
+      : [APP_ID, logicalName];
+
+    const routingQueryPool = routingContext.useCommonRouting
+      ? getTenantRoutingPool()
+      : pool;
+
+    console.log(`[Gateway] Querying routing for: ${routingContext.tenantId}:${APP_ID}:${logicalName}`);
+    const result = await routingQueryPool.query(query, params);
 
     if (result.rows.length > 0) {
       const { physical_schema, physical_table } = result.rows[0];
@@ -1315,7 +1346,23 @@ function clearRoutingCache(logicalName = null) {
 app.get('/api/debug/routing', async (req, res) => {
   try {
     console.log('[DEBUG] Fetching routing table...');
-    const query = `
+    const routingContext = getRoutingLookupContext();
+    const query = routingContext.useCommonRouting
+      ? `
+      SELECT
+        routing_id,
+        tenant_id,
+        app_id,
+        logical_resource_name,
+        physical_schema,
+        physical_table,
+        is_active
+      FROM public.app_resource_routing
+      WHERE tenant_id = $1
+        AND is_active = true
+      ORDER BY app_id, logical_resource_name
+    `
+      : `
       SELECT 
         routing_id,
         app_id,
@@ -1327,7 +1374,9 @@ app.get('/api/debug/routing', async (req, res) => {
       WHERE is_active = true
       ORDER BY app_id, logical_resource_name
     `;
-    const result = await pool.query(query);
+    const params = routingContext.useCommonRouting ? [routingContext.tenantId] : [];
+    const routingQueryPool = routingContext.useCommonRouting ? getTenantRoutingPool() : pool;
+    const result = await routingQueryPool.query(query, params);
 
     res.json({
       success: true,
@@ -3657,13 +3706,24 @@ app.get('/debug/tables', async (req, res) => {
 
     // ルーティングテーブルの確認
     try {
-      const routingQuery = `
+      const routingContext = getRoutingLookupContext();
+      const routingQuery = routingContext.useCommonRouting
+        ? `
+        SELECT logical_resource_name, physical_schema, physical_table, is_active
+        FROM public.app_resource_routing
+        WHERE tenant_id = $1
+          AND app_id = 'dashboard-ui'
+        ORDER BY logical_resource_name
+      `
+        : `
         SELECT logical_resource_name, physical_schema, physical_table, is_active
         FROM public.app_resource_routing
         WHERE app_id = 'dashboard-ui'
         ORDER BY logical_resource_name
       `;
-      const routingResult = await pool.query(routingQuery);
+      const routingParams = routingContext.useCommonRouting ? [routingContext.tenantId] : [];
+      const routingQueryPool = routingContext.useCommonRouting ? getTenantRoutingPool() : pool;
+      const routingResult = await routingQueryPool.query(routingQuery, routingParams);
       results._routing = routingResult.rows;
     } catch (err) {
       results._routing = { error: err.message };
