@@ -5,67 +5,33 @@
  */
 
 const pool = require('./shared-db-config');
-const { Pool } = require('pg');
 
 // ルーティングキャッシュ
 const routingCache = new Map();
 const CACHE_TTL = 60000; // 1分
-const gatewayTenantPoolCache = new Map();
-const tenantDbNameCache = new Map();
-const TENANT_DB_NAME_CACHE_TTL = 60000;
+const routingColumnCache = new Map();
 
-function getTenantRoutingDbName() {
-    return (process.env.TENANT_ROUTING_DB_NAME || process.env.CONTROL_PLANE_DB_NAME || 'common_db').trim();
-}
-
-function buildGatewayDbPoolConfig(dbName) {
-    const isProduction = process.env.NODE_ENV === 'production';
-
-    if (process.env.DATABASE_URL) {
-        try {
-            const parsed = new URL(process.env.DATABASE_URL);
-            parsed.pathname = `/${dbName}`;
-            return { connectionString: parsed.toString() };
-        } catch (_) {
-            return { connectionString: process.env.DATABASE_URL };
-        }
+async function getRoutingTableColumns() {
+    const cacheKey = 'public.app_resource_routing';
+    const now = Date.now();
+    const cached = routingColumnCache.get(cacheKey);
+    if (cached && (now - cached.timestamp) < CACHE_TTL) {
+        return cached.columns;
     }
 
-    if (isProduction && process.env.CLOUD_SQL_INSTANCE) {
-        return {
-            host: `/cloudsql/${process.env.CLOUD_SQL_INSTANCE}`,
-            user: process.env.DB_USER,
-            password: process.env.DB_PASSWORD,
-            database: dbName,
-            max: 5
-        };
-    }
-
-    return {
-        host: process.env.DB_HOST || 'localhost',
-        port: Number(process.env.DB_PORT || 5432),
-        user: process.env.DB_USER || 'postgres',
-        password: process.env.DB_PASSWORD,
-        database: dbName,
-        max: 5
-    };
-}
-
-function getOrCreateGatewayDbPool(dbName) {
-    if (!dbName) {
-        return pool;
-    }
-
-    if (gatewayTenantPoolCache.has(dbName)) {
-        return gatewayTenantPoolCache.get(dbName);
-    }
-
-    const createdPool = new Pool(buildGatewayDbPoolConfig(dbName));
-    createdPool.on('error', (err) => {
-        console.error(`[db-gateway] Unexpected error on pool ${dbName}:`, err.message);
+    const columnsQuery = `
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'app_resource_routing'
+    `;
+    const result = await pool.query(columnsQuery);
+    const columns = new Set(result.rows.map((row) => String(row.column_name || '').trim().toLowerCase()));
+    routingColumnCache.set(cacheKey, {
+        columns,
+        timestamp: now
     });
-    gatewayTenantPoolCache.set(dbName, createdPool);
-    return createdPool;
+    return columns;
 }
 
 function parseGatewayArgs(appIdOrOptions = 'dashboard-ui', maybeOptions = {}) {
@@ -116,7 +82,7 @@ function getGatewayRoutingContext(options = {}) {
         ? (runtime.resolvedTenantId || runtime.requestedTenantId || runtime.companyId || '')
         : '';
 
-    const tenantId = String(
+  const tenantIdRaw = String(
         options.tenantId
         || options.req?.tenantContext?.resolvedTenantId
         || options.req?.tenantContext?.requestedTenantId
@@ -124,48 +90,11 @@ function getGatewayRoutingContext(options = {}) {
         || options.resolvedTenantId
         || runtimeTenantId
         || process.env.TENANT_ID
-        || 'demo_env'
+      || 'demo'
     ).trim().toLowerCase();
-    const useCommonRouting = tenantId === 'daitetsu';
+  const tenantId = tenantIdRaw === 'demo_env' ? 'demo' : tenantIdRaw;
 
-    return { tenantId, useCommonRouting };
-}
-
-async function resolveTenantDbNameFromCommonRouting(tenantId, appId) {
-    const normalizedTenantId = String(tenantId || '').trim().toLowerCase();
-    if (!normalizedTenantId || normalizedTenantId === 'demo_env') {
-        return null;
-    }
-
-    const normalizedAppId = String(appId || 'dashboard-ui').trim() || 'dashboard-ui';
-    const cacheKey = `${normalizedTenantId}:${normalizedAppId}`;
-    const cached = tenantDbNameCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < TENANT_DB_NAME_CACHE_TTL) {
-        return cached.dbName;
-    }
-
-    const routingPool = getOrCreateGatewayDbPool(getTenantRoutingDbName());
-    const result = await routingPool.query(
-        `SELECT physical_schema
-         FROM public.app_resource_routing
-         WHERE tenant_id = $1
-           AND app_id = $2
-           AND is_active = true
-         ORDER BY id
-         LIMIT 1`,
-        [normalizedTenantId, normalizedAppId]
-    );
-
-    const dbName = String(result.rows[0]?.physical_schema || '').trim();
-    if (dbName) {
-        tenantDbNameCache.set(cacheKey, {
-            dbName,
-            timestamp: Date.now()
-        });
-        return dbName;
-    }
-
-    return null;
+  return { tenantId };
 }
 
 /**
@@ -187,23 +116,42 @@ async function getTablePath(logicalResourceName, appIdOrOptions = 'dashboard-ui'
     }
     
     try {
-        let routingQueryPool = pool;
+        const routingQueryPool = pool;
 
-        if (routingContext.tenantId && routingContext.tenantId !== 'demo_env') {
-            const tenantDbName = await resolveTenantDbNameFromCommonRouting(routingContext.tenantId, appId);
-            if (tenantDbName) {
-                routingQueryPool = getOrCreateGatewayDbPool(tenantDbName);
-            }
+        const columns = await getRoutingTableColumns();
+        const selectColumns = ['app_id', 'physical_schema'];
+        if (columns.has('id')) {
+            selectColumns.push('id');
+        }
+        if (columns.has('tenant_id')) {
+            selectColumns.push('tenant_id');
+        }
+        if (columns.has('physical_table_name')) {
+            selectColumns.push('physical_table_name');
+        }
+        if (columns.has('physical_table')) {
+            selectColumns.push('physical_table');
         }
 
-        const query = `SELECT physical_schema, physical_table
+        const params = [];
+        const conditions = [];
+        if (columns.has('tenant_id')) {
+            params.push(routingContext.tenantId);
+            conditions.push(`tenant_id = $${params.length}`);
+        }
+        params.push(appId);
+        conditions.push(`app_id = $${params.length}`);
+        params.push(logicalResourceName);
+        conditions.push(`logical_resource_name = $${params.length}`);
+        conditions.push('is_active = true');
+
+        const query = `SELECT
+                   ${selectColumns.join(', ')}
                FROM public.app_resource_routing
-               WHERE app_id = $1
-                 AND logical_resource_name = $2
-                 AND is_active = true
+               WHERE ${conditions.join(' AND ')}
                LIMIT 1`;
 
-        const result = await routingQueryPool.query(query, [appId, logicalResourceName]);
+        const result = await routingQueryPool.query(query, params);
         
         if (result.rows.length > 0) {
             const row = result.rows[0] || {};
@@ -219,6 +167,11 @@ async function getTablePath(logicalResourceName, appIdOrOptions = 'dashboard-ui'
             // キャッシュに保存
             routingCache.set(cacheKey, {
                 path: fullPath,
+                id: row.id || null,
+                tenantId: row.tenant_id || routingContext.tenantId,
+                appId: row.app_id || appId,
+                physical_table_name: row.physical_table_name || physical_table,
+                physical_table: physical_table,
                 timestamp: Date.now()
             });
             
@@ -241,7 +194,6 @@ async function getTablePath(logicalResourceName, appIdOrOptions = 'dashboard-ui'
  */
 function clearCache() {
     routingCache.clear();
-    tenantDbNameCache.clear();
     console.log('Routing cache cleared');
 }
 

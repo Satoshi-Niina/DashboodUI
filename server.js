@@ -353,10 +353,6 @@ function getDefaultBucketName() {
   return process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET || 'maint-vehicle-management-storage';
 }
 
-function getTenantRoutingDbName() {
-  return (process.env.TENANT_ROUTING_DB_NAME || process.env.CONTROL_PLANE_DB_NAME || 'common_db').trim();
-}
-
 function buildPoolConfigForDb(dbName) {
   const config = {
     ...poolConfig,
@@ -406,29 +402,18 @@ function getOrCreateTenantPool(dbName) {
 }
 
 function getTenantRoutingPool() {
-  const routingDbName = getTenantRoutingDbName();
-  const defaultDbName = getDefaultDbName();
-  if (!routingDbName || routingDbName.toLowerCase() === String(defaultDbName || '').toLowerCase()) {
-    return getControlPlanePool();
-  }
-  return getOrCreateTenantPool(routingDbName);
+  return getActiveDbPool();
 }
 
 async function queryCompanyRouting(query, params = []) {
-  const routingPool = getTenantRoutingPool();
-  const defaultPool = getControlPlanePool();
-
   try {
-    return await routingPool.query(query, params);
+    return await getControlPlanePool().query(query, params);
   } catch (err) {
     const message = String(err.message || '').toLowerCase();
     const isMissingRoutingTable = message.includes('company_db_routing') && message.includes('does not exist');
-
-    if (routingPool !== defaultPool && isMissingRoutingTable) {
-      console.warn('[TenantRouting] company_db_routing not found in routing DB. Falling back to default DB.');
-      return defaultPool.query(query, params);
+    if (isMissingRoutingTable) {
+      return { rows: [] };
     }
-
     throw err;
   }
 }
@@ -486,52 +471,23 @@ function buildTenantRuntimeFromRoutingRow(routingRow, requestedTenantId, default
   };
 }
 
-const tenantDbNameCache = new Map();
-const TENANT_DB_NAME_CACHE_TTL = 60 * 1000;
-
-async function getTenantDbNameFromCommonRouting(tenantId, appId = 'dashboard-ui') {
-  const normalizedTenantId = String(tenantId || '').trim().toLowerCase();
-  const normalizedAppId = String(appId || 'dashboard-ui').trim();
-  if (!normalizedTenantId || normalizedTenantId === 'demo_env') {
-    return null;
+function inferTenantDbName(tenantKey, defaultDbName) {
+  const normalizedTenantKey = normalizeTenantAliasKey(tenantKey);
+  if (!normalizedTenantKey || normalizedTenantKey === 'demo_env' || normalizedTenantKey === 'demo') {
+    return defaultDbName;
   }
 
-  const cacheKey = `${normalizedTenantId}:${normalizedAppId}`;
-  const now = Date.now();
-  const cached = tenantDbNameCache.get(cacheKey);
-  if (cached && (now - cached.timestamp) < TENANT_DB_NAME_CACHE_TTL) {
-    return cached.dbName;
+  if (normalizedTenantKey.endsWith('_db')) {
+    return normalizedTenantKey;
   }
 
-  const routingQuery = `
-    SELECT physical_schema
-    FROM public.app_resource_routing
-    WHERE tenant_id = $1
-      AND app_id = $2
-      AND is_active = true
-    ORDER BY id
-    LIMIT 1
-  `;
-
-  const result = await getTenantRoutingPool().query(routingQuery, [normalizedTenantId, normalizedAppId]);
-  const dbName = String(result.rows[0]?.physical_schema || '').trim();
-
-  if (dbName) {
-    tenantDbNameCache.set(cacheKey, {
-      dbName,
-      timestamp: now
-    });
-    return dbName;
-  }
-
-  return null;
+  return `${normalizedTenantKey}_db`;
 }
 
 async function resolveTenantRuntime(tenantId, requestHint = {}) {
   const normalizedTenantId = (tenantId || 'demo_env').trim().toLowerCase() || 'demo_env';
   const defaultDbName = getDefaultDbName();
   const defaultBucketName = getDefaultBucketName();
-  const appId = process.env.APP_ID || 'dashboard-ui';
   const requestTenantPath = requestHint.tenantPath || requestHint.fullUrl || '';
   const requestFullUrl = requestHint.fullUrl || requestHint.tenantPath || requestHint.referer || '';
   const requestOriginalUrl = requestHint.originalUrl || '';
@@ -553,21 +509,7 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
   }
 
   try {
-    const tenantDbName = await getTenantDbNameFromCommonRouting(expectedTenantKey, appId);
-
-    if (!tenantDbName) {
-      console.warn(`[TenantRouting] app_resource_routing not found for tenant=${expectedTenantKey}, appId=${appId}. Falling back to demo_env.`);
-      return {
-        requestedTenantId: expectedTenantKey,
-        resolvedTenantId: 'demo_env',
-        companyId: 'demo_env',
-        companyName: '',
-        dbName: defaultDbName,
-        storageBucketName: defaultBucketName,
-        pool: getControlPlanePool(),
-        isFallback: true
-      };
-    }
+    const tenantDbName = inferTenantDbName(expectedTenantKey, defaultDbName);
 
     return {
       requestedTenantId: normalizedTenantId,
@@ -1046,6 +988,28 @@ setImmediate(async () => {
 const APP_ID = process.env.APP_ID || 'dashboard-ui';
 const routingCache = new Map(); // { key: { fullPath, schema, table, timestamp } }
 const CACHE_TTL = 60 * 1000; // 1分（本番での即座な反映を重視）
+const routingColumnCache = new Map(); // { dbName: { columns: Set<string>, timestamp: number } }
+
+async function getRoutingTableColumns() {
+  const runtime = getActiveTenantRuntime();
+  const dbName = runtime?.dbName || getDefaultDbName();
+  const now = Date.now();
+  const cached = routingColumnCache.get(dbName);
+  if (cached && (now - cached.timestamp) < CACHE_TTL) {
+    return cached.columns;
+  }
+
+  const columnsQuery = `
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'app_resource_routing'
+  `;
+  const result = await getTenantRoutingPool().query(columnsQuery);
+  const columns = new Set(result.rows.map((row) => String(row.column_name || '').trim().toLowerCase()));
+  routingColumnCache.set(dbName, { columns, timestamp: now });
+  return columns;
+}
 
 /**
  * 論理テーブル名から物理パスを解決
@@ -1054,7 +1018,11 @@ const CACHE_TTL = 60 * 1000; // 1分（本番での即座な反映を重視）
  */
 async function resolveTablePath(logicalName) {
   const runtime = getActiveTenantRuntime();
-  const cacheKey = `${runtime?.dbName || 'default'}:${APP_ID}:${logicalName}`;
+  const routingTenantIdRaw = String(
+    (runtime && (runtime.resolvedTenantId || runtime.requestedTenantId)) || 'demo'
+  ).trim().toLowerCase();
+  const routingTenantId = routingTenantIdRaw === 'demo_env' ? 'demo' : routingTenantIdRaw;
+  const cacheKey = `${routingTenantId}:${APP_ID}:${logicalName}`;
 
   // キャッシュチェック
   const cached = routingCache.get(cacheKey);
@@ -1064,14 +1032,41 @@ async function resolveTablePath(logicalName) {
   }
 
   try {
+    const columns = await getRoutingTableColumns();
+    const selectColumns = ['app_id', 'physical_schema'];
+    if (columns.has('id')) {
+      selectColumns.push('id');
+    }
+    if (columns.has('tenant_id')) {
+      selectColumns.push('tenant_id');
+    }
+    if (columns.has('physical_table_name')) {
+      selectColumns.push('physical_table_name');
+    }
+    if (columns.has('physical_table')) {
+      selectColumns.push('physical_table');
+    }
+
+    const params = [];
+    const conditions = [];
+    if (columns.has('tenant_id')) {
+      params.push(routingTenantId);
+      conditions.push(`tenant_id = $${params.length}`);
+    }
+    params.push(APP_ID);
+    conditions.push(`app_id = $${params.length}`);
+    params.push(logicalName);
+    conditions.push(`logical_resource_name = $${params.length}`);
+    conditions.push('is_active = true');
+
     const query = `
-      SELECT physical_schema, physical_table
+      SELECT ${selectColumns.join(', ')}
       FROM public.app_resource_routing
-      WHERE app_id = $1 AND logical_resource_name = $2
+      WHERE ${conditions.join(' AND ')}
       LIMIT 1
     `;
 
-    const result = await pool.query(query, [APP_ID, logicalName]);
+    const result = await getTenantRoutingPool().query(query, params);
 
     if (result.rows.length > 0) {
       const row = result.rows[0] || {};
@@ -1084,9 +1079,13 @@ async function resolveTablePath(logicalName) {
 
       const fullPath = `${physical_schema}."${physical_table}"`;
       const resolved = {
+        id: row.id || null,
+        appId: row.app_id || APP_ID,
         fullPath,
         schema: physical_schema,
         table: physical_table,
+        physical_table_name: row.physical_table_name || physical_table,
+        physical_table: physical_table,
         timestamp: Date.now()
       };
 
@@ -1340,19 +1339,34 @@ function clearRoutingCache(logicalName = null) {
 app.get('/api/debug/routing', async (req, res) => {
   try {
     console.log('[DEBUG] Fetching routing table...');
+    const runtime = req.tenantContext || getActiveTenantRuntime();
+    const routingTenantIdRaw = String(
+      (runtime && (runtime.resolvedTenantId || runtime.requestedTenantId))
+      || req.requestedTenantId
+      || req.query.tenant_id
+      || 'demo'
+    ).trim().toLowerCase();
+    const routingTenantId = routingTenantIdRaw === 'demo_env' ? 'demo' : routingTenantIdRaw;
+    const columns = await getRoutingTableColumns();
+    const params = [];
+    const conditions = ['is_active = true'];
+    if (columns.has('tenant_id')) {
+      params.push(routingTenantId);
+      conditions.push(`tenant_id = $${params.length}`);
+    }
+    if (columns.has('app_id')) {
+      params.push(APP_ID);
+      conditions.push(`app_id = $${params.length}`);
+    }
+    const orderBy = columns.has('logical_resource_name')
+      ? ' ORDER BY logical_resource_name'
+      : '';
     const query = `
-      SELECT 
-        routing_id,
-        app_id,
-        logical_resource_name,
-        physical_schema,
-        physical_table,
-        is_active
-      FROM public.app_resource_routing 
-      WHERE is_active = true
-      ORDER BY app_id, logical_resource_name
+      SELECT *
+      FROM public.app_resource_routing
+      WHERE ${conditions.join(' AND ')}${orderBy}
     `;
-    const result = await pool.query(query);
+    const result = await getTenantRoutingPool().query(query, params);
 
     res.json({
       success: true,
@@ -3682,13 +3696,33 @@ app.get('/debug/tables', async (req, res) => {
 
     // ルーティングテーブルの確認
     try {
+      const runtime = req.tenantContext || getActiveTenantRuntime();
+      const routingTenantIdRaw = String(
+        (runtime && (runtime.resolvedTenantId || runtime.requestedTenantId))
+        || req.requestedTenantId
+        || req.query.tenant_id
+        || 'demo'
+      ).trim().toLowerCase();
+      const routingTenantId = routingTenantIdRaw === 'demo_env' ? 'demo' : routingTenantIdRaw;
+      const columns = await getRoutingTableColumns();
+      const params = [];
+      const conditions = [];
+      if (columns.has('tenant_id')) {
+        params.push(routingTenantId);
+        conditions.push(`tenant_id = $${params.length}`);
+      }
+      if (columns.has('app_id')) {
+        params.push(APP_ID);
+        conditions.push(`app_id = $${params.length}`);
+      }
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
       const routingQuery = `
-        SELECT logical_resource_name, physical_schema, physical_table, is_active
+        SELECT *
         FROM public.app_resource_routing
-        WHERE app_id = 'dashboard-ui'
+        ${whereClause}
         ORDER BY logical_resource_name
       `;
-      const routingResult = await pool.query(routingQuery);
+      const routingResult = await getTenantRoutingPool().query(routingQuery, params);
       results._routing = routingResult.rows;
     } catch (err) {
       results._routing = { error: err.message };
