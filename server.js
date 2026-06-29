@@ -5,7 +5,6 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const path = require('path');
-const fs = require('fs');
 const multer = require('multer');
 const { Storage } = require('@google-cloud/storage');
 const configRoutes = require('./server/routes/config');
@@ -133,11 +132,6 @@ const tenantRouteCache = new Map();
 const tenantRouteListCache = new Map();
 const TENANT_ROUTE_CACHE_TTL = 60 * 1000;
 let controlPlanePool = null;
-const tenantDisplayNameCache = new Map();
-const TENANT_DISPLAY_NAME_CACHE_TTL = 60 * 1000;
-let tenantDisplayConfigCache = null;
-let tenantDisplayConfigLoadedAt = 0;
-const TENANT_DISPLAY_CONFIG_TTL = 60 * 1000;
 
 function normalizeUrlForCompare(rawUrl) {
   if (!rawUrl) return '';
@@ -197,115 +191,6 @@ function resolveFirstTenantKey(...candidates) {
     }
   }
   return 'demo_env';
-}
-
-async function resolveTenantDisplayNameFromDb(tenantPool, tenantKey) {
-  if (!tenantPool) {
-    return '';
-  }
-
-  const normalizedTenantKey = normalizeTenantAliasKey(tenantKey);
-  const cacheKey = normalizedTenantKey || 'unknown';
-  const now = Date.now();
-  const cached = tenantDisplayNameCache.get(cacheKey);
-  if (cached && (now - cached.timestamp) < TENANT_DISPLAY_NAME_CACHE_TTL) {
-    return cached.name;
-  }
-
-  try {
-    const appConfigQuery = `
-      SELECT config_value
-      FROM master_data.app_config
-      WHERE config_key IN ('tenant_display_name', 'company_name', 'tenant_name')
-        AND COALESCE(TRIM(config_value), '') <> ''
-      ORDER BY CASE config_key
-        WHEN 'tenant_display_name' THEN 1
-        WHEN 'company_name' THEN 2
-        WHEN 'tenant_name' THEN 3
-        ELSE 99
-      END
-      LIMIT 1
-    `;
-    const appConfigResult = await tenantPool.query(appConfigQuery);
-    const appConfigName = String(appConfigResult.rows[0]?.config_value || '').trim();
-    if (appConfigName) {
-      tenantDisplayNameCache.set(cacheKey, { name: appConfigName, timestamp: now });
-      return appConfigName;
-    }
-  } catch (_) {
-    // app_configが存在しない環境では次のフォールバックへ
-  }
-
-  try {
-    const officeQuery = `
-      SELECT office_name
-      FROM master_data.managements_offices
-      WHERE COALESCE(TRIM(office_name), '') <> ''
-      ORDER BY office_id
-      LIMIT 1
-    `;
-    const officeResult = await tenantPool.query(officeQuery);
-    const officeName = String(officeResult.rows[0]?.office_name || '').trim();
-    if (officeName) {
-      tenantDisplayNameCache.set(cacheKey, { name: officeName, timestamp: now });
-      return officeName;
-    }
-  } catch (_) {
-    // managements_officesが存在しない環境では空文字を返す
-  }
-
-  const configuredDisplayName = getConfiguredTenantDisplayName(tenantKey);
-  if (configuredDisplayName) {
-    tenantDisplayNameCache.set(cacheKey, { name: configuredDisplayName, timestamp: now });
-    return configuredDisplayName;
-  }
-
-  return '';
-}
-
-function loadTenantDisplayConfig() {
-  const now = Date.now();
-  if (tenantDisplayConfigCache && (now - tenantDisplayConfigLoadedAt) < TENANT_DISPLAY_CONFIG_TTL) {
-    return tenantDisplayConfigCache;
-  }
-
-  const configPath = process.env.TENANT_DISPLAY_CONFIG_PATH
-    ? path.resolve(process.env.TENANT_DISPLAY_CONFIG_PATH)
-    : path.join(__dirname, 'tenant-display-names.json');
-
-  try {
-    if (!fs.existsSync(configPath)) {
-      tenantDisplayConfigCache = {};
-      tenantDisplayConfigLoadedAt = now;
-      return tenantDisplayConfigCache;
-    }
-
-    const raw = fs.readFileSync(configPath, 'utf8');
-    const parsed = JSON.parse(raw);
-    tenantDisplayConfigCache = (parsed && typeof parsed === 'object') ? parsed : {};
-    tenantDisplayConfigLoadedAt = now;
-    return tenantDisplayConfigCache;
-  } catch (err) {
-    console.warn('[TenantRouting] Failed to load tenant display config:', err.message);
-    tenantDisplayConfigCache = {};
-    tenantDisplayConfigLoadedAt = now;
-    return tenantDisplayConfigCache;
-  }
-}
-
-function getConfiguredTenantDisplayName(tenantKey) {
-  const normalizedTenantKey = normalizeTenantAliasKey(tenantKey);
-  if (!normalizedTenantKey) {
-    return '';
-  }
-
-  const config = loadTenantDisplayConfig();
-  const direct = String(config[normalizedTenantKey] || '').trim();
-  if (direct) {
-    return direct;
-  }
-
-  return '';
 }
 
 function normalizeTenantRoutingRow(row) {
@@ -448,6 +333,10 @@ function getControlPlanePool() {
   return controlPlanePool || pool;
 }
 
+function getCompanyRoutingDbName() {
+  return String(process.env.TENANT_ROUTING_DB_NAME || process.env.CONTROL_PLANE_DB_NAME || 'common_db').trim();
+}
+
 function getDefaultDbName() {
   if (poolConfig && poolConfig.database) {
     return poolConfig.database;
@@ -520,12 +409,29 @@ function getTenantRoutingPool() {
   return getActiveDbPool();
 }
 
+function getCompanyRoutingPool() {
+  const routingDbName = getCompanyRoutingDbName();
+  const defaultDbName = getDefaultDbName();
+  if (!routingDbName || routingDbName.toLowerCase() === String(defaultDbName || '').toLowerCase()) {
+    return getControlPlanePool();
+  }
+  return getOrCreateTenantPool(routingDbName);
+}
+
 async function queryCompanyRouting(query, params = []) {
+  const routingPool = getCompanyRoutingPool();
+  const defaultPool = getControlPlanePool();
+
   try {
-    return await getControlPlanePool().query(query, params);
+    return await routingPool.query(query, params);
   } catch (err) {
     const message = String(err.message || '').toLowerCase();
     const isMissingRoutingTable = message.includes('company_db_routing') && message.includes('does not exist');
+
+    if (routingPool !== defaultPool && isMissingRoutingTable) {
+      return defaultPool.query(query, params);
+    }
+
     if (isMissingRoutingTable) {
       return { rows: [] };
     }
@@ -611,11 +517,22 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
     : resolveFirstTenantKey(requestTenantPath, requestFullUrl, requestOriginalUrl, requestHint.referer || '');
 
   if (expectedTenantKey === 'demo_env') {
+    const demoRoute = await getCompanyRoutingByTenantKey('demo');
+    if (demoRoute) {
+      return buildTenantRuntimeFromRoutingRow(
+        demoRoute,
+        normalizedTenantId,
+        defaultDbName,
+        defaultBucketName,
+        'demo_env'
+      );
+    }
+
     return {
       requestedTenantId: normalizedTenantId,
       resolvedTenantId: 'demo_env',
       companyId: 'demo_env',
-      companyName: 'デモ環境',
+      companyName: '',
       dbName: defaultDbName,
       storageBucketName: defaultBucketName,
       pool: getControlPlanePool(),
@@ -624,15 +541,38 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
   }
 
   try {
+    let routingRow = await getCompanyRoutingByTenantRequest({
+      tenantId: normalizedTenantId,
+      tenantPath: requestTenantPath,
+      fullUrl: requestFullUrl
+    });
+
+    if (!routingRow) {
+      routingRow = await getCompanyRoutingByTenantKey(expectedTenantKey);
+    }
+
+    if (!routingRow && normalizedTenantId !== 'demo_env') {
+      routingRow = await getCompanyRoutingByCompanyId(normalizedTenantId);
+    }
+
+    if (routingRow) {
+      return buildTenantRuntimeFromRoutingRow(
+        routingRow,
+        normalizedTenantId,
+        defaultDbName,
+        defaultBucketName,
+        expectedTenantKey
+      );
+    }
+
     const tenantDbName = inferTenantDbName(expectedTenantKey, defaultDbName);
     const tenantPool = tenantDbName === defaultDbName ? getControlPlanePool() : getOrCreateTenantPool(tenantDbName);
-    const companyName = await resolveTenantDisplayNameFromDb(tenantPool, expectedTenantKey);
 
     return {
       requestedTenantId: normalizedTenantId,
       resolvedTenantId: expectedTenantKey,
       companyId: expectedTenantKey,
-      companyName,
+      companyName: '',
       dbName: tenantDbName,
       storageBucketName: defaultBucketName,
       pool: tenantPool,
@@ -1062,7 +1002,7 @@ app.get('/api/tenant-context', async (req, res) => {
 
     const routeForResponse = route || {
       company_id: runtime.companyId || runtime.resolvedTenantId || runtime.requestedTenantId || 'demo_env',
-      company_name: runtime.companyName || (String(runtime.resolvedTenantId || runtime.requestedTenantId || '').trim().toLowerCase() === 'demo_env' ? 'デモ環境' : ''),
+      company_name: runtime.companyName || '',
       db_name: runtime.dbName || '',
       storage_bucket_name: runtime.storageBucketName || '',
       tenant_path: runtime.tenantPath || (runtime.resolvedTenantId && runtime.resolvedTenantId !== 'demo_env' ? `/${runtime.resolvedTenantId}` : '/')
@@ -1509,7 +1449,6 @@ function clearRoutingCache(logicalName = null) {
     routingCache.clear();
     routingColumnCache.clear();
     physicalTableColumnCache.clear();
-    tenantDisplayNameCache.clear();
     console.log('[Gateway] All cache cleared');
   }
 }
@@ -1947,20 +1886,25 @@ async function requireAdmin(req, res, next) {
     return res.status(401).json({ success: false, message: '認証が必要です' });
   }
 
+  let decoded;
   try {
-    // Emergency-Assistanceと同じ検証オプションを使用
-    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+    decoded = jwt.verify(token, process.env.JWT_SECRET, {
       issuer: 'emergency-assistance-app',
       audience: 'emergency-assistance-app'
     });
-    const query = 'SELECT id, username, role FROM master_data.users WHERE id = $1';
-    const result = await pool.query(query, [decoded.id]);
+  } catch (err) {
+    console.error('Auth middleware JWT verify error:', err.message);
+    return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
+  }
 
-    if (result.rows.length === 0) {
+  try {
+    const users = await dynamicSelect('users', { id: decoded.id }, ['id', 'username', 'role'], 1);
+
+    if (users.length === 0) {
       return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
     }
 
-    const user = result.rows[0];
+    const user = users[0];
 
     // system_admin、operation_admin、または admin のみアクセス可能
     if (user.role !== 'system_admin' && user.role !== 'operation_admin' && user.role !== 'admin') {
@@ -1970,8 +1914,8 @@ async function requireAdmin(req, res, next) {
     req.user = user;
     next();
   } catch (err) {
-    console.error('Auth middleware error:', err);
-    return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
+    console.error('Auth middleware user lookup error:', err);
+    return res.status(500).json({ success: false, message: '認証ユーザー情報の取得に失敗しました' });
   }
 }
 
@@ -1983,19 +1927,25 @@ async function requireSystemAdmin(req, res, next) {
     return res.status(401).json({ success: false, message: '認証が必要です' });
   }
 
+  let decoded;
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+    decoded = jwt.verify(token, process.env.JWT_SECRET, {
       issuer: 'emergency-assistance-app',
       audience: 'emergency-assistance-app'
     });
-    const query = 'SELECT id, username, role FROM master_data.users WHERE id = $1';
-    const result = await pool.query(query, [decoded.id]);
+  } catch (err) {
+    console.error('System admin middleware JWT verify error:', err.message);
+    return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
+  }
 
-    if (result.rows.length === 0) {
+  try {
+    const users = await dynamicSelect('users', { id: decoded.id }, ['id', 'username', 'role'], 1);
+
+    if (users.length === 0) {
       return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
     }
 
-    const user = result.rows[0];
+    const user = users[0];
 
     // system_admin のみアクセス可能
     if (user.role !== 'system_admin') {
@@ -2005,8 +1955,8 @@ async function requireSystemAdmin(req, res, next) {
     req.user = user;
     next();
   } catch (err) {
-    console.error('Auth middleware error:', err);
-    return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
+    console.error('System admin middleware user lookup error:', err);
+    return res.status(500).json({ success: false, message: '認証ユーザー情報の取得に失敗しました' });
   }
 }
 
