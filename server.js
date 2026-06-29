@@ -1072,7 +1072,7 @@ async function resolveTablePath(logicalName) {
     // common_dbへ接続したプールで public.app_resource_routing を引く。
     const query = routingContext.useCommonRouting
       ? `
-      SELECT id AS id, physical_schema, physical_table_name AS physical_table
+      SELECT id AS id, physical_schema, physical_table_name, physical_table_name AS physical_table
       FROM public.app_resource_routing
       WHERE tenant_id = $1 AND app_id = $2 AND logical_resource_name = $3
       LIMIT 1
@@ -1356,6 +1356,7 @@ app.get('/api/debug/routing', async (req, res) => {
         app_id,
         logical_resource_name,
         physical_schema,
+        physical_table_name,
         physical_table_name AS physical_table,
         is_active
       FROM public.app_resource_routing
@@ -3710,7 +3711,7 @@ app.get('/debug/tables', async (req, res) => {
       const routingContext = getRoutingLookupContext();
       const routingQuery = routingContext.useCommonRouting
         ? `
-        SELECT id AS id, logical_resource_name, physical_schema, physical_table_name AS physical_table, is_active
+        SELECT id AS id, logical_resource_name, physical_schema, physical_table_name, physical_table_name AS physical_table, is_active
         FROM public.app_resource_routing
         WHERE tenant_id = $1
           AND app_id = 'dashboard-ui'
