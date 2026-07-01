@@ -279,12 +279,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             const tokenAliases = Array.isArray(AppConfig.tokenParamAliases)
                 ? AppConfig.tokenParamAliases
                 : [];
-            const tenantId = window.TenantContext && typeof window.TenantContext.getTenantId === 'function'
-                ? window.TenantContext.getTenantId()
-                : 'demo';
-            const tenantPath = window.TenantContext && typeof window.TenantContext.getTenantPath === 'function'
-                ? window.TenantContext.getTenantPath()
-                : '/';
+            
+            // テナントIDとパスを動的に取得（現在のURLパスから判定）
+            let tenantId = 'demo_env';
+            let tenantPath = '/';
+            
+            if (window.TenantContext && typeof window.TenantContext.getTenantId === 'function') {
+                tenantId = window.TenantContext.getTenantId();
+                tenantPath = window.TenantContext.getTenantPath();
+            } else {
+                // TenantContextが初期化されていない場合、URLパスから直接取得
+                const pathSegments = window.location.pathname.split('/').filter(Boolean);
+                if (pathSegments.length > 0 && pathSegments[0] !== 'api' && pathSegments[0] !== 'assets') {
+                    tenantId = pathSegments[0];
+                    tenantPath = `/${pathSegments[0]}`;
+                }
+            }
 
             urlObj.searchParams.set(tokenParam, token);
             tokenAliases.forEach(alias => {

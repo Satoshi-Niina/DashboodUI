@@ -223,8 +223,28 @@
     window.TenantContext = {
         init: ensureInitialized,
         getContext: () => tenantContext,
-        getTenantId: () => (tenantContext ? tenantContext.tenantId : 'demo_env'),
-        getTenantPath: () => (tenantContext ? tenantContext.tenantPath : '/'),
+        getTenantId: () => {
+            if (tenantContext) {
+                return tenantContext.tenantId;
+            }
+            // フォールバック: 現在のURLパスから動的に取得
+            const pathSegments = window.location.pathname.split('/').filter(Boolean);
+            if (pathSegments.length > 0 && pathSegments[0] !== 'api' && pathSegments[0] !== 'assets') {
+                return pathSegments[0];
+            }
+            return 'demo_env';
+        },
+        getTenantPath: () => {
+            if (tenantContext) {
+                return tenantContext.tenantPath;
+            }
+            // フォールバック: 現在のURLパスから動的に取得
+            const pathSegments = window.location.pathname.split('/').filter(Boolean);
+            if (pathSegments.length > 0 && pathSegments[0] !== 'api' && pathSegments[0] !== 'assets') {
+                return `/${pathSegments[0]}`;
+            }
+            return '/';
+        },
         getCompanyName: () => (tenantContext ? (tenantContext.companyName || '') : ''),
         getDbName: () => (tenantContext ? (tenantContext.dbName || '') : ''),
         getStorageBucketName: () => (tenantContext ? (tenantContext.storageBucketName || '') : ''),
