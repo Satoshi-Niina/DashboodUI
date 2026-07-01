@@ -159,12 +159,12 @@ jobs:
           URL_EMERGENCY: "https://emergency-client-800711608362.asia-northeast2.run.app"
           URL_FAILURE: "https://machine-failure-client-800711608362.asia-northeast2.run.app"
           OPERATION_MANAGEMENT_CLIENT_URL: "https://operation-management-client-800711608362.asia-northeast2.run.app"
-          OPERATION_MANAGEMENT_SERVER_URL: "https://operation-management-server-800711608362.asia-northeast2.run.app"
+          OPERATION_MANAGEMENT_SERVER_URL: "https://operation-management-server-800711608369.asia-northeast2.run.app"
           AUTH_TRANSFER_MODE: "url_param"
           AUTH_TOKEN_PARAM_NAME: "auth_token"
           AUTH_TOKEN_PARAM_ALIASES: "token,jwt,sso_token"
           MACHINE_FAILURE_APP_URL: "https://machine-failure-client-800711608362.asia-northeast2.run.app"
-          URL_PLANNING_API: "https://operation-management-server-800711608362.asia-northeast2.run.app"
+          URL_PLANNING_API: "https://operation-management-server-800711608369.asia-northeast2.run.app"
           BUILD_TIMESTAMP: "$TIMESTAMP"
           EOF
 

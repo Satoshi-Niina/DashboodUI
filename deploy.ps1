@@ -41,7 +41,7 @@ gcloud run deploy $SERVICE_NAME `
   --set-env-vars GOOGLE_GEMINI_API_KEY=AIzaSyCQa-KuQgbUlpJd1GHtNyf1PuOOWQIuF0M `
   --set-env-vars GEMINI_MODEL=gemini-2.0-flash-exp `
   --set-env-vars OPERATION_MANAGEMENT_CLIENT_URL=https://operation-management-client-800711608362.asia-northeast2.run.app `
-  --set-env-vars OPERATION_MANAGEMENT_SERVER_URL=https://operation-management-server-800711608362.asia-northeast2.run.app `
+  --set-env-vars OPERATION_MANAGEMENT_SERVER_URL=https://operation-management-server-800711608369.asia-northeast2.run.app `
   --set-env-vars AUTH_TRANSFER_MODE=url_param `
   --set-env-vars AUTH_TOKEN_PARAM_NAME=auth_token `
   --set-env-vars AUTH_TOKEN_PARAM_ALIASES=token,jwt,sso_token `
@@ -50,7 +50,7 @@ gcloud run deploy $SERVICE_NAME `
   --set-env-vars URL_EMERGENCY=https://emergency-client-800711608362.asia-northeast2.run.app `
   --set-env-vars URL_FAILURE=https://machine-failure-client-800711608362.asia-northeast2.run.app `
   --set-env-vars MACHINE_FAILURE_APP_URL=https://machine-failure-client-800711608362.asia-northeast2.run.app `
-  --set-env-vars URL_PLANNING_API=https://operation-management-server-800711608362.asia-northeast2.run.app `
+  --set-env-vars URL_PLANNING_API=https://operation-management-server-800711608369.asia-northeast2.run.app `
   --add-cloudsql-instances $CLOUD_SQL_INSTANCE `
   --build-arg CACHEBUST=$TIMESTAMP `
   --build-arg BUILDTIME=$TIMESTAMP `
