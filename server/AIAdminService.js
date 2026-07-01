@@ -1,16 +1,23 @@
 /**
- * AI管理サービス
- * Gemini AIの設定、RAG設定、ナレッジデータ管理を行う
+ * AI管理サービス（リファクタリング版）
+ * 
+ * 【変更内容】
+ * - ハードコードされた master_data.ai_settings, master_data.ai_knowledge_data を
+ *   db-gateway経由の動的ルーティングに変更
+ * - 論理リソース名: 'ai_settings', 'ai_knowledge_data' を使用
+ * - 後方互換性を保持（フォールバックにより既存環境でも動作）
  */
 
 const { Storage } = require('@google-cloud/storage');
 const path = require('path');
 const fs = require('fs').promises;
+const dbGateway = require('../db-gateway-refactored');
 
 class AIAdminService {
-  constructor(pool) {
+  constructor(pool, appId = 'dashboard-ui') {
     this.pool = pool;
     this.storage = new Storage();
+    this.appId = appId;
   }
 
   /**
@@ -18,9 +25,12 @@ class AIAdminService {
    */
   async getAISettings() {
     try {
+      // ルーティングを使用して動的にテーブルパスを解決
+      const route = await dbGateway.getTablePath('ai_settings', this.appId);
+      
       const query = `
         SELECT setting_key, setting_value, setting_type, description, updated_at
-        FROM master_data.ai_settings
+        FROM ${route.fullPath}
         ORDER BY setting_key
       `;
       const result = await this.pool.query(query);
@@ -63,6 +73,9 @@ class AIAdminService {
     try {
       await client.query('BEGIN');
       
+      // ルーティング解決
+      const route = await dbGateway.getTablePath('ai_settings', this.appId);
+      
       for (const [key, data] of Object.entries(settings)) {
         let value = data.value;
         
@@ -76,7 +89,7 @@ class AIAdminService {
         }
         
         const query = `
-          UPDATE master_data.ai_settings
+          UPDATE ${route.fullPath}
           SET setting_value = $1, updated_at = CURRENT_TIMESTAMP
           WHERE setting_key = $2
         `;
@@ -99,11 +112,14 @@ class AIAdminService {
    */
   async getKnowledgeData(filters = {}) {
     try {
+      // ルーティング解決
+      const route = await dbGateway.getTablePath('ai_knowledge_data', this.appId);
+      
       let query = `
         SELECT id, file_name, file_path, file_size_bytes, file_type,
                upload_source, description, tags, is_active, uploaded_by,
                uploaded_at, last_used_at, usage_count
-        FROM master_data.ai_knowledge_data
+        FROM ${route.fullPath}
         WHERE 1=1
       `;
       const params = [];
@@ -166,28 +182,28 @@ class AIAdminService {
         }
       });
 
-      // DBに記録
-      const query = `
-        INSERT INTO master_data.ai_knowledge_data
-        (file_name, file_path, file_size_bytes, file_type, upload_source, 
-         description, tags, uploaded_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING id
-      `;
-      const result = await this.pool.query(query, [
-        metadata.fileName,
-        fileName,
-        fileData.length,
-        metadata.fileType,
-        'local',
-        metadata.description,
-        metadata.tags || [],
-        metadata.uploadedBy
-      ]);
+      // db-gatewayのdynamicInsertを使用
+      const insertData = {
+        file_name: metadata.fileName,
+        file_path: fileName,
+        file_size_bytes: fileData.length,
+        file_type: metadata.fileType,
+        upload_source: 'local',
+        description: metadata.description,
+        tags: metadata.tags || [],
+        uploaded_by: metadata.uploadedBy
+      };
+
+      const result = await dbGateway.dynamicInsert(
+        'ai_knowledge_data',
+        insertData,
+        true,
+        this.appId
+      );
 
       return {
         success: true,
-        id: result.rows[0].id,
+        id: result[0].id,
         message: 'ファイルをアップロードしました'
       };
     } catch (err) {
@@ -220,28 +236,28 @@ class AIAdminService {
       // メタデータ取得
       const [fileMetadata] = await file.getMetadata();
 
-      // DBに記録
-      const query = `
-        INSERT INTO master_data.ai_knowledge_data
-        (file_name, file_path, file_size_bytes, file_type, upload_source, 
-         description, tags, uploaded_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING id
-      `;
-      const result = await this.pool.query(query, [
-        path.basename(gcsPath),
-        gcsPath,
-        parseInt(fileMetadata.size),
-        metadata.fileType || path.extname(gcsPath).slice(1),
-        'gcs',
-        metadata.description,
-        metadata.tags || [],
-        metadata.uploadedBy
-      ]);
+      // db-gatewayのdynamicInsertを使用
+      const insertData = {
+        file_name: path.basename(gcsPath),
+        file_path: gcsPath,
+        file_size_bytes: parseInt(fileMetadata.size),
+        file_type: metadata.fileType || path.extname(gcsPath).slice(1),
+        upload_source: 'gcs',
+        description: metadata.description,
+        tags: metadata.tags || [],
+        uploaded_by: metadata.uploadedBy
+      };
+
+      const result = await dbGateway.dynamicInsert(
+        'ai_knowledge_data',
+        insertData,
+        true,
+        this.appId
+      );
 
       return {
         success: true,
-        id: result.rows[0].id,
+        id: result[0].id,
         message: 'GCSファイルをインポートしました'
       };
     } catch (err) {
@@ -256,14 +272,19 @@ class AIAdminService {
   async deleteKnowledgeData(id, deleteFromGCS = true) {
     try {
       // データ取得
-      const selectQuery = 'SELECT * FROM master_data.ai_knowledge_data WHERE id = $1';
-      const dataResult = await this.pool.query(selectQuery, [id]);
+      const dataResult = await dbGateway.dynamicSelect(
+        'ai_knowledge_data',
+        { id },
+        ['*'],
+        1,
+        this.appId
+      );
 
-      if (dataResult.rows.length === 0) {
+      if (dataResult.length === 0) {
         throw new Error('データが見つかりません');
       }
 
-      const data = dataResult.rows[0];
+      const data = dataResult[0];
 
       // GCSから削除（オプション）
       if (deleteFromGCS) {
@@ -281,9 +302,13 @@ class AIAdminService {
         }
       }
 
-      // DBから削除
-      const deleteQuery = 'DELETE FROM master_data.ai_knowledge_data WHERE id = $1';
-      await this.pool.query(deleteQuery, [id]);
+      // db-gatewayのdynamicDeleteを使用
+      await dbGateway.dynamicDelete(
+        'ai_knowledge_data',
+        { id },
+        false,
+        this.appId
+      );
 
       return { success: true, message: 'データを削除しました' };
     } catch (err) {
@@ -297,6 +322,9 @@ class AIAdminService {
    */
   async getStorageStats() {
     try {
+      // ルーティング解決
+      const route = await dbGateway.getTablePath('ai_knowledge_data', this.appId);
+      
       const query = `
         SELECT 
           COUNT(*) as total_files,
@@ -304,7 +332,7 @@ class AIAdminService {
           COUNT(CASE WHEN is_active = true THEN 1 END) as active_files,
           COUNT(CASE WHEN upload_source = 'local' THEN 1 END) as local_uploads,
           COUNT(CASE WHEN upload_source = 'gcs' THEN 1 END) as gcs_imports
-        FROM master_data.ai_knowledge_data
+        FROM ${route.fullPath}
       `;
       const result = await this.pool.query(query);
       
@@ -323,15 +351,32 @@ class AIAdminService {
    */
   async recordUsage(id) {
     try {
-      const query = `
-        UPDATE master_data.ai_knowledge_data
-        SET usage_count = usage_count + 1,
-            last_used_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-      `;
-      await this.pool.query(query, [id]);
+      // db-gatewayのdynamicUpdateを使用
+      await dbGateway.dynamicUpdate(
+        'ai_knowledge_data',
+        {
+          usage_count: 'usage_count + 1', // SQL式として扱うため文字列
+          last_used_at: 'CURRENT_TIMESTAMP' // SQL式
+        },
+        { id },
+        false,
+        this.appId
+      );
     } catch (err) {
       console.error('Error recording usage:', err);
+      // SQL式の場合は直接クエリが必要
+      try {
+        const route = await dbGateway.getTablePath('ai_knowledge_data', this.appId);
+        const query = `
+          UPDATE ${route.fullPath}
+          SET usage_count = usage_count + 1,
+              last_used_at = CURRENT_TIMESTAMP
+          WHERE id = $1
+        `;
+        await this.pool.query(query, [id]);
+      } catch (innerErr) {
+        console.error('Error recording usage (fallback):', innerErr);
+      }
     }
   }
 }

@@ -8,6 +8,7 @@ const path = require('path');
 const multer = require('multer');
 const { Storage } = require('@google-cloud/storage');
 const configRoutes = require('./server/routes/config');
+const dbGateway = require('./db-gateway');
 require('dotenv').config();
 
 // Multer設定（ファイルアップロード用）
@@ -98,25 +99,37 @@ if (!process.env.JWT_SECRET) {
   console.log('✅ JWT_SECRET is configured');
 }
 
-// データベースから設定を取得するヘルパー関数
+// データベースから設定を取得するヘルパー関数（リファクタリング版 - ルーティング経由）
 async function getConfigFromDB(key, defaultValue) {
   try {
-    const query = 'SELECT config_value FROM master_data.app_config WHERE config_key = $1';
-    const result = await pool.query(query, [key]);
-    return result.rows.length > 0 ? result.rows[0].config_value : (process.env[key.toUpperCase()] || defaultValue);
+    // db-gateway経由で動的にルーティング解決
+    const result = await dbGateway.dynamicSelect(
+      'app_config',                        // 論理リソース名
+      { config_key: key },                 // WHERE条件
+      ['config_value'],                    // 取得カラム
+      1,                                   // LIMIT
+      'dashboard-ui'                       // アプリID
+    );
+    return result.length > 0 ? result[0].config_value : (process.env[key.toUpperCase()] || defaultValue);
   } catch (err) {
     console.error(`Failed to get config ${key}:`, err);
     return process.env[key.toUpperCase()] || defaultValue;
   }
 }
 
-// すべての設定を取得
+// すべての設定を取得（リファクタリング版 - ルーティング経由）
 async function getAllConfig() {
   try {
-    const query = 'SELECT config_key, config_value FROM master_data.app_config';
-    const result = await pool.query(query);
+    // db-gateway経由で動的にルーティング解決
+    const result = await dbGateway.dynamicSelect(
+      'app_config',                        // 論理リソース名
+      {},                                  // WHERE条件なし（全件取得）
+      ['config_key', 'config_value'],      // 取得カラム
+      null,                                // LIMIT なし
+      'dashboard-ui'                       // アプリID
+    );
     const config = {};
-    result.rows.forEach(row => {
+    result.forEach(row => {
       config[row.config_key] = row.config_value;
     });
     return config;
@@ -1591,6 +1604,300 @@ app.get('/api/debug/env', async (req, res) => {
       APP_ID: process.env.APP_ID || 'dashboard-ui'
     }
   });
+});
+
+// ルーティング状態確認エンドポイント（ブラウザ確認用）
+app.get('/debug/routing-status', async (req, res) => {
+  try {
+    console.log('[DEBUG] Fetching routing status...');
+    
+    // ルーティングテーブルからすべてのマッピングを取得
+    const query = `
+      SELECT 
+        tenant_id,
+        app_id,
+        logical_resource_name,
+        physical_schema,
+        physical_table,
+        is_active,
+        description,
+        created_at,
+        updated_at
+      FROM public.app_resource_routing
+      WHERE app_id = $1
+      ORDER BY 
+        is_active DESC,
+        logical_resource_name ASC
+    `;
+    
+    const result = await pool.query(query, [APP_ID]);
+    
+    // HTML形式でブラウザ表示用に整形
+    let html = `
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ルーティング状態 - ${APP_ID}</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .stats {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .stat-item {
+            padding: 15px;
+            background: #f9f9f9;
+            border-left: 4px solid #4CAF50;
+            border-radius: 4px;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th {
+            background: #4CAF50;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+        tr:hover {
+            background: #f5f5f5;
+        }
+        .active {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+        .inactive {
+            color: #999;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .badge-active {
+            background: #4CAF50;
+            color: white;
+        }
+        .badge-inactive {
+            background: #ccc;
+            color: #666;
+        }
+        .timestamp {
+            font-size: 11px;
+            color: #999;
+        }
+        .refresh-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        .refresh-btn:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔀 ルーティング状態</h1>
+    
+    <button class="refresh-btn" onclick="location.reload()">🔄 更新</button>
+    
+    <div class="stats">
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div class="stat-label">アプリID</div>
+                <div class="stat-value">${APP_ID}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">総ルート数</div>
+                <div class="stat-value">${result.rows.length}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">有効ルート</div>
+                <div class="stat-value">${result.rows.filter(r => r.is_active).length}</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">キャッシュサイズ</div>
+                <div class="stat-value">${routingCache.size}</div>
+            </div>
+        </div>
+    </div>
+    
+    <table>
+        <thead>
+            <tr>
+                <th>論理リソース名</th>
+                <th>物理パス</th>
+                <th>状態</th>
+                <th>説明</th>
+                <th>更新日時</th>
+            </tr>
+        </thead>
+        <tbody>
+`;
+    
+    if (result.rows.length === 0) {
+      html += `
+            <tr>
+                <td colspan="5" style="text-align: center; padding: 40px; color: #999;">
+                    ⚠️ ルーティングデータが登録されていません<br>
+                    <small style="margin-top: 10px; display: block;">
+                    init-dashboard-routing.sql を実行してください
+                    </small>
+                </td>
+            </tr>
+      `;
+    } else {
+      result.rows.forEach(row => {
+        const statusBadge = row.is_active 
+          ? '<span class="badge badge-active">有効</span>'
+          : '<span class="badge badge-inactive">無効</span>';
+        const physicalPath = `${row.physical_schema}.${row.physical_table}`;
+        const updatedAt = new Date(row.updated_at).toLocaleString('ja-JP');
+        
+        html += `
+            <tr>
+                <td><strong>${row.logical_resource_name}</strong></td>
+                <td><code>${physicalPath}</code></td>
+                <td>${statusBadge}</td>
+                <td>${row.description || '-'}</td>
+                <td class="timestamp">${updatedAt}</td>
+            </tr>
+        `;
+      });
+    }
+    
+    html += `
+        </tbody>
+    </table>
+    
+    <div style="margin-top: 30px; padding: 20px; background: white; border-radius: 8px;">
+        <h3>📋 使い方</h3>
+        <ul>
+            <li><strong>論理リソース名</strong>: アプリケーションコードで使用する名前</li>
+            <li><strong>物理パス</strong>: 実際のデータベーステーブルの場所</li>
+            <li><strong>状態</strong>: 有効なルートのみが使用されます</li>
+        </ul>
+        
+        <h3>🔧 新しいテーブルの追加</h3>
+        <pre style="background: #f5f5f5; padding: 15px; border-radius: 4px; overflow-x: auto;">
+INSERT INTO public.app_resource_routing (
+    tenant_id, app_id, logical_resource_name, 
+    physical_schema, physical_table, physical_table_name,
+    is_active, description
+) VALUES (
+    'demo', '${APP_ID}', 'new_table', 
+    'master_data', 'new_table', 'new_table',
+    true, '新しいテーブルの説明'
+)
+ON CONFLICT (tenant_id, app_id, logical_resource_name) 
+DO UPDATE SET 
+    physical_schema = EXCLUDED.physical_schema,
+    physical_table = EXCLUDED.physical_table,
+    updated_at = CURRENT_TIMESTAMP;
+        </pre>
+        
+        <h3>📖 関連エンドポイント</h3>
+        <ul>
+            <li><a href="/api/debug/routing">/api/debug/routing</a> - JSON形式のルーティング情報</li>
+            <li><a href="/api/debug/env">/api/debug/env</a> - 環境変数の確認</li>
+        </ul>
+    </div>
+    
+    <div style="margin-top: 20px; text-align: center; color: #999; font-size: 12px;">
+        最終確認: ${new Date().toLocaleString('ja-JP')}
+    </div>
+</body>
+</html>
+    `;
+    
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+    
+  } catch (err) {
+    console.error('[DEBUG] Routing status error:', err);
+    res.status(500).send(`
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>エラー - ルーティング状態</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .error {
+            background: #ffebee;
+            border: 1px solid #f44336;
+            color: #c62828;
+            padding: 20px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="error">
+        <h2>❌ エラー</h2>
+        <p><strong>メッセージ:</strong> ${err.message}</p>
+        <p><strong>コード:</strong> ${err.code || 'N/A'}</p>
+        <hr>
+        <p>app_resource_routingテーブルが存在しない可能性があります。</p>
+        <p>init-dashboard-routing.sql を実行してください。</p>
+    </div>
+</body>
+</html>
+    `);
+  }
 });
 
 // ========================================
@@ -4852,13 +5159,25 @@ async function runEmergencyDbFix() {
         `);
     }
 
-    // ルーティング再設定
-    await pool.query(`
+    // ルーティング再設定（現在のテーブル構造に対応していないため、スキップ）
+    try {
+      // 注意: app_resource_routingテーブルの構造が変更されているため、
+      // 古い構造（app_id, logical_resource_name等）を前提としたINSERT文は実行しない
+      console.log('[Self-Healing] ⚠️ Skipping app_resource_routing update (table structure changed)');
+      
+      // 以下のコードは現在のテーブル構造（tenant_key主キー）に対応していないためコメントアウト
+      /*
+      await pool.query(`
         INSERT INTO public.app_resource_routing (app_id, logical_resource_name, physical_schema, physical_table, is_active)
         VALUES ('dashboard-ui', 'machines', 'master_data', 'machines', true),
                ('dashboard-ui', 'machine_types', 'master_data', 'machine_types', true)
         ON CONFLICT (app_id, logical_resource_name) DO UPDATE SET physical_schema = EXCLUDED.physical_schema, physical_table = EXCLUDED.physical_table;
       `);
+      */
+    } catch (routingError) {
+      console.warn('[Self-Healing] ⚠️ app_resource_routing update skipped:', routingError.message);
+    }
+    
     console.log('✅ Self-healing completed successfully.');
   } catch (e) {
     console.error('❌ Self-healing failed:', e.message);
