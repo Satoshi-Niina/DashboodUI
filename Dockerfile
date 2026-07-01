@@ -25,9 +25,11 @@ RUN echo "🔨 Build Info:" && \
     echo "  Build Time: ${BUILDTIME}" && \
     echo "  Node Version: $(node --version)"
 
-# 非rootユーザーで実行 (セキュリティのため)
-RUN useradd -m appuser && chown -R appuser:appuser /app
-USER appuser
+# Cloud Runでは非rootユーザーで実行することが推奨されますが、
+# Cloud SQL Proxyとの接続でパーミッション問題が発生する可能性があるため、
+# 本番環境ではrootで実行します（Cloud Runのセキュリティモデルで保護されます）
+# RUN useradd -m appuser && chown -R appuser:appuser /app
+# USER appuser
 
 # Cloud Runのデフォルトポート8080を公開
 EXPOSE 8080

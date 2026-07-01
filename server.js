@@ -9,7 +9,17 @@ const multer = require('multer');
 const { Storage } = require('@google-cloud/storage');
 const configRoutes = require('./server/routes/config');
 const dbGateway = require('./db-gateway');
-require('dotenv').config();
+
+// Load .env file if it exists (for local development)
+// In Cloud Run, environment variables are provided by the platform
+try {
+  require('dotenv').config();
+} catch (err) {
+  // .env file not found or error loading - this is OK in production
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn('Warning: Could not load .env file:', err.message);
+  }
+}
 
 // Multer設定（ファイルアップロード用）
 const upload = multer({
@@ -815,12 +825,6 @@ app.get('/ready', (req, res) => {
   return res.status(503).send('DB NOT READY');
 });
 
-// --- サーバー起動（起動を最優先） ---
-startServer().catch(err => {
-  console.error('❌ Fatal error during server startup:', err);
-  process.exit(1);
-});
-
 // Database Pool
 // Cloud Run環境では環境変数から個別に取得するか、接続文字列を使用
 const isProduction = process.env.NODE_ENV === 'production';
@@ -860,7 +864,8 @@ if (isProduction && process.env.CLOUD_SQL_INSTANCE) {
 
 console.log('Database config (password hidden):', {
   ...poolConfig,
-  password: poolConfig.password ? '****' : undefined
+  password: poolConfig.password ? '****' : undefined,
+  connectionString: poolConfig.connectionString ? '****' : undefined
 });
 
 console.log('Creating database pool...');
@@ -868,13 +873,22 @@ let pool;
 try {
   pool = new Pool(poolConfig);
   console.log('✅ Pool created successfully');
+  
+  // Test pool connection immediately to catch configuration errors early
+  pool.query('SELECT 1').then(() => {
+    console.log('✅ Pool connection test successful');
+  }).catch(err => {
+    console.error('⚠️ Pool connection test failed (will retry later):', err.message);
+  });
+  
 } catch (err) {
   console.error('❌ Failed to create pool:', err);
   console.error('Stack:', err.stack);
+  console.error('⚠️ Creating fallback pool - database operations will fail until DB is available');
   // Create dummy pool that throws errors
   pool = {
     query: () => Promise.reject(new Error('Database not initialized: ' + err.message)),
-    end: () => { },
+    end: () => Promise.resolve(),
     on: () => { }
   };
 }
@@ -5187,9 +5201,11 @@ async function runEmergencyDbFix() {
 // --- サーバー起動 ---
 async function startServer() {
   if (serverInstance) {
+    console.log('⚠️ Server already running');
     return;
   }
   console.log(`📡 Starting server on port ${PORT}...`);
+  console.log(`📡 Binding to 0.0.0.0:${PORT} to accept external connections`);
 
   // まずサーバーをリッスン開始（Cloud Runのヘルスチェック対策）
   const server = app.listen(PORT, '0.0.0.0', (err) => {
@@ -5203,8 +5219,9 @@ async function startServer() {
     console.log(`🌐 Listening on 0.0.0.0:${PORT}`);
     console.log(`📦 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`❤️ Health check: http://0.0.0.0:${PORT}/health`);
+    console.log(`🔍 Ready check: http://0.0.0.0:${PORT}/ready`);
+    console.log(`🏠 Home page: http://0.0.0.0:${PORT}/`);
     console.log('='.repeat(60));
-
   });
 
   serverInstance = server;
@@ -5215,6 +5232,11 @@ async function startServer() {
       console.error(`Port ${PORT} is already in use`);
     }
     process.exit(1);
+  });
+
+  server.on('listening', () => {
+    const addr = server.address();
+    console.log(`✅ Server is now listening on ${addr.address}:${addr.port}`);
   });
 
   // Graceful shutdown
@@ -5250,5 +5272,10 @@ async function initializeDatabase() {
   }
 }
 
-
-// Start the server: moved to early startup section
+// --- サーバー起動 ---
+// すべてのルート定義とpoolの初期化が完了した後にサーバーを起動
+console.log('🔧 All routes and middleware configured. Starting server...');
+startServer().catch(err => {
+  console.error('❌ Fatal error during server startup:', err);
+  process.exit(1);
+});
