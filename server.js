@@ -3997,8 +3997,9 @@ app.get('/api/ai/diagnose-gcs', requireAdmin, async (req, res) => {
 // END: AI管理API
 // ========================================
 
-// ヘルスチェックエンドポイント
-app.get('/health', async (req, res) => {
+// 詳細なヘルスチェックエンドポイント（DB接続確認付き）
+// Cloud Runのヘルスチェックには使わない（/healthを使う）
+app.get('/health/db', async (req, res) => {
   try {
     // データベース接続確認
     await pool.query('SELECT 1');
