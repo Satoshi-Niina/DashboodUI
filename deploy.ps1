@@ -5,7 +5,7 @@
 $PROJECT_ID = "maint-vehicle-management"
 $REGION = "asia-northeast2"
 $CLOUD_SQL_INSTANCE = "maint-vehicle-management:asia-northeast2:free-trial-first-project"
-$DB_NAME = "webappdb"
+$DB_NAME = "common_db"
 $DB_USER = "postgres"
 $DB_PASSWORD = "Takabeni"  # 本番環境では必ず変更してください
 $JWT_SECRET = "I713ZkufHbpsKO81UnrwwrEhd5lyalvA5T36vuUcilNzuWhhCerkXr4EkzBSKNRU0"
