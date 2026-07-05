@@ -54,11 +54,10 @@ jobs:
           CLOUD_SQL_INSTANCE: ${{ secrets.CLOUD_SQL_INSTANCE }}
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_NAME: ${{ secrets.DB_NAME }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
-          for key in GCP_PROJECT_ID GCP_SA_KEY CLOUD_SQL_INSTANCE DB_USER DB_PASSWORD DB_NAME DATABASE_URL JWT_SECRET; do
+          for key in GCP_PROJECT_ID GCP_SA_KEY CLOUD_SQL_INSTANCE DB_USER DB_PASSWORD DATABASE_URL JWT_SECRET; do
             if [ -z "${!key}" ]; then
               echo "ERROR: Required secret '$key' is not set"
               exit 1
@@ -147,7 +146,7 @@ jobs:
           DATABASE_URL: "${{ secrets.DATABASE_URL }}"
           DB_USER: "${{ secrets.DB_USER }}"
           DB_PASSWORD: "${{ secrets.DB_PASSWORD }}"
-          DB_NAME: "${{ secrets.DB_NAME }}"
+          DB_NAME: "common_db"
           JWT_SECRET: "${{ secrets.JWT_SECRET }}"
           CORS_ORIGIN: "*"
           URL_PLANNING: "https://railway-client-800711608362.asia-northeast2.run.app"
