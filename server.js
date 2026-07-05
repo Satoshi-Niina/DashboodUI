@@ -4299,32 +4299,31 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
       cleaned[key] = (req.body[key] === '' ? null : req.body[key]);
     });
 
-    let { type_name, manufacturer, category, description, model_name, model } = cleaned;
-    const final_model_name = model_name || model || type_name || null;
-    const final_type_name = type_name || model_name || model || null;
+    let { type_name, manufacturer, category, description, model_name, model, machine_type_name } = cleaned;
+    const final_model_name = model_name || model || machine_type_name || type_name || null;
+    const final_type_name = type_name || model_name || model || machine_type_name || null;
     const final_manufacturer = manufacturer || null;
 
     if (!final_type_name) return res.status(400).json({ success: false, message: 'メーカー型式は必須です' });
 
     const route = await resolveTablePath('machine_types');
     const typeColumns = await getPhysicalTableColumns(route);
-    const typeNameColumn = typeColumns.has('type_name')
-      ? 'type_name'
-      : (typeColumns.has('model_name') ? 'model_name' : null);
-    const modelNameColumn = typeColumns.has('model_name')
-      ? 'model_name'
-      : (typeColumns.has('type_name') ? 'type_name' : null);
-    const manufacturerColumn = typeColumns.has('manufacturer') ? 'manufacturer' : null;
+    const nameColumns = ['type_name', 'model_name', 'machine_type_name', 'name'].filter((columnName) => typeColumns.has(columnName));
+    const manufacturerColumn = ['manufacturer', 'maker'].find((columnName) => typeColumns.has(columnName)) || null;
+    const categoryColumn = ['category', 'machine_category'].find((columnName) => typeColumns.has(columnName)) || null;
+    const descriptionColumn = ['description', 'remarks', 'note'].find((columnName) => typeColumns.has(columnName)) || null;
+    const primaryNameColumn = nameColumns[0] || null;
+    const secondaryNameColumn = nameColumns.find((columnName) => columnName !== primaryNameColumn) || null;
 
-    if (!typeNameColumn && !modelNameColumn) {
-      return res.status(500).json({ success: false, message: '機種マスタの列定義が不足しています(type_name/model_name)' });
+    if (!primaryNameColumn) {
+      return res.status(500).json({ success: false, message: '機種マスタの列定義が不足しています(type_name/model_name/machine_type_name/name)' });
     }
 
     // 【厳格判定】 機種名・型式・メーカーの3つが完全に一致するものがあるか？
     const matchQuery = `
       SELECT id FROM ${route.fullPath}
-      WHERE ${typeNameColumn || modelNameColumn} = $1
-        AND (${modelNameColumn || typeNameColumn} IS NOT DISTINCT FROM $2)
+      WHERE ${primaryNameColumn} = $1
+        AND (${secondaryNameColumn ? `${secondaryNameColumn} IS NOT DISTINCT FROM $2` : '1 = 1'})
         AND (${manufacturerColumn ? `${manufacturerColumn} IS NOT DISTINCT FROM $3` : '1 = 1'})
       LIMIT 1
     `;
@@ -4334,7 +4333,9 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
       // 完全に一致する場合のみ「上書き」
       const existingId = matchResult.rows[0].id;
       console.log(`[MachineTypes] Exact match found (${existingId}). Updating existing record...`);
-      const updateData = { category, description, updated_at: new Date() };
+      const updateData = { updated_at: new Date() };
+      if (categoryColumn) updateData[categoryColumn] = category;
+      if (descriptionColumn) updateData[descriptionColumn] = description;
       const result = await dynamicUpdate('machine_types', updateData, { id: existingId });
       return res.json({ success: true, data: result[0], message: '既存の同一機種を特定し、情報を更新しました' });
     }
@@ -4348,13 +4349,15 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
 
     const saveData = {
       id: new_type_code,
-      type_code: new_type_code,
-      type_name: final_type_name,
-      manufacturer: final_manufacturer,
-      category,
-      description,
-      model_name: final_model_name
+      type_code: new_type_code
     };
+    if (typeColumns.has('type_name')) saveData.type_name = final_type_name;
+    if (typeColumns.has('model_name')) saveData.model_name = final_model_name;
+    if (typeColumns.has('machine_type_name')) saveData.machine_type_name = final_model_name;
+    if (typeColumns.has('name')) saveData.name = final_model_name;
+    if (manufacturerColumn) saveData[manufacturerColumn] = final_manufacturer;
+    if (categoryColumn) saveData[categoryColumn] = category;
+    if (descriptionColumn) saveData[descriptionColumn] = description;
 
     const result = await dynamicInsert('machine_types', saveData);
     res.json({ success: true, data: result[0], message: '新しい機種（別レコード）として登録しました' });
@@ -4392,22 +4395,31 @@ app.put('/api/machine-types/:id', requireAdmin, async (req, res) => {
       cleaned[key] = (req.body[key] === '' ? null : req.body[key]);
     });
 
-    const { type_name, manufacturer, category, description, model_name, model } = cleaned;
-    const final_type_name = type_name || model_name || model || null;
-    const final_model_name = model_name || model || type_name || null;
+    const { type_name, manufacturer, category, description, model_name, model, machine_type_name } = cleaned;
+    const final_type_name = type_name || model_name || model || machine_type_name || null;
+    const final_model_name = model_name || model || machine_type_name || type_name || null;
 
     if (!final_type_name) {
       return res.status(400).json({ success: false, message: 'メーカー型式は必須です' });
     }
 
+    const route = await resolveTablePath('machine_types');
+    const typeColumns = await getPhysicalTableColumns(route);
+    const manufacturerColumn = ['manufacturer', 'maker'].find((columnName) => typeColumns.has(columnName)) || null;
+    const categoryColumn = ['category', 'machine_category'].find((columnName) => typeColumns.has(columnName)) || null;
+    const descriptionColumn = ['description', 'remarks', 'note'].find((columnName) => typeColumns.has(columnName)) || null;
+
     const updateData = {
-      type_name: final_type_name,
-      manufacturer,
-      category,
-      description,
-      model_name: final_model_name,
       updated_at: new Date()
     };
+
+    if (typeColumns.has('type_name')) updateData.type_name = final_type_name;
+    if (typeColumns.has('model_name')) updateData.model_name = final_model_name;
+    if (typeColumns.has('machine_type_name')) updateData.machine_type_name = final_model_name;
+    if (typeColumns.has('name')) updateData.name = final_model_name;
+    if (manufacturerColumn) updateData[manufacturerColumn] = manufacturer;
+    if (categoryColumn) updateData[categoryColumn] = category;
+    if (descriptionColumn) updateData[descriptionColumn] = description;
 
     const types = await dynamicUpdate('machine_types', updateData, { id: machineTypeId }, true);
 
