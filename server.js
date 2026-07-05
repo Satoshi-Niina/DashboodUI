@@ -4413,6 +4413,16 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
       return castType ? `NULL::${castType} AS ${columnName}` : `NULL AS ${columnName}`;
     };
 
+    const machineTypeNameExpr = (() => {
+      const candidates = ['model_name', 'type_name', 'machine_type_name', 'name'];
+      const available = candidates
+        .filter((columnName) => machineTypeColumns.has(columnName))
+        .map((columnName) => `NULLIF(mt.${columnName}::text, '')`);
+      return available.length > 0
+        ? `COALESCE(${available.join(', ')})`
+        : 'NULL::text';
+    })();
+
     const officeNameExpr = officeColumns.has('office_name')
       ? `COALESCE(mo.office_name, '配置未設定') AS office_name`
       : `'配置未設定' AS office_name`;
@@ -4440,7 +4450,11 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
         ${machineColumnExpr('office_id', 'text')},
         ${machineColumnExpr('notes', 'text')},
         ${machineColumnExpr('machine_type_id', 'text')},
-        ${machineTypeColumnExpr('model_name', 'text')},
+        ${machineTypeNameExpr} AS model_name,
+        ${machineTypeNameExpr} AS machine_type_name,
+        ${machineTypeNameExpr} AS machine_type,
+        ${machineTypeNameExpr} AS vehicle_type,
+        ${machineTypeColumnExpr('type_name', 'text')},
         ${machineTypeColumnExpr('manufacturer', 'text')},
         ${machineTypeColumnExpr('category', 'text')},
         ${officeNameExpr},
