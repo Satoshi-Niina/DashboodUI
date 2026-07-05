@@ -16,15 +16,27 @@ $SERVICE_NAME = "dashboard-ui"
 # キャッシュバスト用のタイムスタンプを生成
 $TIMESTAMP = Get-Date -Format "yyyyMMdd-HHmmss"
 
-Write-Host "🚀 Cloud Runにデプロイします..." -ForegroundColor Green
-Write-Host "プロジェクト: $PROJECT_ID"
-Write-Host "リージョン: $REGION"
-Write-Host "Cloud SQLインスタンス: $CLOUD_SQL_INSTANCE"
-Write-Host "キャッシュバスト: $TIMESTAMP" -ForegroundColor Yellow
+Write-Host "Deploying to Cloud Run..." -ForegroundColor Green
+Write-Host "Project: $PROJECT_ID"
+Write-Host "Region: $REGION"
+Write-Host "Cloud SQL instance: $CLOUD_SQL_INSTANCE"
+Write-Host "Cache bust: $TIMESTAMP" -ForegroundColor Yellow
+
+# Cloud BuildでDockerイメージをビルドしてArtifact Registryへプッシュ
+$IMAGE_TAG = "asia-northeast2-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/${SERVICE_NAME}:$TIMESTAMP"
+
+gcloud builds submit `
+  --tag $IMAGE_TAG `
+  .
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Cloud Build failed." -ForegroundColor Red
+    exit $LASTEXITCODE
+}
 
 # デプロイ実行
 gcloud run deploy $SERVICE_NAME `
-  --source . `
+  --image=$IMAGE_TAG `
   --project=$PROJECT_ID `
   --region=$REGION `
   --platform=managed `
@@ -51,13 +63,10 @@ gcloud run deploy $SERVICE_NAME `
   --set-env-vars URL_FAILURE=https://machine-failure-client-800711608362.asia-northeast2.run.app `
   --set-env-vars MACHINE_FAILURE_APP_URL=https://machine-failure-client-800711608362.asia-northeast2.run.app `
   --set-env-vars URL_PLANNING_API=https://operation-management-server-800711608369.asia-northeast2.run.app `
-  --add-cloudsql-instances $CLOUD_SQL_INSTANCE `
-  --build-arg CACHEBUST=$TIMESTAMP `
-  --build-arg BUILDTIME=$TIMESTAMP `
-  --no-cache
+  --add-cloudsql-instances $CLOUD_SQL_INSTANCE
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "✅ デプロイが完了しました！" -ForegroundColor Green
+    Write-Host "Deployment completed." -ForegroundColor Green
 } else {
-    Write-Host "❌ デプロイに失敗しました。" -ForegroundColor Red
+    Write-Host "Deployment failed." -ForegroundColor Red
 }
