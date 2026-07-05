@@ -9,13 +9,26 @@ require('dotenv').config();
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+function getDatabaseNameFromUrl(connectionString) {
+  if (!connectionString) {
+    return '';
+  }
+
+  try {
+    const parsed = new URL(connectionString);
+    return parsed.pathname.replace(/^\//, '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
 // 本番環境（Cloud SQL）とローカル環境で接続設定を切り替え
 const dbConfig = isProduction && process.env.CLOUD_SQL_INSTANCE ? {
   // 本番環境: Cloud SQL Unix socket接続
   host: `/cloudsql/${process.env.CLOUD_SQL_INSTANCE}`,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME || 'common_db',
+  database: getDatabaseNameFromUrl(process.env.DATABASE_URL) || process.env.DB_NAME || 'common_db',
   max: 5,
 } : {
   // ローカル環境: 接続文字列を使用

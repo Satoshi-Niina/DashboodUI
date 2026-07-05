@@ -377,6 +377,19 @@ function getDefaultDbName() {
   return process.env.DB_NAME || 'common_db';
 }
 
+function getDatabaseNameFromUrl(connectionString) {
+  if (!connectionString) {
+    return '';
+  }
+
+  try {
+    const parsed = new URL(connectionString);
+    return parsed.pathname.replace(/^\//, '').trim();
+  } catch (_) {
+    return '';
+  }
+}
+
 function getDefaultBucketName() {
   return process.env.GCS_BUCKET_NAME || process.env.GOOGLE_CLOUD_STORAGE_BUCKET || 'maint-vehicle-management-storage';
 }
@@ -838,7 +851,7 @@ if (isProduction && process.env.CLOUD_SQL_INSTANCE) {
     host: `/cloudsql/${process.env.CLOUD_SQL_INSTANCE}`,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME || 'common_db',
+    database: getDatabaseNameFromUrl(process.env.DATABASE_URL) || process.env.DB_NAME || 'common_db',
     max: 5,
     client_encoding: 'UTF8',
   };
