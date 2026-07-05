@@ -4356,14 +4356,25 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
     }
 
     // 【厳格判定】 機種名・型式・メーカーの3つが完全に一致するものがあるか？
+    const matchParams = [final_type_name];
+    const matchConditions = [`${primaryNameColumn} = $1`];
+
+    if (secondaryNameColumn) {
+      matchParams.push(final_model_name);
+      matchConditions.push(`${secondaryNameColumn} IS NOT DISTINCT FROM $${matchParams.length}`);
+    }
+
+    if (manufacturerColumn) {
+      matchParams.push(final_manufacturer);
+      matchConditions.push(`${manufacturerColumn} IS NOT DISTINCT FROM $${matchParams.length}`);
+    }
+
     const matchQuery = `
       SELECT id FROM ${route.fullPath}
-      WHERE ${primaryNameColumn} = $1
-        AND (${secondaryNameColumn ? `${secondaryNameColumn} IS NOT DISTINCT FROM $2` : '1 = 1'})
-        AND (${manufacturerColumn ? `${manufacturerColumn} IS NOT DISTINCT FROM $3` : '1 = 1'})
+      WHERE ${matchConditions.join(' AND ')}
       LIMIT 1
     `;
-    const matchResult = await pool.query(matchQuery, [final_type_name, final_model_name, final_manufacturer]);
+    const matchResult = await pool.query(matchQuery, matchParams);
 
     if (matchResult.rows.length > 0) {
       // 完全に一致する場合のみ「上書き」
