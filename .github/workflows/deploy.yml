@@ -82,10 +82,8 @@ jobs:
       
       - name: Clear Docker Cache
         run: |
-          echo "🧹 Clearing Docker build cache..."
-          docker system prune -af --volumes || true
-          docker builder prune -af || true
-          echo "✅ Docker cache cleared"
+          echo "ℹ️ Skipping docker prune for faster deploy turnaround"
+          echo "✅ Continue deployment"
       
       - name: Delete old container images
         run: |
