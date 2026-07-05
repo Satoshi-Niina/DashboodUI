@@ -4389,6 +4389,9 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
     const machinesRoute = await resolveTablePath('machines');
     const machineTypesRoute = await resolveTablePath('machine_types');
     const officesRoute = await resolveTablePath('management_offices');
+    const machineColumns = await getPhysicalTableColumns(machinesRoute);
+    const machineTypeColumns = await getPhysicalTableColumns(machineTypesRoute);
+    const officeColumns = await getPhysicalTableColumns(officesRoute);
 
     console.log(`[GET /api/machines] Resolving tables:`, { 
       machines: machinesRoute.fullPath, 
@@ -4396,27 +4399,57 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
       offices: officesRoute.fullPath 
     });
 
+    const machineColumnExpr = (columnName, castType = null) => {
+      if (machineColumns.has(columnName)) {
+        return `m.${columnName} AS ${columnName}`;
+      }
+      return castType ? `NULL::${castType} AS ${columnName}` : `NULL AS ${columnName}`;
+    };
+
+    const machineTypeColumnExpr = (columnName, castType = null) => {
+      if (machineTypeColumns.has(columnName)) {
+        return `mt.${columnName} AS ${columnName}`;
+      }
+      return castType ? `NULL::${castType} AS ${columnName}` : `NULL AS ${columnName}`;
+    };
+
+    const officeNameExpr = officeColumns.has('office_name')
+      ? `COALESCE(mo.office_name, '配置未設定') AS office_name`
+      : `'配置未設定' AS office_name`;
+
+    const machineTypeJoinCondition = machineColumns.has('machine_type_id') && machineTypeColumns.has('id')
+      ? 'm.machine_type_id::text = mt.id::text'
+      : '1 = 0';
+
+    const officeJoinCondition = machineColumns.has('office_id') && officeColumns.has('office_id')
+      ? 'm.office_id = mo.office_id'
+      : '1 = 0';
+
+    const orderByExpr = machineColumns.has('machine_number')
+      ? 'm.machine_number'
+      : (machineColumns.has('id') ? 'm.id' : '1');
+
     const query = `
       SELECT 
-        m.id,
-        m.machine_number,
-        m.serial_number,
-        m.manufacture_date,
-        m.purchase_date,
-        m.assigned_base_id,
-        m.office_id,
-        m.notes,
-        m.machine_type_id,
-        mt.model_name,
-        mt.manufacturer,
-        mt.category,
-        COALESCE(mo.office_name, '配置未設定') as office_name,
-        m.created_at,
-        m.updated_at
+        ${machineColumnExpr('id', 'text')},
+        ${machineColumnExpr('machine_number', 'text')},
+        ${machineColumnExpr('serial_number', 'text')},
+        ${machineColumnExpr('manufacture_date', 'date')},
+        ${machineColumnExpr('purchase_date', 'date')},
+        ${machineColumnExpr('assigned_base_id', 'text')},
+        ${machineColumnExpr('office_id', 'text')},
+        ${machineColumnExpr('notes', 'text')},
+        ${machineColumnExpr('machine_type_id', 'text')},
+        ${machineTypeColumnExpr('model_name', 'text')},
+        ${machineTypeColumnExpr('manufacturer', 'text')},
+        ${machineTypeColumnExpr('category', 'text')},
+        ${officeNameExpr},
+        ${machineColumnExpr('created_at')},
+        ${machineColumnExpr('updated_at')}
       FROM ${machinesRoute.fullPath} m
-      LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id::text = mt.id::text
-      LEFT JOIN ${officesRoute.fullPath} mo ON m.office_id = mo.office_id
-      ORDER BY m.machine_number
+      LEFT JOIN ${machineTypesRoute.fullPath} mt ON ${machineTypeJoinCondition}
+      LEFT JOIN ${officesRoute.fullPath} mo ON ${officeJoinCondition}
+      ORDER BY ${orderByExpr}
     `;
     console.log(`[GET /api/machines] Executing SQL...`);
     const result = await pool.query(query);
