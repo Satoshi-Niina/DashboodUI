@@ -7,6 +7,7 @@ const cors = require('cors');
 const path = require('path');
 const multer = require('multer');
 const { Storage } = require('@google-cloud/storage');
+const { randomUUID } = require('crypto');
 const configRoutes = require('./server/routes/config');
 const dbGateway = require('./db-gateway');
 
@@ -1126,8 +1127,8 @@ async function getPhysicalTableColumns(route) {
   const query = `
     SELECT column_name
     FROM information_schema.columns
-    WHERE table_schema = $1
-      AND table_name = $2
+    WHERE lower(table_schema) = lower($1)
+      AND lower(table_name) = lower($2)
   `;
   const result = await pool.query(query, [route.schema, route.table]);
   const columns = new Set(result.rows.map((row) => String(row.column_name || '').trim().toLowerCase()));
@@ -4251,6 +4252,10 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
       ? 'mt.type_code::text'
       : 'NULL::text';
 
+    const descriptionExpr = typeColumns.has('description')
+      ? 'mt.description::text'
+      : (typeColumns.has('remarks') ? 'mt.remarks::text' : (typeColumns.has('note') ? 'mt.note::text' : 'NULL::text'));
+
     const createdAtExpr = typeColumns.has('created_at')
       ? 'mt.created_at'
       : 'NULL::timestamp';
@@ -4267,6 +4272,7 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
         ${typeNameExpr} AS type_name,
         ${manufacturerExpr} AS manufacturer,
         ${categoryExpr} AS category,
+        ${descriptionExpr} AS description,
         ${typeCodeExpr} AS type_code,
         ${createdAtExpr} AS created_at,
         ${updatedAtExpr} AS updated_at
@@ -4343,12 +4349,24 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
     // 1つでも違う場合は「新規追加」
     console.log(`[MachineTypes] New combination detected. Creating new record...`);
 
-    // 確実にユニークなIDを生成 (MT + タイムスタンプの下6桁 + ランダム)
-    const uniqueSuffix = Date.now().toString().slice(-6) + Math.floor(Math.random() * 100).toString().padStart(2, '0');
-    const new_type_code = `MT-${uniqueSuffix}`;
+    const idTypeResult = await pool.query(`
+      SELECT data_type
+      FROM information_schema.columns
+      WHERE lower(table_schema) = lower($1)
+        AND lower(table_name) = lower($2)
+        AND lower(column_name) = 'id'
+      LIMIT 1
+    `, [route.schema, route.table]);
+    const idDataType = String(idTypeResult.rows[0]?.data_type || '').toLowerCase();
+
+    // id型に合わせて保存値を生成（uuid列に文字列IDを入れて500になるのを防止）
+    const newTypeId = idDataType === 'uuid'
+      ? randomUUID()
+      : `MT-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 100).toString().padStart(2, '0')}`;
+    const new_type_code = `MT-${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 100).toString().padStart(2, '0')}`;
 
     const saveData = {
-      id: new_type_code,
+      id: newTypeId,
       type_code: new_type_code
     };
     if (typeColumns.has('type_name')) saveData.type_name = final_type_name;
