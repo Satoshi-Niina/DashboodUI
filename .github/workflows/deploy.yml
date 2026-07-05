@@ -89,17 +89,8 @@ jobs:
       
       - name: Delete old container images
         run: |
-          echo "🗑️ Deleting old container images from GCR..."
-          gcloud container images list --repository=gcr.io/${{ env.PROJECT_ID }} --format="value(name)" | while read IMAGE_NAME; do
-            echo "Processing $IMAGE_NAME..."
-            gcloud container images list-tags "$IMAGE_NAME" --format="get(digest)" --limit=999 | while read DIGEST; do
-              if [ ! -z "$DIGEST" ]; then
-                echo "Deleting $IMAGE_NAME@$DIGEST"
-                gcloud container images delete "${IMAGE_NAME}@${DIGEST}" --quiet --force-delete-tags || true
-              fi
-            done
-          done
-          echo "✅ Old images deleted"
+          echo "ℹ️ Skipping full GCR image purge to keep deploy latency stable"
+          echo "✅ Continue deployment without image deletion"
       
       - name: Verify Cloud SQL Instance Name
         run: |
