@@ -4226,8 +4226,53 @@ app.post('/debug/add-postal-code', async (req, res) => {
 app.get('/api/machine-types', requireAdmin, async (req, res) => {
   try {
     const route = await resolveTablePath('machine_types');
+    const typeColumns = await getPhysicalTableColumns(route);
     console.log(`[GET /api/machine-types] Resolved Route: ${route.fullPath}`);
-    const query = `SELECT * FROM ${route.fullPath} ORDER BY id`;
+
+    const typeNameExpr = (() => {
+      const candidates = ['model_name', 'type_name', 'machine_type_name', 'name'];
+      const available = candidates
+        .filter((columnName) => typeColumns.has(columnName))
+        .map((columnName) => `NULLIF(mt.${columnName}::text, '')`);
+      return available.length > 0
+        ? `COALESCE(${available.join(', ')})`
+        : 'NULL::text';
+    })();
+
+    const manufacturerExpr = typeColumns.has('manufacturer')
+      ? 'mt.manufacturer::text'
+      : (typeColumns.has('maker') ? 'mt.maker::text' : 'NULL::text');
+
+    const categoryExpr = typeColumns.has('category')
+      ? 'mt.category::text'
+      : (typeColumns.has('machine_category') ? 'mt.machine_category::text' : 'NULL::text');
+
+    const typeCodeExpr = typeColumns.has('type_code')
+      ? 'mt.type_code::text'
+      : 'NULL::text';
+
+    const createdAtExpr = typeColumns.has('created_at')
+      ? 'mt.created_at'
+      : 'NULL::timestamp';
+
+    const updatedAtExpr = typeColumns.has('updated_at')
+      ? 'mt.updated_at'
+      : 'NULL::timestamp';
+
+    const query = `
+      SELECT
+        mt.id::text AS id,
+        ${typeNameExpr} AS model_name,
+        ${typeNameExpr} AS machine_type_name,
+        ${typeNameExpr} AS type_name,
+        ${manufacturerExpr} AS manufacturer,
+        ${categoryExpr} AS category,
+        ${typeCodeExpr} AS type_code,
+        ${createdAtExpr} AS created_at,
+        ${updatedAtExpr} AS updated_at
+      FROM ${route.fullPath} mt
+      ORDER BY mt.id
+    `;
     console.log(`[GET /api/machine-types] Executing: ${query}`);
     const result = await pool.query(query);
     console.log(`[GET /api/machine-types] Success, Rows: ${result.rows.length}`);
@@ -4255,22 +4300,35 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
     });
 
     let { type_name, manufacturer, category, description, model_name, model } = cleaned;
-    const final_model_name = model_name || model || null;
+    const final_model_name = model_name || model || type_name || null;
+    const final_type_name = type_name || model_name || model || null;
     const final_manufacturer = manufacturer || null;
 
-    if (!type_name) return res.status(400).json({ success: false, message: '機種名は必須です' });
+    if (!final_type_name) return res.status(400).json({ success: false, message: 'メーカー型式は必須です' });
 
     const route = await resolveTablePath('machine_types');
+    const typeColumns = await getPhysicalTableColumns(route);
+    const typeNameColumn = typeColumns.has('type_name')
+      ? 'type_name'
+      : (typeColumns.has('model_name') ? 'model_name' : null);
+    const modelNameColumn = typeColumns.has('model_name')
+      ? 'model_name'
+      : (typeColumns.has('type_name') ? 'type_name' : null);
+    const manufacturerColumn = typeColumns.has('manufacturer') ? 'manufacturer' : null;
+
+    if (!typeNameColumn && !modelNameColumn) {
+      return res.status(500).json({ success: false, message: '機種マスタの列定義が不足しています(type_name/model_name)' });
+    }
 
     // 【厳格判定】 機種名・型式・メーカーの3つが完全に一致するものがあるか？
     const matchQuery = `
       SELECT id FROM ${route.fullPath}
-      WHERE type_name = $1
-        AND (model_name IS NOT DISTINCT FROM $2)
-        AND (manufacturer IS NOT DISTINCT FROM $3)
+      WHERE ${typeNameColumn || modelNameColumn} = $1
+        AND (${modelNameColumn || typeNameColumn} IS NOT DISTINCT FROM $2)
+        AND (${manufacturerColumn ? `${manufacturerColumn} IS NOT DISTINCT FROM $3` : '1 = 1'})
       LIMIT 1
     `;
-    const matchResult = await pool.query(matchQuery, [type_name, final_model_name, final_manufacturer]);
+    const matchResult = await pool.query(matchQuery, [final_type_name, final_model_name, final_manufacturer]);
 
     if (matchResult.rows.length > 0) {
       // 完全に一致する場合のみ「上書き」
@@ -4291,7 +4349,7 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
     const saveData = {
       id: new_type_code,
       type_code: new_type_code,
-      type_name,
+      type_name: final_type_name,
       manufacturer: final_manufacturer,
       category,
       description,
@@ -4335,17 +4393,19 @@ app.put('/api/machine-types/:id', requireAdmin, async (req, res) => {
     });
 
     const { type_name, manufacturer, category, description, model_name, model } = cleaned;
+    const final_type_name = type_name || model_name || model || null;
+    const final_model_name = model_name || model || type_name || null;
 
-    if (!type_name) {
-      return res.status(400).json({ success: false, message: '機種名は必須です' });
+    if (!final_type_name) {
+      return res.status(400).json({ success: false, message: 'メーカー型式は必須です' });
     }
 
     const updateData = {
-      type_name,
+      type_name: final_type_name,
       manufacturer,
       category,
       description,
-      model_name: model_name || model || null,
+      model_name: final_model_name,
       updated_at: new Date()
     };
 
@@ -4428,7 +4488,9 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
       : `'配置未設定' AS office_name`;
 
     const machineTypeJoinCondition = machineColumns.has('machine_type_id') && machineTypeColumns.has('id')
-      ? 'm.machine_type_id::text = mt.id::text'
+      ? (machineTypeColumns.has('type_code')
+        ? '(m.machine_type_id::text = mt.id::text OR m.machine_type_id::text = mt.type_code::text)'
+        : 'm.machine_type_id::text = mt.id::text')
       : '1 = 0';
 
     const officeJoinCondition = machineColumns.has('office_id') && officeColumns.has('office_id')
