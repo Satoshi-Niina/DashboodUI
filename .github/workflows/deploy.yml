@@ -34,8 +34,13 @@ jobs:
           create_credentials_file: true
           export_environment_variables: true
       
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+      - name: Verify Cloud SDK availability
+        run: |
+          if ! command -v gcloud >/dev/null 2>&1; then
+            echo "ERROR: gcloud is not available on this runner"
+            exit 1
+          fi
+          gcloud --version
 
       - name: Activate service account for gcloud/docker
         run: |
