@@ -1180,7 +1180,15 @@ async function resolveTablePath(logicalName) {
       : (columns.has('active') ? 'active' : null);
 
     if (!schemaColumn || !tableColumn || !logicalNameColumn) {
-      throw new Error('[Gateway] app_resource_routing columns are insufficient for route resolution');
+      console.log('[Gateway] Routing table is tenant-registry style. Using master_data fallback.');
+      const fallback = {
+        fullPath: `master_data."${logicalName}"`,
+        schema: 'master_data',
+        table: logicalName,
+        timestamp: Date.now()
+      };
+      routingCache.set(cacheKey, fallback);
+      return fallback;
     }
 
     const selectColumns = [
@@ -4501,7 +4509,44 @@ app.put('/api/machine-types/:id', requireAdmin, async (req, res) => {
 app.delete('/api/machine-types/:id', requireAdmin, async (req, res) => {
   try {
     const machineTypeId = req.params.id;
-    const types = await dynamicDelete('machine_types', { id: machineTypeId }, true);
+    const typesRoute = await resolveTablePath('machine_types');
+    const machinesRoute = await resolveTablePath('machines');
+    const typeColumns = await getPhysicalTableColumns(typesRoute);
+    const machineColumns = await getPhysicalTableColumns(machinesRoute);
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+    const resolveTypeIdForMachineTable = async (rawId) => {
+      if (!rawId) return null;
+      if (!(machineColumns.has('machine_type_id') && typeColumns.has('id'))) {
+        return rawId;
+      }
+
+      const machineTypeIdTypeResult = await pool.query(
+        `
+          SELECT data_type
+          FROM information_schema.columns
+          WHERE lower(table_schema) = lower($1)
+            AND lower(table_name) = lower($2)
+            AND lower(column_name) = 'machine_type_id'
+          LIMIT 1
+        `,
+        [machinesRoute.schema, machinesRoute.table]
+      );
+      const machineTypeIdDataType = String(machineTypeIdTypeResult.rows[0]?.data_type || '').toLowerCase();
+      if (machineTypeIdDataType === 'uuid' && !uuidPattern.test(String(rawId)) && typeColumns.has('type_code')) {
+        const converted = await pool.query(
+          `SELECT id FROM ${typesRoute.fullPath} WHERE type_code = $1 LIMIT 1`,
+          [rawId]
+        );
+        if (converted.rows.length > 0) {
+          return converted.rows[0].id;
+        }
+      }
+      return rawId;
+    };
+
+    const normalizedDeleteId = await resolveTypeIdForMachineTable(machineTypeId);
+    const types = await dynamicDelete('machine_types', { id: normalizedDeleteId }, true);
 
     if (types.length === 0) {
       return res.status(404).json({ success: false, message: '機種が見つかりません' });
@@ -4510,7 +4555,91 @@ app.delete('/api/machine-types/:id', requireAdmin, async (req, res) => {
     res.json({ success: true, message: '機種を削除しました' });
   } catch (err) {
     console.error('Machine type delete error:', err);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+    if (err.code === '23503') {
+      try {
+        const machineTypeId = req.params.id;
+        const typesRoute = await resolveTablePath('machine_types');
+        const machinesRoute = await resolveTablePath('machines');
+        const typeColumns = await getPhysicalTableColumns(typesRoute);
+        const machineColumns = await getPhysicalTableColumns(machinesRoute);
+        const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+        const findUnspecifiedQueryCandidates = [];
+        if (typeColumns.has('type_code')) findUnspecifiedQueryCandidates.push(`NULLIF(type_code::text, '')`);
+        if (typeColumns.has('model_name')) findUnspecifiedQueryCandidates.push(`NULLIF(model_name::text, '')`);
+        if (typeColumns.has('type_name')) findUnspecifiedQueryCandidates.push(`NULLIF(type_name::text, '')`);
+        if (typeColumns.has('machine_type_name')) findUnspecifiedQueryCandidates.push(`NULLIF(machine_type_name::text, '')`);
+        if (typeColumns.has('name')) findUnspecifiedQueryCandidates.push(`NULLIF(name::text, '')`);
+
+        if (findUnspecifiedQueryCandidates.length > 0 && machineColumns.has('machine_type_id')) {
+          const unspecified = await pool.query(
+            `
+              SELECT id
+              FROM ${typesRoute.fullPath}
+              WHERE UPPER(COALESCE(${findUnspecifiedQueryCandidates.join(', ')}, '')) = 'UNSPECIFIED'
+              LIMIT 1
+            `
+          );
+
+          if (unspecified.rows.length > 0) {
+            const fallbackTypeId = unspecified.rows[0].id;
+            let normalizedDeleteId = machineTypeId;
+            const machineTypeIdTypeResult = await pool.query(
+              `
+                SELECT data_type
+                FROM information_schema.columns
+                WHERE lower(table_schema) = lower($1)
+                  AND lower(table_name) = lower($2)
+                  AND lower(column_name) = 'machine_type_id'
+                LIMIT 1
+              `,
+              [machinesRoute.schema, machinesRoute.table]
+            );
+            const machineTypeIdDataType = String(machineTypeIdTypeResult.rows[0]?.data_type || '').toLowerCase();
+            if (machineTypeIdDataType === 'uuid' && !uuidPattern.test(String(machineTypeId)) && typeColumns.has('type_code')) {
+              const converted = await pool.query(
+                `SELECT id FROM ${typesRoute.fullPath} WHERE type_code = $1 LIMIT 1`,
+                [machineTypeId]
+              );
+              if (converted.rows.length > 0) {
+                normalizedDeleteId = converted.rows[0].id;
+              }
+            }
+
+            if (String(fallbackTypeId) !== String(normalizedDeleteId)) {
+              await pool.query(
+                `UPDATE ${machinesRoute.fullPath} SET machine_type_id = $1 WHERE machine_type_id = $2`,
+                [fallbackTypeId, normalizedDeleteId]
+              );
+
+              const retryDelete = await dynamicDelete('machine_types', { id: normalizedDeleteId }, true);
+              if (retryDelete.length > 0) {
+                return res.json({
+                  success: true,
+                  message: '機種を削除しました（参照中の機械はUNSPECIFIEDへ付け替えました）'
+                });
+              }
+            }
+          }
+        }
+      } catch (fkRecoveryErr) {
+        console.error('[Machine type delete] FK recovery failed:', fkRecoveryErr);
+      }
+
+      return res.status(409).json({
+        success: false,
+        message: '使用中の機種のため削除できません。関連する機械番号の機種を変更してから削除してください。',
+        code: err.code,
+        detail: err.detail || null
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: 'サーバーエラーが発生しました',
+      code: err.code || null,
+      detail: err.detail || null
+    });
   }
 });
 
@@ -4638,29 +4767,84 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: '機械番号と機種は必須です' });
     }
 
-    // 自動採番ID (M0001...)
+    // 実テーブル型に合わせてIDを採番/正規化
     const route = await resolveTablePath('machines');
+    const machineColumns = await getPhysicalTableColumns(route);
+    const idTypeResult = await pool.query(
+      `
+        SELECT data_type
+        FROM information_schema.columns
+        WHERE lower(table_schema) = lower($1)
+          AND lower(table_name) = lower($2)
+          AND lower(column_name) = 'id'
+        LIMIT 1
+      `,
+      [route.schema, route.table]
+    );
+    const machineTypeIdTypeResult = await pool.query(
+      `
+        SELECT data_type
+        FROM information_schema.columns
+        WHERE lower(table_schema) = lower($1)
+          AND lower(table_name) = lower($2)
+          AND lower(column_name) = 'machine_type_id'
+        LIMIT 1
+      `,
+      [route.schema, route.table]
+    );
+
+    const idDataType = String(idTypeResult.rows[0]?.data_type || '').toLowerCase();
+    const machineTypeIdDataType = String(machineTypeIdTypeResult.rows[0]?.data_type || '').toLowerCase();
+    const isIdUuid = idDataType === 'uuid';
+    const isMachineTypeIdUuid = machineTypeIdDataType === 'uuid';
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
     let machine_id;
-    try {
-      const maxIdResult = await pool.query(`SELECT id::text FROM ${route.fullPath} WHERE id::text LIKE 'M%' ORDER BY id DESC LIMIT 1`);
-      let nextNumber = 1;
-      if (maxIdResult.rows.length > 0) {
-        const lastId = maxIdResult.rows[0].id;
-        const numericPart = parseInt(lastId.replace('M', ''));
-        if (!isNaN(numericPart)) {
-          nextNumber = numericPart + 1;
+    if (isIdUuid) {
+      machine_id = randomUUID();
+    } else {
+      try {
+        const maxIdResult = await pool.query(`SELECT id::text FROM ${route.fullPath} WHERE id::text LIKE 'M%' ORDER BY id DESC LIMIT 1`);
+        let nextNumber = 1;
+        if (maxIdResult.rows.length > 0) {
+          const lastId = maxIdResult.rows[0].id;
+          const numericPart = parseInt(String(lastId || '').replace('M', ''), 10);
+          if (!isNaN(numericPart)) {
+            nextNumber = numericPart + 1;
+          }
+        }
+        machine_id = `M${String(nextNumber).padStart(4, '0')}`;
+      } catch (e) {
+        machine_id = `M${Date.now().toString().slice(-6)}`;
+      }
+    }
+
+    let normalizedMachineTypeId = machine_type_id;
+    if (isMachineTypeIdUuid && normalizedMachineTypeId && !uuidPattern.test(String(normalizedMachineTypeId))) {
+      const machineTypeRoute = await resolveTablePath('machine_types');
+      const mtColumns = await getPhysicalTableColumns(machineTypeRoute);
+      if (mtColumns.has('type_code')) {
+        const mtResult = await pool.query(
+          `SELECT id FROM ${machineTypeRoute.fullPath} WHERE type_code = $1 LIMIT 1`,
+          [normalizedMachineTypeId]
+        );
+        if (mtResult.rows.length > 0) {
+          normalizedMachineTypeId = mtResult.rows[0].id;
         }
       }
-      machine_id = `M${String(nextNumber).padStart(4, '0')}`;
-    } catch (e) {
-      machine_id = `M${Date.now().toString().slice(-6)}`;
+    }
+
+    if (isMachineTypeIdUuid && (!normalizedMachineTypeId || !uuidPattern.test(String(normalizedMachineTypeId)))) {
+      return res.status(400).json({
+        success: false,
+        message: '機種IDの形式が不正です。機種マスタを再読み込みして選択し直してください。'
+      });
     }
 
     const now = new Date();
-    const machines = await dynamicInsert('machines', {
-      id: machine_id,
+    const machineInsertData = {
       machine_number,
-      machine_type_id,
+      machine_type_id: normalizedMachineTypeId,
       serial_number,
       manufacture_date,
       purchase_date,
@@ -4669,7 +4853,12 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
       office_id,
       created_at: now,
       updated_at: now
-    });
+    };
+    if (machineColumns.has('id')) {
+      machineInsertData.id = machine_id;
+    }
+
+    const machines = await dynamicInsert('machines', machineInsertData);
     res.json({ success: true, data: machines[0], message: '機械を追加しました' });
   } catch (err) {
     console.error('[POST /api/machines] Machine create error:', err.message);
