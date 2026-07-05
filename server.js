@@ -1163,7 +1163,33 @@ async function resolveTablePath(logicalName) {
 
   try {
     const columns = await getRoutingTableColumns();
-    const selectColumns = ['app_id', 'physical_schema'];
+    const appIdColumn = columns.has('app_id')
+      ? 'app_id'
+      : (columns.has('application_id') ? 'application_id' : null);
+    const schemaColumn = columns.has('physical_schema')
+      ? 'physical_schema'
+      : (columns.has('schema_name') ? 'schema_name' : null);
+    const tableColumn = columns.has('physical_table')
+      ? 'physical_table'
+      : (columns.has('physical_table_name') ? 'physical_table_name' : (columns.has('table_name') ? 'table_name' : null));
+    const logicalNameColumn = columns.has('logical_resource_name')
+      ? 'logical_resource_name'
+      : (columns.has('logical_name') ? 'logical_name' : (columns.has('resource_name') ? 'resource_name' : null));
+    const isActiveColumn = columns.has('is_active')
+      ? 'is_active'
+      : (columns.has('active') ? 'active' : null);
+
+    if (!schemaColumn || !tableColumn || !logicalNameColumn) {
+      throw new Error('[Gateway] app_resource_routing columns are insufficient for route resolution');
+    }
+
+    const selectColumns = [
+      `${schemaColumn} AS physical_schema`,
+      `${tableColumn} AS physical_table`
+    ];
+    if (appIdColumn) {
+      selectColumns.push(`${appIdColumn} AS app_id`);
+    }
     if (columns.has('id')) {
       selectColumns.push('id');
     }
@@ -1183,11 +1209,15 @@ async function resolveTablePath(logicalName) {
       params.push(routingTenantId);
       conditions.push(`tenant_id = $${params.length}`);
     }
-    params.push(APP_ID);
-    conditions.push(`app_id = $${params.length}`);
+    if (appIdColumn) {
+      params.push(APP_ID);
+      conditions.push(`${appIdColumn} = $${params.length}`);
+    }
     params.push(logicalName);
-    conditions.push(`logical_resource_name = $${params.length}`);
-    conditions.push('is_active = true');
+    conditions.push(`${logicalNameColumn} = $${params.length}`);
+    if (isActiveColumn) {
+      conditions.push(`${isActiveColumn} = true`);
+    }
 
     const query = `
       SELECT ${selectColumns.join(', ')}
@@ -1201,7 +1231,7 @@ async function resolveTablePath(logicalName) {
     if (result.rows.length > 0) {
       const row = result.rows[0] || {};
       const physical_schema = row.physical_schema;
-      const physical_table = row.physical_table || row.physical_table_name;
+      const physical_table = row.physical_table;
 
       if (!physical_schema || !physical_table) {
         throw new Error(`[Gateway] Invalid routing row: missing schema/table for ${runtime?.resolvedTenantId || 'demo_env'}:${APP_ID}:${logicalName}`);
