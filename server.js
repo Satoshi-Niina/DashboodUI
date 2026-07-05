@@ -369,12 +369,12 @@ function getDefaultDbName() {
     try {
       const parsed = new URL(poolConfig.connectionString);
       const dbName = parsed.pathname.replace(/^\//, '');
-      return dbName || 'webappdb';
+      return dbName || 'common_db';
     } catch (_) {
-      return 'webappdb';
+      return 'common_db';
     }
   }
-  return process.env.DB_NAME || 'webappdb';
+  return process.env.DB_NAME || 'common_db';
 }
 
 function getDefaultBucketName() {
@@ -838,7 +838,7 @@ if (isProduction && process.env.CLOUD_SQL_INSTANCE) {
     host: `/cloudsql/${process.env.CLOUD_SQL_INSTANCE}`,
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME || 'webappdb',
+    database: process.env.DB_NAME || 'common_db',
     max: 5,
     client_encoding: 'UTF8',
   };
@@ -857,7 +857,7 @@ if (isProduction && process.env.CLOUD_SQL_INSTANCE) {
     port: process.env.DB_PORT || 5432,
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME || 'webappdb',
+    database: process.env.DB_NAME || 'common_db',
     max: 5,
     client_encoding: 'UTF8',
   };
@@ -3241,7 +3241,7 @@ app.post('/api/database/backup', authenticateToken, async (req, res) => {
     const dbConfig = {
       host: pool.options.host || 'localhost',
       port: pool.options.port || 5432,
-      database: pool.options.database || 'webappdb',
+      database: pool.options.database || 'common_db',
       user: pool.options.user || 'postgres',
       password: pool.options.password
     };
@@ -3255,7 +3255,7 @@ app.post('/api/database/backup', authenticateToken, async (req, res) => {
       }
 
       // バックアップファイルをダウンロード
-      res.download(backupFile, `webappdb_backup_${timestamp}.sql`, (err) => {
+      res.download(backupFile, `common_db_backup_${timestamp}.sql`, (err) => {
         if (err) {
           console.error('Download error:', err);
         }

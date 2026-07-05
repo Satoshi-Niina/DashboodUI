@@ -165,7 +165,7 @@ function getGatewayRoutingContext(options = {}) {
     ).trim().toLowerCase();
     
     const tenantId = tenantIdRaw === 'demo_env' ? 'demo' : tenantIdRaw;
-    const dbName = options.dbName || runtimeDbName || process.env.DB_NAME || 'webappdb';
+    const dbName = options.dbName || runtimeDbName || process.env.DB_NAME || 'common_db';
 
     return { tenantId, dbName };
 }

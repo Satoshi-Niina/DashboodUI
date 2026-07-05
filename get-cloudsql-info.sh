@@ -76,7 +76,7 @@ echo "CLOUD_SQL_INSTANCE:"
 echo "$SELECTED_CONN"
 echo ""
 echo "DB_NAME:"
-echo "webappdb"
+echo "common_db"
 echo ""
 echo "DB_USER:"
 echo "postgres"
@@ -107,7 +107,7 @@ gcloud run deploy dashboard-ui \\
   --allow-unauthenticated \\
   --set-env-vars NODE_ENV=production \\
   --set-env-vars CLOUD_SQL_INSTANCE=$SELECTED_CONN \\
-  --set-env-vars DB_NAME=webappdb \\
+    --set-env-vars DB_NAME=common_db \\
   --set-env-vars DB_USER=postgres \\
   --set-env-vars DB_PASSWORD=YOUR_PASSWORD \\
   --set-env-vars JWT_SECRET=YOUR_SECRET \\

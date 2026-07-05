@@ -2731,7 +2731,7 @@ function initializeTableManagement() {
                 const a = document.createElement('a');
                 a.href = url;
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                a.download = `webappdb_backup_${timestamp}.sql`;
+                a.download = `common_db_backup_${timestamp}.sql`;
                 document.body.appendChild(a);
                 a.click();
                 window.URL.revokeObjectURL(url);

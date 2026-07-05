@@ -2,7 +2,7 @@
 
 **実施日**: 2026-07-01  
 **対象システム**: ダッシュボードUI (app_id: 'dashboard-ui')  
-**データベース**: webappdb
+**データベース**: common_db
 
 ---
 
@@ -28,7 +28,7 @@
 
 **実行方法**:
 ```bash
-psql -h localhost -U postgres -d webappdb -f init-dashboard-routing.sql
+psql -h localhost -U postgres -d common_db -f init-dashboard-routing.sql
 ```
 
 **期待される出力**:
@@ -576,7 +576,7 @@ OK: `await dynamicSelect('demo', 'users', {})`
 
 ### 導入前確認
 
-- [ ] PostgreSQLにwebappdbが存在する
+- [ ] PostgreSQLにcommon_dbが存在する
 - [ ] shared-db-config.jsが正しく配置されている
 - [ ] server.jsにデバッグエンドポイントが追加されている
 - [ ] init-dashboard-routing.sqlが用意されている
@@ -601,7 +601,7 @@ OK: `await dynamicSelect('demo', 'users', {})`
 
 1. **初期データ登録**
    ```bash
-   psql -h localhost -U postgres -d webappdb -f init-dashboard-routing.sql
+    psql -h localhost -U postgres -d common_db -f init-dashboard-routing.sql
    ```
 
 2. **サーバー起動**

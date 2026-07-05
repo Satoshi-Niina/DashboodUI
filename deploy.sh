@@ -7,7 +7,7 @@
 PROJECT_ID="your-project-id"
 REGION="asia-northeast1"
 CLOUD_SQL_INSTANCE="your-project:asia-northeast1:your-instance"
-DB_NAME="webappdb"
+DB_NAME="common_db"
 DB_USER="postgres"
 DB_PASSWORD="YOUR_DB_PASSWORD"  # 本番環境では必ず変更してください
 JWT_SECRET="YOUR_SECURE_JWT_SECRET"  # 本番環境では必ず変更してください

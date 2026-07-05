@@ -120,7 +120,7 @@ gsutil versioning set on gs://{バケット名}
 
 # 2. PostgreSQLの定期バックアップ
 # crontabまたはCloud Schedulerで定期実行
-pg_dump -h localhost -U postgres -d webappdb > backup_$(date +%Y%m%d).sql
+pg_dump -h localhost -U postgres -d common_db > backup_$(date +%Y%m%d).sql
 
 # 3. GCSオブジェクトのライフサイクル設定（オプション）
 # 古いファイルを自動アーカイブ/削除

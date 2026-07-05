@@ -78,7 +78,7 @@ Write-Host "CLOUD_SQL_INSTANCE:" -ForegroundColor Yellow
 Write-Host $selected.ConnectionName -ForegroundColor White
 Write-Host ""
 Write-Host "DB_NAME:" -ForegroundColor Yellow
-Write-Host "webappdb" -ForegroundColor White
+Write-Host "common_db" -ForegroundColor White
 Write-Host ""
 Write-Host "DB_USER:" -ForegroundColor Yellow
 Write-Host "postgres" -ForegroundColor White
@@ -100,7 +100,7 @@ Write-Host "  --platform=managed ``" -ForegroundColor White
 Write-Host "  --allow-unauthenticated ``" -ForegroundColor White
 Write-Host "  --set-env-vars NODE_ENV=production ``" -ForegroundColor White
 Write-Host "  --set-env-vars CLOUD_SQL_INSTANCE=$($selected.ConnectionName) ``" -ForegroundColor White
-Write-Host "  --set-env-vars DB_NAME=webappdb ``" -ForegroundColor White
+Write-Host "  --set-env-vars DB_NAME=common_db ``" -ForegroundColor White
 Write-Host "  --set-env-vars DB_USER=postgres ``" -ForegroundColor White
 Write-Host "  --set-env-vars DB_PASSWORD=YOUR_PASSWORD ``" -ForegroundColor White
 Write-Host "  --set-env-vars JWT_SECRET=YOUR_SECRET ``" -ForegroundColor White

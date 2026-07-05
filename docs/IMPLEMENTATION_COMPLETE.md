@@ -45,7 +45,7 @@ AI/RAG:
 
 **実行方法**:
 ```bash
-psql -h localhost -U postgres -d webappdb -f init-dashboard-routing.sql
+psql -h localhost -U postgres -d common_db -f init-dashboard-routing.sql
 ```
 
 ---
@@ -276,7 +276,7 @@ WHERE logical_resource_name = 'ai_settings';
 
 ```bash
 # PostgreSQLに接続してSQLを実行
-psql -h localhost -U postgres -d webappdb -f init-dashboard-routing.sql
+psql -h localhost -U postgres -d common_db -f init-dashboard-routing.sql
 ```
 
 **期待される出力**:

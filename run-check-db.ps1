@@ -1,7 +1,7 @@
 # Cloud SQLに接続してDB構造を確認するガイド
 
 $INSTANCE_NAME = "free-trial-first-project"
-$DATABASE = "webappdb"
+$DATABASE = "common_db"
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Cloud SQL データベース構造確認" -ForegroundColor Cyan

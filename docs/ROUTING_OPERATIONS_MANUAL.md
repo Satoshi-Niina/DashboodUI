@@ -292,7 +292,7 @@ curl -X POST \
 
 ```sql
 -- 1. バックアップ取得
-pg_dump -h localhost -U postgres -d webappdb -t master_data.users > users_backup.sql
+pg_dump -h localhost -U postgres -d common_db -t master_data.users > users_backup.sql
 
 -- 2. 新スキーマの作成（存在しない場合）
 CREATE SCHEMA IF NOT EXISTS tenant_data;

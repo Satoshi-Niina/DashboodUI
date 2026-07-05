@@ -15,7 +15,7 @@ const dbConfig = isProduction && process.env.CLOUD_SQL_INSTANCE ? {
   host: `/cloudsql/${process.env.CLOUD_SQL_INSTANCE}`,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME || 'webappdb',
+  database: process.env.DB_NAME || 'common_db',
   max: 5,
 } : {
   // ローカル環境: 接続文字列を使用
@@ -46,7 +46,7 @@ console.log('  - Environment:', isProduction ? 'PRODUCTION' : 'LOCAL');
 console.log('  - Connection:', isProduction ? 'Cloud SQL Unix Socket' : 'TCP Connection');
 if (isProduction) {
   console.log('  - Socket Path:', `/cloudsql/${process.env.CLOUD_SQL_INSTANCE}`);
-  console.log('  - Database:', process.env.DB_NAME || 'webappdb');
+  console.log('  - Database:', process.env.DB_NAME || 'common_db');
   console.log('  - User:', process.env.DB_USER);
 } else {
   console.log('  - Connection String:', dbConfig.connectionString ? 'Configured' : 'Not Set');
