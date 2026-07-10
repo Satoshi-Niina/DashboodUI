@@ -5211,7 +5211,24 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
     const inspectionTypesRoute = await resolveTablePath('inspection_types');
     const inspectionSchedulesRoute = await resolveTablePath('inspection_schedules');
     const scheduleColumns = await getPhysicalTableColumns(inspectionSchedulesRoute);
+    const machineTypeColumns = await getPhysicalTableColumns(machineTypesRoute);
     const hasTargetCategory = scheduleColumns.has('target_category');
+    const machineTypeNameExpr = (() => {
+      const candidates = ['model_name', 'machine_type_name', 'type_name', 'name'];
+      const available = candidates
+        .filter((columnName) => machineTypeColumns.has(columnName))
+        .map((columnName) => `NULLIF(mt.${columnName}::text, '')`);
+
+      if (available.length === 0) {
+        return 'NULL::text';
+      }
+
+      return `COALESCE(${available.join(', ')})`;
+    })();
+
+    const machineTypeJoinCondition = machineTypeColumns.has('id')
+      ? 'm.machine_type_id::text = mt.id::text'
+      : '1=0';
 
     const query = `
       SELECT 
@@ -5226,13 +5243,13 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
         s.created_at,
         s.updated_at,
         m.machine_number,
-        mt.model_name,
+        ${machineTypeNameExpr} AS model_name,
         o.office_name,
         it.type_name,
         it.type_code
       FROM ${inspectionSchedulesRoute.fullPath} s
       LEFT JOIN ${machinesRoute.fullPath} m ON s.machine_id::text = m.id::text
-      LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id = mt.id
+      LEFT JOIN ${machineTypesRoute.fullPath} mt ON ${machineTypeJoinCondition}
       LEFT JOIN ${officesRoute.fullPath} o ON m.office_id::integer = o.office_id
       LEFT JOIN ${inspectionTypesRoute.fullPath} it ON s.inspection_type_id = it.id
       ORDER BY ${hasTargetCategory ? 's.target_category,' : ''} o.office_name, mt.model_name, m.machine_number, it.display_order
