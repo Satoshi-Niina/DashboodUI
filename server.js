@@ -2016,6 +2016,16 @@ function authenticateToken(req, res, next) {
   });
 }
 
+// 外部システム（仕業点検管理UIなど）が期待するロール（'admin' | 'manager' | 'operator'）にマッピングする関数
+function mapRoleForExternal(role) {
+  if (role === 'system_admin' || role === 'admin') {
+    return 'admin';
+  } else if (role === 'operation_admin' || role === 'manager') {
+    return 'manager';
+  }
+  return 'operator';
+}
+
 // Login API Endpoint
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
@@ -2086,7 +2096,7 @@ app.post('/api/login', async (req, res) => {
         userId: user.id,  // 外部アプリ連携用
         username: user.username,
         displayName: user.display_name,  // Emergency-Assistanceで必要
-        role: user.role,
+        role: mapRoleForExternal(user.role), // 外部システムが期待するロールにマッピング
         department: department,  // Emergency-Assistanceで必要
         iat: Math.floor(Date.now() / 1000)  // 発行時刻を明示
       };
@@ -2172,7 +2182,7 @@ app.post('/api/verify-token', async (req, res) => {
         id: user.id,
         username: user.username,
         displayName: user.display_name,
-        role: user.role,
+        role: mapRoleForExternal(user.role), // 外部システムが期待するロールにマッピング
         department: department
       }
     });
@@ -2219,9 +2229,9 @@ app.post('/api/refresh-token', async (req, res) => {
     // departmentが存在しない場合のフォールバック処理
     let department = decoded.department;
     if (!department) {
-      if (decoded.role === 'system_admin') {
+      if (decoded.role === 'system_admin' || decoded.role === 'admin') {
         department = 'システム管理部';
-      } else if (decoded.role === 'operation_admin') {
+      } else if (decoded.role === 'operation_admin' || decoded.role === 'manager') {
         department = '運用管理部';
       } else {
         department = '未設定';
@@ -2233,7 +2243,7 @@ app.post('/api/refresh-token', async (req, res) => {
       userId: decoded.id,  // 外部アプリ連携用
       username: decoded.username,
       displayName: decoded.displayName,
-      role: decoded.role,
+      role: mapRoleForExternal(decoded.role), // 外部システム向けにマッピング
       department: department,
       iat: Math.floor(Date.now() / 1000)
     };
