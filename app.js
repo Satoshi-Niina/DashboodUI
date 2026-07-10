@@ -242,6 +242,38 @@ document.addEventListener('DOMContentLoaded', async () => {
         overlay.classList.add('hidden');
     }
 
+    function dispatchExternalAuthContext(targetWindow, targetOrigin, authContext) {
+        if (!targetWindow || targetWindow.closed || !targetOrigin || !authContext) {
+            return;
+        }
+
+        const payload = {
+            type: 'EXTERNAL_AUTH_CONTEXT',
+            token: authContext.token,
+            external_token: authContext.token,
+            tenantId: authContext.tenantId,
+            tenant: authContext.tenantId,
+            company_id: authContext.tenantId
+        };
+
+        let attempts = 0;
+        const maxAttempts = 5;
+        const sendPayload = () => {
+            if (!targetWindow || targetWindow.closed) {
+                return;
+            }
+
+            targetWindow.postMessage(payload, targetOrigin);
+            attempts += 1;
+
+            if (attempts < maxAttempts) {
+                window.setTimeout(sendPayload, 300);
+            }
+        };
+
+        sendPayload();
+    }
+
     launchBtn.addEventListener('click', () => {
         console.log('currentAppId:', currentAppId);
         console.log('AppConfig.endpoints:', AppConfig.endpoints);
@@ -270,6 +302,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // ローカルストレージからトークンを取得
         const token = localStorage.getItem('user_token');
+        const shouldUseExternalAuthBridge = currentAppId === 'equipment';
+        let popupOrigin = '';
+        let authContext = null;
 
         // URLにトークンをクエリパラメータとして追加（認証連携）
         let finalUrl = baseUrl;
@@ -305,12 +340,25 @@ document.addEventListener('DOMContentLoaded', async () => {
             urlObj.searchParams.set('tenant_id', tenantId);
             urlObj.searchParams.set('tenant_path', tenantPath);
 
+            if (shouldUseExternalAuthBridge) {
+                urlObj.searchParams.set('external_token', token);
+                urlObj.searchParams.set('tenantId', tenantId);
+                urlObj.searchParams.set('tenant', tenantId);
+                urlObj.searchParams.set('company_id', tenantId);
+                authContext = { token, tenantId };
+            }
+
+            popupOrigin = urlObj.origin;
             finalUrl = urlObj.toString();
         }
 
         // 新しいタブで開く
         console.log('Opening URL with token:', finalUrl);
-        window.open(finalUrl, '_blank');
+        const openedWindow = window.open(finalUrl, '_blank');
+
+        if (shouldUseExternalAuthBridge && openedWindow && authContext && popupOrigin) {
+            dispatchExternalAuthContext(openedWindow, popupOrigin, authContext);
+        }
 
         hideTooltip();
     });
