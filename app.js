@@ -256,6 +256,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             company_id: authContext.tenantId
         };
 
+        const payloadToken = {
+            type: 'EXTERNAL_AUTH_TOKEN',
+            token: authContext.token,
+            external_token: authContext.token,
+            tenantId: authContext.tenantId,
+            tenant: authContext.tenantId,
+            company_id: authContext.tenantId
+        };
+
         let attempts = 0;
         const maxAttempts = 5;
         const sendPayload = () => {
@@ -263,7 +272,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 return;
             }
 
+            // 互換性のため両方のイベントタイプを送信する
             targetWindow.postMessage(payload, targetOrigin);
+            targetWindow.postMessage(payloadToken, targetOrigin);
             attempts += 1;
 
             if (attempts < maxAttempts) {
