@@ -5252,7 +5252,7 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
       LEFT JOIN ${machineTypesRoute.fullPath} mt ON ${machineTypeJoinCondition}
       LEFT JOIN ${officesRoute.fullPath} o ON m.office_id::integer = o.office_id
       LEFT JOIN ${inspectionTypesRoute.fullPath} it ON s.inspection_type_id = it.id
-      ORDER BY ${hasTargetCategory ? 's.target_category,' : ''} o.office_name, mt.model_name, m.machine_number, it.display_order
+      ORDER BY ${hasTargetCategory ? 's.target_category,' : ''} o.office_name, model_name, m.machine_number, it.display_order
     `;
 
     console.log('[GET /api/inspection-schedules] Executing SQL...');
