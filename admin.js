@@ -11,6 +11,41 @@ const MACHINE_CATEGORIES = [
     'その他'
 ];
 
+function unwrapApiArray(payload) {
+    if (Array.isArray(payload)) {
+        return payload;
+    }
+
+    if (!payload || typeof payload !== 'object') {
+        return [];
+    }
+
+    if (Array.isArray(payload.data)) {
+        return payload.data;
+    }
+
+    if (Array.isArray(payload.offices)) {
+        return payload.offices;
+    }
+
+    if (Array.isArray(payload.bases)) {
+        return payload.bases;
+    }
+
+    if (Array.isArray(payload.rows)) {
+        return payload.rows;
+    }
+
+    return [];
+}
+
+function getApiMessage(payload, fallbackMessage) {
+    if (payload && typeof payload === 'object') {
+        return payload.message || payload.error || fallbackMessage;
+    }
+    return fallbackMessage;
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     if (window.TenantContext && typeof window.TenantContext.init === 'function') {
         await window.TenantContext.init();
@@ -850,8 +885,9 @@ async function loadMachineTypes() {
         }
 
         const data = await response.json();
+        const machineTypes = unwrapApiArray(data);
 
-        if (data.success && data.data.length > 0) {
+        if (data.success && machineTypes.length > 0) {
             let html = `
                 <table class="data-table" id="machine-types-table">
                     <thead>
@@ -873,7 +909,7 @@ async function loadMachineTypes() {
                     <tbody>
             `;
 
-            data.data.forEach(type => {
+            machineTypes.forEach(type => {
                 const typeId = String(type.id);
                 console.log('[loadMachineTypes] Rendering type:', { id: typeId });
                 html += `
@@ -1064,8 +1100,9 @@ async function loadMachines() {
         }
 
         const data = await response.json();
+        const machines = unwrapApiArray(data);
 
-        if (data.success && data.data.length > 0) {
+        if (data.success && machines.length > 0) {
             let html = `
                 <table class="data-table" id="machines-table">
                     <thead>
@@ -1089,7 +1126,7 @@ async function loadMachines() {
                     <tbody>
             `;
 
-            data.data.forEach(machine => {
+            machines.forEach(machine => {
                 const machineId = String(machine.machine_id || machine.id);
                 const machineNumber = machine.machine_number || '-';
                 console.log('[loadMachines] Rendering machine:', { id: machineId, number: machineNumber });
@@ -1112,10 +1149,10 @@ async function loadMachines() {
             list.innerHTML = html;
 
             // デバッグ: データ確認
-            console.log('[loadMachines] Sample data:', data.data.slice(0, 3));
-            console.log('[loadMachines] Office names:', data.data.map(m => m.office_name).filter((v, i, a) => a.indexOf(v) === i));
+            console.log('[loadMachines] Sample data:', machines.slice(0, 3));
+            console.log('[loadMachines] Office names:', machines.map(m => m.office_name).filter((v, i, a) => a.indexOf(v) === i));
             console.log('[loadMachines] Sample with office_id:');
-            data.data.slice(0, 3).forEach(m => {
+            machines.slice(0, 3).forEach(m => {
                 console.log(`  - ${m.machine_number}: office_id=${m.office_id}, office_name=${m.office_name}`);
             });
 
@@ -1179,12 +1216,13 @@ async function openMachineModal(machineId = null) {
         }
 
         const machineTypesData = await machineTypesResponse.json();
+        const machineTypes = unwrapApiArray(machineTypesData);
         console.log('[openMachineModal] 📦 Machine types data received:', machineTypesData);
         console.log('[openMachineModal] Success:', machineTypesData.success);
-        console.log('[openMachineModal] Data array:', machineTypesData.data);
-        console.log('[openMachineModal] Data count:', machineTypesData.data ? machineTypesData.data.length : 0);
+        console.log('[openMachineModal] Data array:', machineTypes);
+        console.log('[openMachineModal] Data count:', machineTypes.length);
 
-        if (machineTypesData.success && machineTypesData.data && Array.isArray(machineTypesData.data)) {
+        if (machineTypesData.success && machineTypes.length > 0) {
             const machineTypeSelect = document.getElementById('machine-type-select');
             if (!machineTypeSelect) {
                 console.error('[openMachineModal] ❌ machine-type-select element not found!');
@@ -1197,7 +1235,7 @@ async function openMachineModal(machineId = null) {
             const options = ['<option value="">-- 機種を選択 --</option>'];
             console.log('[openMachineModal] Processing machine types...');
 
-            machineTypesData.data.forEach((type, index) => {
+            machineTypes.forEach((type, index) => {
                 const typeId = type.id;
                 const modelName = type.model_name || '名前なし';
                 const manufacturer = type.manufacturer || '';
@@ -1207,7 +1245,7 @@ async function openMachineModal(machineId = null) {
                 const displayText = manufacturer ? `${modelName} (${manufacturer})` : modelName;
 
                 options.push(`<option value="${typeId}">${escapeHtml(displayText)}</option>`);
-                console.log(`[openMachineModal] Type ${index + 1}/${machineTypesData.data.length}:`, {
+                console.log(`[openMachineModal] Type ${index + 1}/${machineTypes.length}:`, {
                     id: typeId,
                     modelName: modelName,
                     manufacturer: manufacturer
@@ -1215,14 +1253,14 @@ async function openMachineModal(machineId = null) {
             });
 
             machineTypeSelect.innerHTML = options.join('');
-            console.log('[openMachineModal] ✅ Machine types loaded:', machineTypesData.data.length, 'items');
+            console.log('[openMachineModal] ✅ Machine types loaded:', machineTypes.length, 'items');
             console.log('[openMachineModal] Select HTML length:', machineTypeSelect.innerHTML.length);
             console.log('[openMachineModal] Option elements:', machineTypeSelect.children.length);
         } else {
             console.error('[openMachineModal] ❌ Invalid machine types response:', {
                 success: machineTypesData.success,
-                hasData: !!machineTypesData.data,
-                isArray: Array.isArray(machineTypesData.data),
+                hasData: machineTypes.length > 0,
+                isArray: Array.isArray(machineTypes),
                 message: machineTypesData.message
             });
             showToast('機種データの読み込みに失敗しました', 'error');
@@ -1241,12 +1279,13 @@ async function openMachineModal(machineId = null) {
         }
 
         const officesData = await officesResponse.json();
+        const offices = unwrapApiArray(officesData);
         console.log('[openMachineModal] 📦 Offices data received:', officesData);
         console.log('[openMachineModal] Success:', officesData.success);
-        console.log('[openMachineModal] Offices array:', officesData.offices);
-        console.log('[openMachineModal] Offices count:', officesData.offices ? officesData.offices.length : 0);
+        console.log('[openMachineModal] Offices array:', offices);
+        console.log('[openMachineModal] Offices count:', offices.length);
 
-        if (officesData.success && officesData.offices && Array.isArray(officesData.offices)) {
+        if (officesData.success && offices.length > 0) {
             const officeSelect = document.getElementById('machine-office-select');
             if (!officeSelect) {
                 console.error('[openMachineModal] ❌ machine-office-select element not found!');
@@ -1259,25 +1298,25 @@ async function openMachineModal(machineId = null) {
             const options = ['<option value="">-- 事業所を選択 --</option>'];
             console.log('[openMachineModal] Processing offices...');
 
-            officesData.offices.forEach((office, index) => {
+            offices.forEach((office, index) => {
                 const officeId = office.office_id;
                 const officeName = office.office_name || '名前なし';
                 options.push(`<option value="${officeId}">${escapeHtml(officeName)}</option>`);
-                console.log(`[openMachineModal] Office ${index + 1}/${officesData.offices.length}:`, {
+                console.log(`[openMachineModal] Office ${index + 1}/${offices.length}:`, {
                     id: officeId,
                     name: officeName
                 });
             });
 
             officeSelect.innerHTML = options.join('');
-            console.log('[openMachineModal] ✅ Offices loaded:', officesData.offices.length, 'items');
+            console.log('[openMachineModal] ✅ Offices loaded:', offices.length, 'items');
             console.log('[openMachineModal] Select HTML length:', officeSelect.innerHTML.length);
             console.log('[openMachineModal] Option elements:', officeSelect.children.length);
         } else {
             console.error('[openMachineModal] ❌ Invalid offices response:', {
                 success: officesData.success,
-                hasOffices: !!officesData.offices,
-                isArray: Array.isArray(officesData.offices),
+                hasOffices: offices.length > 0,
+                isArray: Array.isArray(offices),
                 message: officesData.message
             });
             showToast('事業所データの読み込みに失敗しました', 'error');
@@ -1449,9 +1488,10 @@ async function loadInspectionTypes() {
         }
 
         const data = await response.json();
+        const inspectionTypes = unwrapApiArray(data);
         console.log('[loadInspectionTypes] Response:', data);
 
-        if (data.success && data.data && data.data.length > 0) {
+        if (data.success && inspectionTypes.length > 0) {
             let html = `
                 <table class="data-table" id="inspection-types-table">
                     <thead>
@@ -1467,7 +1507,7 @@ async function loadInspectionTypes() {
                     <tbody>
             `;
 
-            data.data.forEach(type => {
+            inspectionTypes.forEach(type => {
                 const statusBadge = type.is_active ?
                     '<span class="status-badge status-active">有効</span>' :
                     '<span class="status-badge status-inactive">無効</span>';
@@ -1518,9 +1558,10 @@ async function loadInspectionSchedules() {
         }
 
         const data = await response.json();
+        const inspectionSchedules = unwrapApiArray(data);
         console.log('[loadInspectionSchedules] Response:', data);
 
-        if (data.success && data.data && data.data.length > 0) {
+        if (data.success && inspectionSchedules.length > 0) {
             let html = `
                 <table class="data-table" id="inspection-schedules-table">
                     <thead>
@@ -1537,7 +1578,7 @@ async function loadInspectionSchedules() {
                     <tbody>
             `;
 
-            data.data.forEach(schedule => {
+            inspectionSchedules.forEach(schedule => {
                 const statusBadge = schedule.is_active ?
                     '<span class="status-badge status-active">有効</span>' :
                     '<span class="status-badge status-inactive">無効</span>';
@@ -1858,11 +1899,12 @@ async function loadMachineSelectOptions(selectId) {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
+        const machines = unwrapApiArray(data);
 
         const select = document.getElementById(selectId);
-        if (select && data.success && data.data) {
+        if (select && data.success && machines.length > 0) {
             select.innerHTML = '<option value="">-- 保守用車を選択 --</option>';
-            data.data.forEach(machine => {
+            machines.forEach(machine => {
                 const option = document.createElement('option');
                 option.value = machine.machine_id || machine.id;
                 option.textContent = machine.machine_number || '-';
@@ -1881,11 +1923,12 @@ async function loadInspectionTypeSelectOptions(selectId) {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
+        const types = unwrapApiArray(data);
 
         const select = document.getElementById(selectId);
-        if (select && data.success && data.data) {
+        if (select && data.success && types.length > 0) {
             select.innerHTML = '<option value="">-- 検修種別を選択 --</option>';
-            data.data.forEach(type => {
+            types.forEach(type => {
                 const option = document.createElement('option');
                 option.value = type.id;
                 option.textContent = type.type_name || '-';
@@ -2147,7 +2190,7 @@ async function showBaseModal(mode, baseId) {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     const officesData = await officesRes.json();
-    const offices = officesData.success ? officesData.offices : [];
+    const offices = officesData.success ? unwrapApiArray(officesData) : [];
 
     if (mode === 'edit') {
         const basesRes = await fetch('/api/bases', {
@@ -2497,9 +2540,10 @@ async function fetchOfficeMap() {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
         });
         const data = await response.json();
+        const offices = unwrapApiArray(data);
         const map = {};
         if (data.success) {
-            data.offices.forEach(o => {
+            offices.forEach(o => {
                 map[o.office_name] = o.office_id;
             });
         }
@@ -2519,10 +2563,11 @@ async function fetchMachineTypeMap() {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
         });
         const data = await response.json();
+        const machineTypes = unwrapApiArray(data);
         const map = {};
         if (data.success) {
-            data.data.forEach(mt => {
-                map[mt.model_name] = mt.id;
+            machineTypes.forEach(mt => {
+                map[mt.model_name || mt.type_name || mt.machine_type_name] = mt.id;
             });
         }
         return map;
@@ -2772,12 +2817,13 @@ async function loadTableData(schemaTable) {
         });
 
         const result = await response.json();
+        const rows = unwrapApiArray(result);
 
-        if (result.success && result.data.length > 0) {
-            currentTableData = result.data;
+        if (result.success && rows.length > 0) {
+            currentTableData = rows;
             currentTableColumns = result.columns;
 
-            const columns = Object.keys(result.data[0]);
+            const columns = Object.keys(rows[0]);
             const primaryKey = columns[0]; // 仮に最初のカラムを主キーとする
 
             let tableHtml = '<table class="data-table"><thead><tr>';
@@ -2786,7 +2832,7 @@ async function loadTableData(schemaTable) {
             });
             tableHtml += '<th>操作</th></tr></thead><tbody>';
 
-            result.data.forEach(row => {
+            rows.forEach(row => {
                 tableHtml += '<tr>';
                 columns.forEach(col => {
                     const value = row[col];
@@ -3115,14 +3161,13 @@ async function loadInspectionTypes() {
         if (!response.ok) throw new Error(`Failed to load: ${response.statusText}`);
 
         const result = await response.json();
+        const inspectionTypes = unwrapApiArray(result);
         console.log('[Admin] Inspection types response:', result);
 
-        if (!result.success || !result.data || result.data.length === 0) {
+        if (!result.success || inspectionTypes.length === 0) {
             listEl.innerHTML = '<p class="no-data">検修種別が登録されていません</p>';
             return;
         }
-
-        const data = result.data;
 
         let html = `
             <table class="data-table">
@@ -3139,7 +3184,7 @@ async function loadInspectionTypes() {
                 <tbody>
         `;
 
-        data.forEach(type => {
+        inspectionTypes.forEach(type => {
             const statusBadge = type.is_active
                 ? '<span class="badge badge-success">有効</span>'
                 : '<span class="badge badge-inactive">無効</span>';
@@ -3308,14 +3353,13 @@ async function loadInspectionSchedules() {
 
 
         const result = await response.json();
+        const inspectionSchedules = unwrapApiArray(result);
         console.log('[Admin] Inspection schedules response:', result);
 
-        if (!result.success || !result.data || result.data.length === 0) {
+        if (!result.success || inspectionSchedules.length === 0) {
             listEl.innerHTML = '<p class="no-data">検修設定が登録されていません</p>';
             return;
         }
-
-        const data = result.data;
 
         let html = `
             <table class="data-table">
@@ -3333,7 +3377,7 @@ async function loadInspectionSchedules() {
                 <tbody>
         `;
 
-        data.forEach(schedule => {
+        inspectionSchedules.forEach(schedule => {
             const statusBadge = schedule.is_active
                 ? '<span class="badge badge-success">有効</span>'
                 : '<span class="badge badge-inactive">無効</span>';
@@ -3511,7 +3555,8 @@ async function loadCategoriesForSchedule() {
         });
 
         if (!response.ok) throw new Error('Failed to load machine types');
-        const machineTypes = await response.json();
+        const machineTypesResponse = await response.json();
+        const machineTypes = unwrapApiArray(machineTypesResponse);
 
         // ユニークなカテゴリーを抽出
         const categories = [...new Set(machineTypes.map(t => t.category).filter(c => c))];
@@ -3541,7 +3586,8 @@ async function loadInspectionTypesForSchedule() {
 
         if (!response.ok) throw new Error('Failed to load inspection types');
 
-        const types = await response.json();
+        const typesResponse = await response.json();
+        const types = unwrapApiArray(typesResponse);
 
         let html = '<option value="">-- 検修種別を選択 --</option>';
         types.filter(t => t.is_active).forEach(type => {

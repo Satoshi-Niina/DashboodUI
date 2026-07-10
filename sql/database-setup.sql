@@ -122,10 +122,14 @@ CREATE TABLE IF NOT EXISTS master_data.vehicle_types (
 
 -- 点検タイプマスタ（既存）
 CREATE TABLE IF NOT EXISTS master_data.inspection_types (
-    type_id SERIAL PRIMARY KEY,
-    type_name VARCHAR(50) UNIQUE NOT NULL,
+    id SERIAL PRIMARY KEY,
+    type_code VARCHAR(50) UNIQUE NOT NULL,
+    type_name VARCHAR(100) NOT NULL,
     description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    display_order INT DEFAULT 0,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ベース文書（既存）

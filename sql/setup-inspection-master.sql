@@ -25,7 +25,8 @@ COMMENT ON COLUMN master_data.inspection_types.is_active IS '有効フラグ';
 -- 検修周期・期間設定テーブル（機種・機械番号毎）
 CREATE TABLE IF NOT EXISTS master_data.inspection_schedules (
     id SERIAL PRIMARY KEY,
-    machine_id INT NOT NULL,                          -- 保守用車ID（master_data.machines.id）
+    machine_id INT,                                   -- 保守用車ID（master_data.machines.id）
+    target_category VARCHAR(100),                     -- カテゴリー指定（カテゴリ単位の検修設定）
     inspection_type_id INT NOT NULL,                  -- 検修種別ID
     cycle_months INT NOT NULL,                        -- 検修周期（月単位）
     duration_days INT NOT NULL,                       -- 検修期間（日数）
@@ -35,11 +36,12 @@ CREATE TABLE IF NOT EXISTS master_data.inspection_schedules (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (machine_id) REFERENCES master_data.machines(id) ON DELETE CASCADE,
     FOREIGN KEY (inspection_type_id) REFERENCES master_data.inspection_types(id) ON DELETE CASCADE,
-    UNIQUE(machine_id, inspection_type_id)            -- 同じ機械・検修種別の重複を防ぐ
+    CHECK (machine_id IS NOT NULL OR target_category IS NOT NULL)
 );
 
 COMMENT ON TABLE master_data.inspection_schedules IS '検修周期・期間設定テーブル（機種・機械番号毎）';
 COMMENT ON COLUMN master_data.inspection_schedules.machine_id IS '保守用車ID';
+COMMENT ON COLUMN master_data.inspection_schedules.target_category IS 'カテゴリー指定';
 COMMENT ON COLUMN master_data.inspection_schedules.inspection_type_id IS '検修種別ID';
 COMMENT ON COLUMN master_data.inspection_schedules.cycle_months IS '検修周期（月単位）';
 COMMENT ON COLUMN master_data.inspection_schedules.duration_days IS '検修期間（日数）';
@@ -48,8 +50,11 @@ COMMENT ON COLUMN master_data.inspection_schedules.is_active IS '有効フラグ
 
 -- インデックス作成
 CREATE INDEX IF NOT EXISTS idx_inspection_schedules_machine_id ON master_data.inspection_schedules(machine_id);
+CREATE INDEX IF NOT EXISTS idx_inspection_schedules_target_category ON master_data.inspection_schedules(target_category);
 CREATE INDEX IF NOT EXISTS idx_inspection_schedules_inspection_type_id ON master_data.inspection_schedules(inspection_type_id);
 CREATE INDEX IF NOT EXISTS idx_inspection_schedules_is_active ON master_data.inspection_schedules(is_active);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_inspection_schedules_target_key
+    ON master_data.inspection_schedules (COALESCE(machine_id::text, target_category), inspection_type_id);
 
 -- 初期データ挿入（検修種別サンプル）
 INSERT INTO master_data.inspection_types (type_code, type_name, description, display_order) VALUES

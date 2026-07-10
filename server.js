@@ -4965,13 +4965,37 @@ app.get('/api/inspection-types', requireAdmin, async (req, res) => {
   try {
     console.log('[GET /api/inspection-types] Fetching inspection types...');
     const route = await resolveTablePath('inspection_types');
-    const query = `SELECT * FROM ${route.fullPath} ORDER BY display_order, id`;
+    const columns = await getPhysicalTableColumns(route);
+    const idColumn = columns.has('id') ? 'id' : (columns.has('type_id') ? 'type_id' : null);
+    const typeCodeColumn = columns.has('type_code') ? 'type_code' : null;
+    const typeNameColumn = columns.has('type_name') ? 'type_name' : (columns.has('inspection_type_name') ? 'inspection_type_name' : (columns.has('name') ? 'name' : null));
+    const descriptionColumn = columns.has('description') ? 'description' : null;
+    const displayOrderColumn = columns.has('display_order') ? 'display_order' : null;
+    const activeColumn = columns.has('is_active') ? 'is_active' : null;
+
+    if (!idColumn || !typeNameColumn) {
+      return res.status(500).json({ success: false, message: '検修種別テーブルの列定義が不足しています', error: '検修種別テーブルの列定義が不足しています' });
+    }
+
+    const query = `
+      SELECT
+        ${idColumn}::text AS id,
+        ${typeCodeColumn ? `${typeCodeColumn}::text` : 'NULL::text'} AS type_code,
+        ${typeNameColumn}::text AS type_name,
+        ${descriptionColumn ? `${descriptionColumn}::text` : 'NULL::text'} AS description,
+        ${displayOrderColumn ? `${displayOrderColumn}` : '0'} AS display_order,
+        ${activeColumn ? `${activeColumn}` : 'true'} AS is_active
+      FROM ${route.fullPath}
+      ORDER BY ${displayOrderColumn || idColumn}, ${idColumn}
+    `;
     const result = await pool.query(query);
     console.log('[GET /api/inspection-types] Success:', result.rows.length);
-    res.json({ success: true, data: result.rows });
+    res.json({ success: true, data: result.rows, message: '検修種別一覧を取得しました' });
   } catch (err) {
     console.error('❌ Inspection types get error:', err.message);
-    res.status(500).json({ success: false, error: 'サーバーエラーが発生しました' });
+    console.error('❌ Inspection types get error code:', err.code || 'N/A');
+    console.error('❌ Inspection types get error detail:', err.detail || 'N/A');
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -4979,16 +5003,43 @@ app.get('/api/inspection-types', requireAdmin, async (req, res) => {
 app.get('/api/inspection-types/:id', requireAdmin, async (req, res) => {
   try {
     const typeId = req.params.id;
-    const types = await dynamicSelect('inspection_types', { id: typeId });
+    const route = await resolveTablePath('inspection_types');
+    const columns = await getPhysicalTableColumns(route);
+    const idColumn = columns.has('id') ? 'id' : (columns.has('type_id') ? 'type_id' : null);
+    const typeCodeColumn = columns.has('type_code') ? 'type_code' : null;
+    const typeNameColumn = columns.has('type_name') ? 'type_name' : (columns.has('inspection_type_name') ? 'inspection_type_name' : (columns.has('name') ? 'name' : null));
+    const descriptionColumn = columns.has('description') ? 'description' : null;
+    const displayOrderColumn = columns.has('display_order') ? 'display_order' : null;
+    const activeColumn = columns.has('is_active') ? 'is_active' : null;
 
-    if (types.length === 0) {
-      return res.status(404).json({ success: false, error: '検修種別が見つかりません' });
+    if (!idColumn || !typeNameColumn) {
+      return res.status(500).json({ success: false, message: '検修種別テーブルの列定義が不足しています', error: '検修種別テーブルの列定義が不足しています' });
     }
 
-    res.json({ success: true, data: types[0] });
+    const query = `
+      SELECT
+        ${idColumn}::text AS id,
+        ${typeCodeColumn ? `${typeCodeColumn}::text` : 'NULL::text'} AS type_code,
+        ${typeNameColumn}::text AS type_name,
+        ${descriptionColumn ? `${descriptionColumn}::text` : 'NULL::text'} AS description,
+        ${displayOrderColumn ? `${displayOrderColumn}` : '0'} AS display_order,
+        ${activeColumn ? `${activeColumn}` : 'true'} AS is_active
+      FROM ${route.fullPath}
+      WHERE ${idColumn}::text = $1
+      LIMIT 1
+    `;
+    const result = await pool.query(query, [typeId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, message: '検修種別が見つかりません', error: '検修種別が見つかりません' });
+    }
+
+    res.json({ success: true, data: result.rows[0], message: '検修種別を取得しました' });
   } catch (err) {
     console.error('❌ Inspection type get error:', err.message);
-    res.status(500).json({ success: false, error: 'サーバーエラーが発生しました' });
+    console.error('❌ Inspection type get error code:', err.code || 'N/A');
+    console.error('❌ Inspection type get error detail:', err.detail || 'N/A');
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -4998,7 +5049,7 @@ app.post('/api/inspection-types', requireAdmin, async (req, res) => {
     const { type_code, type_name, description, display_order, is_active } = req.body;
 
     if (!type_name) {
-      return res.status(400).json({ success: false, error: '種別名は必須です' });
+      return res.status(400).json({ success: false, message: '種別名は必須です', error: '種別名は必須です' });
     }
 
     // type_codeが提供されない場合は自動生成（type_nameから）
@@ -5043,24 +5094,29 @@ app.post('/api/inspection-types', requireAdmin, async (req, res) => {
       }
     }
 
-    const insertData = {
-      type_code: finalTypeCode,
-      type_name,
-      description: description || null,
-      display_order: display_order || 0,
-      is_active: is_active !== undefined ? is_active : true
-    };
+    const route = await resolveTablePath('inspection_types');
+    const columns = await getPhysicalTableColumns(route);
+    const insertData = {};
+    if (columns.has('type_code')) insertData.type_code = finalTypeCode;
+    if (columns.has('type_name')) insertData.type_name = type_name;
+    if (columns.has('inspection_type_name')) insertData.inspection_type_name = type_name;
+    if (columns.has('name')) insertData.name = type_name;
+    if (columns.has('description')) insertData.description = description || null;
+    if (columns.has('display_order')) insertData.display_order = display_order || 0;
+    if (columns.has('is_active')) insertData.is_active = is_active !== undefined ? is_active : true;
 
     const result = await dynamicInsert('inspection_types', insertData);
     console.log('[POST /api/inspection-types] Created:', result);
 
-    res.status(201).json({ success: true, data: result });
+    res.status(201).json({ success: true, data: result[0], message: '検修種別を登録しました' });
   } catch (err) {
     console.error('❌ Inspection type create error:', err.message);
+    console.error('❌ Inspection type create error code:', err.code || 'N/A');
+    console.error('❌ Inspection type create error detail:', err.detail || 'N/A');
     if (err.message.includes('duplicate key')) {
-      return res.status(400).json({ success: false, error: 'この種別コードは既に登録されています' });
+      return res.status(400).json({ success: false, message: 'この種別コードは既に登録されています', error: 'この種別コードは既に登録されています' });
     }
-    res.status(500).json({ success: false, error: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -5071,40 +5127,49 @@ app.put('/api/inspection-types/:id', requireAdmin, async (req, res) => {
     const { type_code, type_name, description, display_order, is_active } = req.body;
 
     if (!type_name) {
-      return res.status(400).json({ success: false, error: '種別名は必須です' });
+      return res.status(400).json({ success: false, message: '種別名は必須です', error: '種別名は必須です' });
     }
 
-    // type_codeが提供されていない場合は既存の値を保持（必要に応じて取得）
+    const route = await resolveTablePath('inspection_types');
+    const columns = await getPhysicalTableColumns(route);
+    const idColumn = columns.has('id') ? 'id' : (columns.has('type_id') ? 'type_id' : null);
+    if (!idColumn) {
+      return res.status(500).json({ success: false, message: '検修種別テーブルの列定義が不足しています', error: '検修種別テーブルの列定義が不足しています' });
+    }
+
     let finalTypeCode = type_code;
-    if (!finalTypeCode) {
-      const existingTypes = await dynamicSelect('inspection_types', { id: typeId });
-      if (existingTypes.length > 0) {
-        finalTypeCode = existingTypes[0].type_code;
+    if (!finalTypeCode && columns.has('type_code')) {
+      const existingTypes = await pool.query(`SELECT type_code FROM ${route.fullPath} WHERE ${idColumn}::text = $1 LIMIT 1`, [typeId]);
+      if (existingTypes.rows.length > 0) {
+        finalTypeCode = existingTypes.rows[0].type_code;
       }
     }
 
-    const updateData = {
-      type_code: finalTypeCode,
-      type_name,
-      description: description || null,
-      display_order: display_order || 0,
-      is_active: is_active !== undefined ? is_active : true
-    };
+    const updateData = {};
+    if (columns.has('type_code')) updateData.type_code = finalTypeCode;
+    if (columns.has('type_name')) updateData.type_name = type_name;
+    if (columns.has('inspection_type_name')) updateData.inspection_type_name = type_name;
+    if (columns.has('name')) updateData.name = type_name;
+    if (columns.has('description')) updateData.description = description || null;
+    if (columns.has('display_order')) updateData.display_order = display_order || 0;
+    if (columns.has('is_active')) updateData.is_active = is_active !== undefined ? is_active : true;
 
-    const result = await dynamicUpdate('inspection_types', updateData, { id: typeId }, true);
+    const result = await dynamicUpdate('inspection_types', updateData, { [idColumn]: typeId }, true);
 
     if (result.length === 0) {
-      return res.status(404).json({ error: '検修種別が見つかりません' });
+      return res.status(404).json({ success: false, message: '検修種別が見つかりません', error: '検修種別が見つかりません' });
     }
 
     console.log('[PUT /api/inspection-types] Updated:', result[0]);
-    res.json({ success: true, data: result[0] });
+    res.json({ success: true, data: result[0], message: '検修種別を更新しました' });
   } catch (err) {
     console.error('❌ Inspection type update error:', err.message);
+    console.error('❌ Inspection type update error code:', err.code || 'N/A');
+    console.error('❌ Inspection type update error detail:', err.detail || 'N/A');
     if (err.message.includes('duplicate key')) {
-      return res.status(400).json({ error: 'この種別コードは既に登録されています' });
+      return res.status(400).json({ success: false, message: 'この種別コードは既に登録されています', error: 'この種別コードは既に登録されています' });
     }
-    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -5112,17 +5177,26 @@ app.put('/api/inspection-types/:id', requireAdmin, async (req, res) => {
 app.delete('/api/inspection-types/:id', requireAdmin, async (req, res) => {
   try {
     const typeId = req.params.id;
-    const result = await dynamicDelete('inspection_types', { id: typeId }, true);
+    const route = await resolveTablePath('inspection_types');
+    const columns = await getPhysicalTableColumns(route);
+    const idColumn = columns.has('id') ? 'id' : (columns.has('type_id') ? 'type_id' : null);
+    if (!idColumn) {
+      return res.status(500).json({ success: false, message: '検修種別テーブルの列定義が不足しています', error: '検修種別テーブルの列定義が不足しています' });
+    }
+
+    const result = await dynamicDelete('inspection_types', { [idColumn]: typeId }, true);
 
     if (result.length === 0) {
-      return res.status(404).json({ error: '検修種別が見つかりません' });
+      return res.status(404).json({ success: false, message: '検修種別が見つかりません', error: '検修種別が見つかりません' });
     }
 
     console.log('[DELETE /api/inspection-types] Deleted:', typeId);
     res.json({ success: true, message: '検修種別を削除しました' });
   } catch (err) {
     console.error('❌ Inspection type delete error:', err.message);
-    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+    console.error('❌ Inspection type delete error code:', err.code || 'N/A');
+    console.error('❌ Inspection type delete error detail:', err.detail || 'N/A');
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -5136,13 +5210,15 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
     const officesRoute = await resolveTablePath('management_offices');
     const inspectionTypesRoute = await resolveTablePath('inspection_types');
     const inspectionSchedulesRoute = await resolveTablePath('inspection_schedules');
+    const scheduleColumns = await getPhysicalTableColumns(inspectionSchedulesRoute);
+    const hasTargetCategory = scheduleColumns.has('target_category');
 
     const query = `
       SELECT 
         s.id,
-        s.machine_id,
-        s.target_category,
-        s.inspection_type_id,
+        s.machine_id::text AS machine_id,
+        ${hasTargetCategory ? 's.target_category' : 'NULL::text'} AS target_category,
+        s.inspection_type_id::text AS inspection_type_id,
         s.cycle_months,
         s.duration_days,
         s.remarks,
@@ -5155,21 +5231,23 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
         it.type_name,
         it.type_code
       FROM ${inspectionSchedulesRoute.fullPath} s
-      LEFT JOIN ${machinesRoute.fullPath} m ON s.machine_id = m.id::text
+      LEFT JOIN ${machinesRoute.fullPath} m ON s.machine_id::text = m.id::text
       LEFT JOIN ${machineTypesRoute.fullPath} mt ON m.machine_type_id = mt.id
       LEFT JOIN ${officesRoute.fullPath} o ON m.office_id::integer = o.office_id
       LEFT JOIN ${inspectionTypesRoute.fullPath} it ON s.inspection_type_id = it.id
-      ORDER BY s.target_category, o.office_name, mt.model_name, m.machine_number, it.display_order
+      ORDER BY ${hasTargetCategory ? 's.target_category,' : ''} o.office_name, mt.model_name, m.machine_number, it.display_order
     `;
 
     console.log('[GET /api/inspection-schedules] Executing SQL...');
     const result = await pool.query(query);
     console.log('[GET /api/inspection-schedules] Success:', result.rows.length);
 
-    res.json({ success: true, data: result.rows });
+    res.json({ success: true, data: result.rows, message: '検修周期・期間設定一覧を取得しました' });
   } catch (err) {
     console.error('❌ Inspection schedules get error:', err.message);
-    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+    console.error('❌ Inspection schedules get error code:', err.code || 'N/A');
+    console.error('❌ Inspection schedules get error detail:', err.detail || 'N/A');
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -5180,13 +5258,15 @@ app.get('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
     const schedules = await dynamicSelect('inspection_schedules', { id: scheduleId });
 
     if (schedules.length === 0) {
-      return res.status(404).json({ success: false, error: '検修設定が見つかりません' });
+      return res.status(404).json({ success: false, message: '検修設定が見つかりません', error: '検修設定が見つかりません' });
     }
 
-    res.json({ success: true, data: schedules[0] });
+    res.json({ success: true, data: schedules[0], message: '検修設定を取得しました' });
   } catch (err) {
     console.error('❌ Inspection schedule get error:', err.message);
-    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+    console.error('❌ Inspection schedule get error code:', err.code || 'N/A');
+    console.error('❌ Inspection schedule get error detail:', err.detail || 'N/A');
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -5194,18 +5274,55 @@ app.get('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
 app.post('/api/inspection-schedules', requireAdmin, async (req, res) => {
   try {
     const { machine_id, target_category, inspection_type_id, cycle_months, duration_days, remarks, is_active } = req.body;
+    const inspectionSchedulesRoute = await resolveTablePath('inspection_schedules');
+    const scheduleColumns = await getPhysicalTableColumns(inspectionSchedulesRoute);
+    const normalizedMachineId = machine_id !== undefined && machine_id !== null && machine_id !== ''
+      ? Number.parseInt(machine_id, 10)
+      : null;
+    const normalizedTargetCategory = scheduleColumns.has('target_category') && target_category
+      ? String(target_category).trim()
+      : null;
+    const normalizedInspectionTypeId = Number.parseInt(inspection_type_id, 10);
+    const normalizedCycleMonths = Number.parseInt(cycle_months, 10);
+    const normalizedDurationDays = Number.parseInt(duration_days, 10);
 
     // machine_id または target_category のどちらかは必須
-    if ((!machine_id && !target_category) || !inspection_type_id || !cycle_months || !duration_days) {
-      return res.status(400).json({ success: false, error: '必須項目が入力されていません' });
+    if ((normalizedMachineId === null && !normalizedTargetCategory) || !Number.isInteger(normalizedInspectionTypeId) || !Number.isInteger(normalizedCycleMonths) || !Number.isInteger(normalizedDurationDays)) {
+      return res.status(400).json({ success: false, message: '必須項目が入力されていません', error: '必須項目が入力されていません' });
+    }
+    const duplicateParams = [];
+    const duplicateConditions = [];
+
+    if (normalizedMachineId !== null) {
+      duplicateParams.push(normalizedMachineId);
+      duplicateConditions.push(`machine_id = $${duplicateParams.length}`);
+    } else if (normalizedTargetCategory) {
+      duplicateParams.push(normalizedTargetCategory);
+      duplicateConditions.push(`target_category = $${duplicateParams.length}`);
+    }
+
+    duplicateParams.push(normalizedInspectionTypeId);
+    duplicateConditions.push(`inspection_type_id = $${duplicateParams.length}`);
+
+    const duplicateCheck = await pool.query(
+      `SELECT id FROM ${inspectionSchedulesRoute.fullPath} WHERE ${duplicateConditions.join(' AND ')} LIMIT 1`,
+      duplicateParams
+    );
+
+    if (duplicateCheck.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'この組み合わせは既に登録されています',
+        error: 'この組み合わせは既に登録されています'
+      });
     }
 
     const insertData = {
-      machine_id: machine_id ? String(machine_id) : null,
-      target_category: target_category || null,
-      inspection_type_id: parseInt(inspection_type_id),
-      cycle_months: parseInt(cycle_months),
-      duration_days: parseInt(duration_days),
+      machine_id: normalizedMachineId,
+      target_category: normalizedTargetCategory,
+      inspection_type_id: normalizedInspectionTypeId,
+      cycle_months: normalizedCycleMonths,
+      duration_days: normalizedDurationDays,
       remarks: remarks || null,
       is_active: is_active !== undefined ? is_active : true
     };
@@ -5213,13 +5330,15 @@ app.post('/api/inspection-schedules', requireAdmin, async (req, res) => {
     const result = await dynamicInsert('inspection_schedules', insertData);
     console.log('[POST /api/inspection-schedules] Created:', result);
 
-    res.status(201).json({ success: true, data: result });
+    res.status(201).json({ success: true, data: result[0], message: '検修設定を登録しました' });
   } catch (err) {
     console.error('❌ Inspection schedule create error:', err.message);
+    console.error('❌ Inspection schedule create error code:', err.code || 'N/A');
+    console.error('❌ Inspection schedule create error detail:', err.detail || 'N/A');
     if (err.message.includes('duplicate key')) {
-      return res.status(400).json({ success: false, error: 'この組み合わせは既に登録されています' });
+      return res.status(400).json({ success: false, message: 'この組み合わせは既に登録されています', error: 'この組み合わせは既に登録されています' });
     }
-    res.status(500).json({ success: false, error: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -5228,17 +5347,56 @@ app.put('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
   try {
     const scheduleId = req.params.id;
     const { machine_id, target_category, inspection_type_id, cycle_months, duration_days, remarks, is_active } = req.body;
+    const inspectionSchedulesRoute = await resolveTablePath('inspection_schedules');
+    const scheduleColumns = await getPhysicalTableColumns(inspectionSchedulesRoute);
+    const normalizedMachineId = machine_id !== undefined && machine_id !== null && machine_id !== ''
+      ? Number.parseInt(machine_id, 10)
+      : null;
+    const normalizedTargetCategory = scheduleColumns.has('target_category') && target_category
+      ? String(target_category).trim()
+      : null;
+    const normalizedInspectionTypeId = Number.parseInt(inspection_type_id, 10);
+    const normalizedCycleMonths = Number.parseInt(cycle_months, 10);
+    const normalizedDurationDays = Number.parseInt(duration_days, 10);
 
-    if ((!machine_id && !target_category) || !inspection_type_id || !cycle_months || !duration_days) {
-      return res.status(400).json({ success: false, error: '必須項目が入力されていません' });
+    if ((normalizedMachineId === null && !normalizedTargetCategory) || !Number.isInteger(normalizedInspectionTypeId) || !Number.isInteger(normalizedCycleMonths) || !Number.isInteger(normalizedDurationDays)) {
+      return res.status(400).json({ success: false, message: '必須項目が入力されていません', error: '必須項目が入力されていません' });
+    }
+    const duplicateParams = [];
+    const duplicateConditions = [];
+
+    if (normalizedMachineId !== null) {
+      duplicateParams.push(normalizedMachineId);
+      duplicateConditions.push(`machine_id = $${duplicateParams.length}`);
+    } else if (normalizedTargetCategory) {
+      duplicateParams.push(normalizedTargetCategory);
+      duplicateConditions.push(`target_category = $${duplicateParams.length}`);
+    }
+
+    duplicateParams.push(normalizedInspectionTypeId);
+    duplicateConditions.push(`inspection_type_id = $${duplicateParams.length}`);
+    duplicateParams.push(scheduleId);
+    duplicateConditions.push(`id::text <> $${duplicateParams.length}`);
+
+    const duplicateCheck = await pool.query(
+      `SELECT id FROM ${inspectionSchedulesRoute.fullPath} WHERE ${duplicateConditions.join(' AND ')} LIMIT 1`,
+      duplicateParams
+    );
+
+    if (duplicateCheck.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'この組み合わせは既に登録されています',
+        error: 'この組み合わせは既に登録されています'
+      });
     }
 
     const updateData = {
-      machine_id: machine_id ? String(machine_id) : null,
-      target_category: target_category || null,
-      inspection_type_id: parseInt(inspection_type_id),
-      cycle_months: parseInt(cycle_months),
-      duration_days: parseInt(duration_days),
+      machine_id: normalizedMachineId,
+      target_category: normalizedTargetCategory,
+      inspection_type_id: normalizedInspectionTypeId,
+      cycle_months: normalizedCycleMonths,
+      duration_days: normalizedDurationDays,
       remarks: remarks || null,
       is_active: is_active !== undefined ? is_active : true
     };
@@ -5246,17 +5404,19 @@ app.put('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
     const result = await dynamicUpdate('inspection_schedules', updateData, { id: scheduleId }, true);
 
     if (result.length === 0) {
-      return res.status(404).json({ error: '検修設定が見つかりません' });
+      return res.status(404).json({ success: false, message: '検修設定が見つかりません', error: '検修設定が見つかりません' });
     }
 
     console.log('[PUT /api/inspection-schedules] Updated:', result[0]);
-    res.json({ success: true, data: result[0] });
+    res.json({ success: true, data: result[0], message: '検修設定を更新しました' });
   } catch (err) {
     console.error('❌ Inspection schedule update error:', err.message);
+    console.error('❌ Inspection schedule update error code:', err.code || 'N/A');
+    console.error('❌ Inspection schedule update error detail:', err.detail || 'N/A');
     if (err.message.includes('duplicate key')) {
-      return res.status(400).json({ success: false, error: 'この機械と検修種別の組み合わせは既に登録されています' });
+      return res.status(400).json({ success: false, message: 'この組み合わせは既に登録されています', error: 'この組み合わせは既に登録されています' });
     }
-    res.status(500).json({ success: false, error: 'サーバーエラーが発生しました' });
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -5267,14 +5427,16 @@ app.delete('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
     const result = await dynamicDelete('inspection_schedules', { id: scheduleId }, true);
 
     if (result.length === 0) {
-      return res.status(404).json({ error: '検修設定が見つかりません' });
+      return res.status(404).json({ success: false, message: '検修設定が見つかりません', error: '検修設定が見つかりません' });
     }
 
     console.log('[DELETE /api/inspection-schedules] Deleted:', scheduleId);
     res.json({ success: true, message: '検修設定を削除しました' });
   } catch (err) {
     console.error('❌ Inspection schedule delete error:', err.message);
-    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+    console.error('❌ Inspection schedule delete error code:', err.code || 'N/A');
+    console.error('❌ Inspection schedule delete error detail:', err.detail || 'N/A');
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -5554,6 +5716,10 @@ async function runEmergencyDbFix() {
             LOOP EXECUTE 'DROP INDEX IF EXISTS ${schema}."' || r.indexname || '" CASCADE'; END LOOP;
           END $$;
         `);
+
+      await pool.query(`ALTER TABLE ${schema}.inspection_schedules ADD COLUMN IF NOT EXISTS target_category TEXT`);
+      await pool.query(`ALTER TABLE ${schema}.inspection_schedules ALTER COLUMN machine_id DROP NOT NULL`);
+      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS ux_${schema}_inspection_schedules_target_key ON ${schema}.inspection_schedules (COALESCE(machine_id::text, target_category), inspection_type_id)`);
     }
 
     // ルーティング再設定（現在のテーブル構造に対応していないため、スキップ）
