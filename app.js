@@ -274,6 +274,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         sendPayload();
     }
 
+    function normalizeExternalTenantId(tenantId) {
+        const normalized = String(tenantId || '').trim().toLowerCase();
+        if (!normalized || normalized === 'demo_env') {
+            return 'demo';
+        }
+        return normalized;
+    }
+
     launchBtn.addEventListener('click', () => {
         console.log('currentAppId:', currentAppId);
         console.log('AppConfig.endpoints:', AppConfig.endpoints);
@@ -331,6 +339,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
             }
 
+            const externalTenantId = normalizeExternalTenantId(tenantId);
+
             urlObj.searchParams.set(tokenParam, token);
             tokenAliases.forEach(alias => {
                 if (alias && alias !== tokenParam) {
@@ -342,10 +352,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             if (shouldUseExternalAuthBridge) {
                 urlObj.searchParams.set('external_token', token);
-                urlObj.searchParams.set('tenantId', tenantId);
-                urlObj.searchParams.set('tenant', tenantId);
-                urlObj.searchParams.set('company_id', tenantId);
-                authContext = { token, tenantId };
+                urlObj.searchParams.set('tenantId', externalTenantId);
+                urlObj.searchParams.set('tenant', externalTenantId);
+                urlObj.searchParams.set('company_id', externalTenantId);
+                authContext = { token, tenantId: externalTenantId };
             }
 
             popupOrigin = urlObj.origin;

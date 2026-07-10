@@ -2083,6 +2083,7 @@ app.post('/api/login', async (req, res) => {
 
       const payload = {
         id: user.id,
+        userId: user.id,  // 外部アプリ連携用
         username: user.username,
         displayName: user.display_name,  // Emergency-Assistanceで必要
         role: user.role,
@@ -2229,6 +2230,7 @@ app.post('/api/refresh-token', async (req, res) => {
 
     const payload = {
       id: decoded.id,
+      userId: decoded.id,  // 外部アプリ連携用
       username: decoded.username,
       displayName: decoded.displayName,
       role: decoded.role,
