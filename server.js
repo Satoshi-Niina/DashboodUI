@@ -2021,9 +2021,11 @@ function authenticateToken(req, res, next) {
 
 // 外部システム（仕業点検管理UIなど）が期待するロール（'admin' | 'manager' | 'operator'）にマッピングする関数
 function mapRoleForExternal(role) {
-  if (role === 'system_admin' || role === 'admin') {
+  const r = String(role || '').trim();
+  console.log(`[mapRoleForExternal] Mapping role: "${role}" -> "${r}"`);
+  if (r === 'system_admin' || r === 'admin' || r === '責任者') {
     return 'admin';
-  } else if (role === 'operation_admin' || role === 'manager') {
+  } else if (r === 'operation_admin' || r === 'manager') {
     return 'manager';
   }
   return 'operator';
