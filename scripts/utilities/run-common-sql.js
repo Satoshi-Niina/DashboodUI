@@ -7,7 +7,7 @@ const client = new Client({
   user: process.env.DB_USER || 'postgres',
   host: '127.0.0.1',
   database: 'common_db', // 確実に本番司令塔に接続
-  password: process.env.DB_PASSWORD || 'Takabeni',
+  password: process.env.DB_PASSWORD,
   port: 5432,
 });
 

@@ -252,7 +252,7 @@ CREATE TABLE IF NOT EXISTS emergency.emergency_records (
 
 -- デフォルト管理者ユーザー
 -- admin: パスワード admin123 (システム管理者)
--- niina: パスワード G&896845 (システム管理者)
+-- niina: システム管理者
 INSERT INTO master_data.users (username, password, display_name, email, role)
 VALUES 
     ('admin', '$2b$10$Wvq4AxAkP52kudPSW2.A0.J7j2VPbdCigM0EyoiePhn1Wvvg9Mtpe', '管理者', 'admin@example.com', 'system_admin'),

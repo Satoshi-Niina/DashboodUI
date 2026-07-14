@@ -4,7 +4,7 @@ const path = require('path');
 require('dotenv').config();
 
 const client = new Client({
-  connectionString: 'postgresql://postgres:Takabeni@34.97.56.82/common_db'
+  connectionString: process.env.DATABASE_URL
 });
 
 async function backup() {
