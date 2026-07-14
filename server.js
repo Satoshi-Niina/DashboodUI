@@ -443,7 +443,10 @@ function getOrCreateTenantPool(dbName) {
 }
 
 function getTenantRoutingPool() {
-  return getActiveDbPool();
+  // app_resource_routing テーブル（テーブル案内板）は common_db（司令塔DB）に一元化されているため、
+  // すべてのテナント解決において、この案内板クエリ（resolveTablePathでのSELECT）は
+  // 常に getControlPlanePool() ＝ common_db に対しておこなうのが正しい挙動です。
+  return getControlPlanePool();
 }
 
 function getCompanyRoutingPool() {
@@ -2030,99 +2033,119 @@ function mapRoleForExternal(role) {
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
 
-  console.log('[Login] Attempting login for username:', username);
+  // クエリ、ボディ、ヘッダーからテナントIDとパスを総合的に取得して解決
+  let tenantId = req.query.tenant_id || req.body.tenant_id || req.headers['x-tenant-id'] || req.requestedTenantId || 'demo_env';
+  tenantId = String(tenantId).trim().toLowerCase();
+  
+  const tenantPath = String(req.body.tenant_path || req.headers['x-tenant-path'] || req.query.tenant_path || '').trim();
+  const fullUrl = String(req.headers['x-tenant-full-url'] || req.query.full_url || req.headers.referer || '').trim();
+
+  console.log(`[Login] Attempting login for username: ${username} (TenantId: ${tenantId})`);
 
   try {
-    // ゲートウェイ方式でユーザー検索
-    const users = await dynamicSelect('users',
-      { username },
-      ['id', 'username', 'password', 'display_name', 'role'],
-      1
-    );
+    // 解決されたテナントに対して実行プール（runtime）を再構築する
+    const runtime = await resolveTenantRuntime(tenantId, {
+      tenantPath,
+      fullUrl,
+      referer: String(req.headers.referer || '').trim(),
+      originalUrl: String(req.originalUrl || req.url || '').trim()
+    });
 
-    console.log('[Login] Query result:', users.length > 0 ? 'User found' : 'User not found');
+    // 接続の切り替えを確実にするため、AsyncLocalStorageの非同期コンテキストをバインドして処理
+    return requestTenantContextStorage.run(runtime, async () => {
+      console.log(`[Login] [BoundContext] Target database in run: ${runtime.dbName}`);
 
-    if (users.length === 0) {
-      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
-    }
+      // ゲートウェイ方式でユーザー検索（このクエリは確実に解決されたテナントDBに向かいます）
+      const users = await dynamicSelect('users',
+        { username },
+        ['id', 'username', 'password', 'display_name', 'role'],
+        1
+      );
 
-    const user = users[0];
+      console.log('[Login] Query result:', users.length > 0 ? 'User found' : 'User not found');
 
-    // パスワード比較
-    // DBのパスワードがbcryptハッシュ($2で始まる)かどうかを判定
-    let match = false;
+      if (users.length === 0) {
+        return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+      }
 
-    if (user.password && user.password.startsWith('$2')) {
-      // ハッシュ化されたパスワード
-      match = await bcrypt.compare(password, user.password);
-    } else {
-      // 平文パスワード（後方互換性のため）
-      match = (password === user.password);
+      const user = users[0];
 
-      // セキュリティ向上のため、平文パスワードをハッシュ化して更新
-      if (match) {
-        try {
-          const hashedPassword = await bcrypt.hash(password, 10);
-          await dynamicUpdate('users',
-            { password: hashedPassword },
-            { id: user.id },
-            false
-          );
-          console.log(`Password hashed for user: ${user.username}`);
-        } catch (hashErr) {
-          console.error('Failed to hash password:', hashErr);
+      // パスワード比較
+      // DBのパスワードがbcryptハッシュ($2で始まる)かどうかを判定
+      let match = false;
+
+      if (user.password && user.password.startsWith('$2')) {
+        // ハッシュ化されたパスワード
+        match = await bcrypt.compare(password, user.password);
+      } else {
+        // 平文パスワード（後方互換性のため）
+        match = (password === user.password);
+
+        // セキュリティ向上のため、平文パスワードをハッシュ化して更新
+        if (match) {
+          try {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            await dynamicUpdate('users',
+              { password: hashedPassword },
+              { id: user.id },
+              false
+            );
+            console.log(`Password hashed for user: ${user.username}`);
+          } catch (hashErr) {
+            console.error('Failed to hash password:', hashErr);
+          }
         }
       }
-    }
 
-    if (match) {
-      console.log('[Login] Password matched for user:', username);
+      if (match) {
+        console.log('[Login] Password matched for user:', username);
 
-      // 認証成功 - Emergency-Assistanceと互換性のあるトークンを生成
-      // department情報を設定（DBカラムがなくてもエラーにならないよう対応）
-      let department = 'システム管理部';  // デフォルト値
+        // 認証成功 - Emergency-Assistanceと互換性のあるトークンを生成
+        // department情報を設定（DBカラムがなくてもエラーにならないよう対応）
+        let department = 'システム管理部';  // デフォルト値
 
-      // roleに基づいてdepartmentを設定
-      if (user.role === 'system_admin') {
-        department = 'システム管理部';
-      } else if (user.role === 'operation_admin') {
-        department = '運用管理部';
+        // roleに基づいてdepartmentを設定
+        if (user.role === 'system_admin') {
+          department = 'システム管理部';
+        } else if (user.role === 'operation_admin') {
+          department = '運用管理部';
+        } else {
+          department = '一般';
+        }
+
+        const payload = {
+          id: user.id,
+          userId: user.id,  // 外部アプリ連携用
+          username: user.username,
+          displayName: user.display_name,  // Emergency-Assistanceで必要
+          role: mapRoleForExternal(user.role), // 外部システムが期待するロールにマッピング
+          department: department,  // Emergency-Assistanceで必要
+          iat: Math.floor(Date.now() / 1000)  // 発行時刻を明示
+        };
+
+        const token = jwt.sign(payload, process.env.JWT_SECRET, {
+          expiresIn: '4h',  // Emergency-Assistanceと同じ
+          issuer: 'emergency-assistance-app',  // Emergency-Assistanceと同じ
+          audience: 'emergency-assistance-app'  // Emergency-Assistanceと同じ
+        });
+
+        console.log('[Login] 🎫 JWT Token generated:', {
+          userId: user.id,
+          username: user.username,
+          tokenLength: token.length,
+          issuer: 'emergency-assistance-app',
+          audience: 'emergency-assistance-app',
+          expiresIn: '4h'
+        });
+
+        console.log('[Login] Token generated successfully');
+        res.json({ success: true, token, user: { username: user.username, displayName: user.display_name, role: mapRoleForExternal(user.role) } });
       } else {
-        department = '一般';
+        // パスワード不一致
+        console.log('[Login] Password mismatch for user:', username);
+        res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
       }
-
-      const payload = {
-        id: user.id,
-        userId: user.id,  // 外部アプリ連携用
-        username: user.username,
-        displayName: user.display_name,  // Emergency-Assistanceで必要
-        role: mapRoleForExternal(user.role), // 外部システムが期待するロールにマッピング
-        department: department,  // Emergency-Assistanceで必要
-        iat: Math.floor(Date.now() / 1000)  // 発行時刻を明示
-      };
-
-      const token = jwt.sign(payload, process.env.JWT_SECRET, {
-        expiresIn: '4h',  // Emergency-Assistanceと同じ
-        issuer: 'emergency-assistance-app',  // Emergency-Assistanceと同じ
-        audience: 'emergency-assistance-app'  // Emergency-Assistanceと同じ
-      });
-
-      console.log('[Login] 🎫 JWT Token generated:', {
-        userId: user.id,
-        username: user.username,
-        tokenLength: token.length,
-        issuer: 'emergency-assistance-app',
-        audience: 'emergency-assistance-app',
-        expiresIn: '4h'
-      });
-
-      console.log('[Login] Token generated successfully');
-      res.json({ success: true, token, user: { username: user.username, displayName: user.display_name, role: user.role } });
-    } else {
-      // パスワード不一致
-      console.log('[Login] Password mismatch for user:', username);
-      res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
-    }
+    });
   } catch (err) {
     console.error('[Login] ERROR:', err);
     console.error('[Login] Error stack:', err.stack);
@@ -2263,6 +2286,72 @@ app.post('/api/refresh-token', async (req, res) => {
   }
 });
 
+// ========================================
+// RBAC (権限管理) Repository & Service (tenant DB移設版)
+// ========================================
+
+const UserRbacRepository = {
+  /**
+   * テナントDBからユーザーのロールコード一覧を取得
+   */
+  async getRolesByUsername(username) {
+    const query = `
+      SELECT r.code 
+      FROM public.users u
+      JOIN public.user_role_assignments ura ON u.id = ura.user_id
+      JOIN public.roles r ON ura.role_id = r.id
+      WHERE u.username = $1 AND u.is_active = true
+    `;
+    try {
+      const result = await pool.query(query, [username]);
+      return result.rows.map(row => String(row.code).trim().toLowerCase());
+    } catch (err) {
+      console.warn(`[UserRbacRepository] Failed to get roles for ${username} from public schema (falling back):`, err.message);
+      return [];
+    }
+  },
+
+  /**
+   * テナントDBからユーザーの権限コード一覧を取得
+   */
+  async getPermissionsByUsername(username) {
+    const query = `
+      SELECT DISTINCT p.code 
+      FROM public.users u
+      JOIN public.user_role_assignments ura ON u.id = ura.user_id
+      JOIN public.roles r ON ura.role_id = r.id
+      JOIN public.role_permissions rp ON r.id = rp.role_id
+      JOIN public.permissions p ON rp.permission_id = p.id
+      WHERE u.username = $1 AND u.is_active = true
+    `;
+    try {
+      const result = await pool.query(query, [username]);
+      return result.rows.map(row => String(row.code).trim().toLowerCase());
+    } catch (err) {
+      console.warn(`[UserRbacRepository] Failed to get permissions for ${username} from public schema (falling back):`, err.message);
+      return [];
+    }
+  }
+};
+
+const UserRbacService = {
+  /**
+   * ユーザーが特定のロールを保持しているか
+   */
+  async hasRole(username, roleCode) {
+    const roles = await UserRbacRepository.getRolesByUsername(username);
+    return roles.includes(String(roleCode).trim().toLowerCase());
+  },
+
+  /**
+   * ユーザーが特定の権限を保持しているか(認可処理部)
+   */
+  async hasPermission(username, permissionCode) {
+    const permissions = await UserRbacRepository.getPermissionsByUsername(username);
+    return permissions.includes(String(permissionCode).trim().toLowerCase());
+  }
+};
+
 // 管理者認証ミドルウェア
 async function requireAdmin(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
@@ -2291,8 +2380,20 @@ async function requireAdmin(req, res, next) {
 
     const user = users[0];
 
-    // system_admin、operation_admin、または admin のみアクセス可能
-    if (user.role !== 'system_admin' && user.role !== 'operation_admin' && user.role !== 'admin') {
+    // テナントDBの権限マッピングを動的にチェックする
+    const tenantRoles = await UserRbacRepository.getRolesByUsername(user.username);
+    console.log(`[RbacMiddleware] Roles for ${user.username} from tenant DB:`, tenantRoles);
+
+    // テナントDBの roles で 'admin' または 'manager' であるか、もしくはマスタ上の管理者ロール
+    const isAuthorized = tenantRoles.includes('admin') || 
+                         tenantRoles.includes('manager') || 
+                         user.role === 'system_admin' || 
+                         user.role === 'operation_admin' || 
+                         user.role === 'admin' || 
+                         user.role === 'manager' ||
+                         user.role === '責任者';
+
+    if (!isAuthorized) {
       return res.status(403).json({ success: false, message: 'アクセス権限がありません。管理者権限が必要です。' });
     }
 

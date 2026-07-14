@@ -137,9 +137,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log('[App] Checking role... system_admin?', userInfo.role === 'system_admin');
             console.log('[App] Checking role... operation_admin?', userInfo.role === 'operation_admin');
             console.log('[App] Checking role... admin?', userInfo.role === 'admin');
+            console.log('[App] Checking role... manager?', userInfo.role === 'manager');
+            console.log('[App] Checking role... 責任者?', userInfo.role === '責任者');
 
-            // admin, system_admin, operation_admin のいずれかであれば表示
-            if (userInfo.role === 'system_admin' || userInfo.role === 'operation_admin' || userInfo.role === 'admin') {
+            // admin, system_admin, operation_admin, manager, 責任者 のいずれかであれば表示
+            if (userInfo.role === 'system_admin' || userInfo.role === 'operation_admin' || userInfo.role === 'admin' || userInfo.role === 'manager' || userInfo.role === '責任者') {
                 // システム管理者・運用管理者には表示
                 adminLink.style.display = 'inline';
                 adminLink.style.visibility = 'visible';

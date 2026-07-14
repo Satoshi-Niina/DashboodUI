@@ -46,14 +46,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const username = usernameInput.value;
         const password = passwordInput.value;
 
+        const tenantId = window.TenantContext && typeof window.TenantContext.getTenantId === 'function'
+            ? window.TenantContext.getTenantId()
+            : 'demo_env';
+        const tenantPath = window.TenantContext && typeof window.TenantContext.getTenantPath === 'function'
+            ? window.TenantContext.getTenantPath()
+            : '/';
+
         try {
-            // APIリクエスト送信 (UIからは平文で送信)
-            const response = await fetch('/api/login', {
+            // APIリクエスト送信に実コンテキストのテナントIDを明示的にのせる
+            console.log(`[Login] Logging in to tenant: ${tenantId}`);
+            const response = await fetch(`/api/login?tenant_id=${encodeURIComponent(tenantId)}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ username, password, tenant_id: tenantId, tenant_path: tenantPath })
             });
 
             const data = await response.json();

@@ -76,7 +76,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('admin-user').textContent = userInfo.displayName || userInfo.username;
 
     // システム管理者または運用管理者のみアクセス可能
-    if (userInfo.role !== 'system_admin' && userInfo.role !== 'operation_admin' && userInfo.role !== 'admin') {
+    if (userInfo.role !== 'system_admin' && userInfo.role !== 'operation_admin' && userInfo.role !== 'admin' && userInfo.role !== 'manager' && userInfo.role !== '責任者') {
         console.error('[Admin] Access denied - role:', userInfo.role);
         alert('アクセス権限がありません。管理者権限が必要です。');
         window.location.href = buildTenantPath('/index.html');
@@ -728,7 +728,7 @@ function displayUsers(users) {
         let roleDisplayName = 'ユーザー';
         if (user.role === 'system_admin') {
             roleDisplayName = 'システム管理者';
-        } else if (user.role === 'operation_admin') {
+        } else if (user.role === 'operation_admin' || user.role === 'manager') {
             roleDisplayName = '運用管理者';
         } else if (user.role === 'admin') {
             roleDisplayName = '管理者';
