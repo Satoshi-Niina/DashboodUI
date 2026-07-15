@@ -1,4 +1,49 @@
 ﻿// ========================================
+// テナント判定・共通fetchユーティリティ
+// ========================================
+
+function getCurrentTenantId() {
+    const pathSegments = window.location.pathname
+        .split("/")
+        .filter(Boolean);
+
+    const firstSegment = String(pathSegments[0] ?? "")
+        .trim()
+        .toLowerCase();
+
+    const excludedPaths = [
+        "admin.html",
+        "index.html",
+        "login.html",
+        "api",
+        "assets"
+    ];
+
+    if (!firstSegment || excludedPaths.includes(firstSegment)) {
+        return "demo";
+    }
+
+    return firstSegment;
+}
+
+async function tenantFetch(url, options = {}) {
+    const tenantId = getCurrentTenantId();
+
+    const headers = new Headers(options.headers || {});
+    headers.set("X-Tenant-Id", tenantId);
+    headers.set(
+        "X-Tenant-Path",
+        tenantId === "demo" ? "/" : `/${tenantId}`
+    );
+    headers.set("X-Tenant-Full-Url", window.location.href);
+
+    return fetch(url, {
+        ...options,
+        headers
+    });
+}
+
+// ========================================
 // 設定: 機種マスタ関連の定数
 // ========================================
 const MACHINE_CATEGORIES = [
@@ -675,7 +720,7 @@ async function loadUsers() {
     try {
         const token = localStorage.getItem('user_token');
         console.log('[loadUsers] Fetching users...');
-        const response = await fetch('/api/users', {
+        const response = await tenantFetch('/api/users', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -800,7 +845,7 @@ function openUserModal(userId = null) {
 async function loadUserData(userId) {
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/users/${userId}`, {
+        const response = await tenantFetch(`/api/users/${userId}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
@@ -838,7 +883,7 @@ async function saveUser() {
 
         console.log('[saveUser] Request:', { url, method });
 
-        const response = await fetch(url, {
+        const response = await tenantFetch(url, {
             method: method,
             headers: {
                 'Content-Type': 'application/json',
@@ -877,7 +922,7 @@ async function deleteUser(userId, username) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/users/${userId}`, {
+        const response = await tenantFetch(`/api/users/${userId}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -903,7 +948,7 @@ async function loadMachineTypes() {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/machine-types', {
+        const response = await tenantFetch('/api/machine-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -996,7 +1041,7 @@ async function loadMachineTypeData(machineTypeId) {
     try {
         console.log('[loadMachineTypeData] Loading machine type:', machineTypeId, 'Type:', typeof machineTypeId);
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/machine-types', {
+        const response = await tenantFetch('/api/machine-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
@@ -1036,7 +1081,7 @@ async function saveMachineType() {
         const url = machineTypeId ? `/api/machine-types/${machineTypeId}` : '/api/machine-types';
         const method = machineTypeId ? 'PUT' : 'POST';
 
-        const response = await fetch(url, {
+        const response = await tenantFetch(url, {
             method: method,
             headers: {
                 'Content-Type': 'application/json',
@@ -1086,7 +1131,7 @@ async function deleteMachineType(machineTypeId, typeCode) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/machine-types/${machineTypeId}`, {
+        const response = await tenantFetch(`/api/machine-types/${machineTypeId}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -1115,7 +1160,7 @@ async function loadMachines() {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/machines', {
+        const response = await tenantFetch('/api/machines', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -1232,7 +1277,7 @@ async function openMachineModal(machineId = null) {
     // 機種リストを読み込む
     try {
         console.log('[openMachineModal] 📡 Fetching machine types from /api/machine-types...');
-        const machineTypesResponse = await fetch('/api/machine-types', {
+        const machineTypesResponse = await tenantFetch('/api/machine-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -1295,7 +1340,7 @@ async function openMachineModal(machineId = null) {
 
         // 管理事業所を読み込む
         console.log('[openMachineModal] 📡 Fetching offices from /api/offices...');
-        const officesResponse = await fetch('/api/offices', {
+        const officesResponse = await tenantFetch('/api/offices', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -1370,7 +1415,7 @@ async function loadMachineData(machineId) {
     try {
         console.log('[loadMachineData] Loading machine:', machineId, 'Type:', typeof machineId);
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/machines', {
+        const response = await tenantFetch('/api/machines', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
@@ -1422,7 +1467,7 @@ async function saveMachine() {
         const url = machineId ? `/api/machines/${machineId}` : '/api/machines';
         const method = machineId ? 'PUT' : 'POST';
 
-        const response = await fetch(url, {
+        const response = await tenantFetch(url, {
             method: method,
             headers: {
                 'Content-Type': 'application/json',
@@ -1472,7 +1517,7 @@ async function deleteMachine(machineId, machineNumber) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/machines/${machineId}`, {
+        const response = await tenantFetch(`/api/machines/${machineId}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -1506,7 +1551,7 @@ async function loadInspectionTypes() {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/inspection-types', {
+        const response = await tenantFetch('/api/inspection-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -1576,7 +1621,7 @@ async function loadInspectionSchedules() {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/inspection-schedules', {
+        const response = await tenantFetch('/api/inspection-schedules', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -1671,7 +1716,7 @@ function openInspectionTypeModal(id = null) {
 async function loadInspectionTypeData(id) {
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/inspection-types/${id}`, {
+        const response = await tenantFetch(`/api/inspection-types/${id}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
@@ -1703,7 +1748,7 @@ async function deleteInspectionType(id, name) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/inspection-types/${id}`, {
+        const response = await tenantFetch(`/api/inspection-types/${id}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -1757,7 +1802,7 @@ async function openInspectionScheduleModal(id = null) {
 async function loadInspectionScheduleData(id) {
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/inspection-schedules/${id}`, {
+        const response = await tenantFetch(`/api/inspection-schedules/${id}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
@@ -1803,7 +1848,7 @@ async function deleteInspectionSchedule(id, machineName) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/inspection-schedules/${id}`, {
+        const response = await tenantFetch(`/api/inspection-schedules/${id}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -1844,7 +1889,7 @@ async function saveInspectionType() {
         const url = id ? `/api/inspection-types/${id}` : '/api/inspection-types';
         const method = id ? 'PUT' : 'POST';
 
-        const response = await fetch(url, {
+        const response = await tenantFetch(url, {
             method: method,
             headers: {
                 'Content-Type': 'application/json',
@@ -1894,7 +1939,7 @@ async function saveInspectionSchedule() {
         const url = id ? `/api/inspection-schedules/${id}` : '/api/inspection-schedules';
         const method = id ? 'PUT' : 'POST';
 
-        const response = await fetch(url, {
+        const response = await tenantFetch(url, {
             method: method,
             headers: {
                 'Content-Type': 'application/json',
@@ -1922,7 +1967,7 @@ async function saveInspectionSchedule() {
 async function loadMachineSelectOptions(selectId) {
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/machines', {
+        const response = await tenantFetch('/api/machines', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
@@ -1946,7 +1991,7 @@ async function loadMachineSelectOptions(selectId) {
 async function loadInspectionTypeSelectOptions(selectId) {
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/inspection-types', {
+        const response = await tenantFetch('/api/inspection-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
@@ -1983,7 +2028,7 @@ async function loadOffices() {
     try {
         const token = localStorage.getItem('user_token');
         console.log('[loadOffices] Fetching offices...');
-        const response = await fetch('/api/offices', {
+        const response = await tenantFetch('/api/offices', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -2105,7 +2150,7 @@ async function saveOffice(mode, officeId) {
         const url = mode === 'add' ? '/api/offices' : `/api/offices/${officeId}`;
         const method = mode === 'add' ? 'POST' : 'PUT';
 
-        const response = await fetch(url, {
+        const response = await tenantFetch(url, {
             method: method,
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -2140,7 +2185,7 @@ window.deleteOffice = async function (officeId, officeName) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/offices/${officeId}`, {
+        const response = await tenantFetch(`/api/offices/${officeId}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -2172,7 +2217,7 @@ async function loadBases() {
     try {
         const token = localStorage.getItem('user_token');
         console.log('[loadBases] Fetching bases...');
-        const response = await fetch('/api/bases', {
+        const response = await tenantFetch('/api/bases', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -2213,14 +2258,14 @@ async function loadBases() {
 async function showBaseModal(mode, baseId) {
     // 事業所リストを取得
     const token = localStorage.getItem('user_token');
-    const officesRes = await fetch('/api/offices', {
+    const officesRes = await tenantFetch('/api/offices', {
         headers: { 'Authorization': `Bearer ${token}` }
     });
     const officesData = await officesRes.json();
     const offices = officesData.success ? unwrapApiArray(officesData) : [];
 
     if (mode === 'edit') {
-        const basesRes = await fetch('/api/bases', {
+        const basesRes = await tenantFetch('/api/bases', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const basesData = await basesRes.json();
@@ -2292,7 +2337,7 @@ async function saveBase(mode, baseId) {
         const url = mode === 'add' ? '/api/bases' : `/api/bases/${baseId}`;
         const method = mode === 'add' ? 'POST' : 'PUT';
 
-        const response = await fetch(url, {
+        const response = await tenantFetch(url, {
             method: method,
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -2327,7 +2372,7 @@ window.deleteBase = async function (baseId, baseName) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/bases/${baseId}`, {
+        const response = await tenantFetch(`/api/bases/${baseId}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -2495,7 +2540,7 @@ async function importMasterData(type, file) {
                         break;
                 }
 
-                const response = await fetch(apiUrl, {
+                const response = await tenantFetch(apiUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -2563,7 +2608,7 @@ function parseCSV(text) {
  */
 async function fetchOfficeMap() {
     try {
-        const response = await fetch('/api/offices', {
+        const response = await tenantFetch('/api/offices', {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
         });
         const data = await response.json();
@@ -2586,7 +2631,7 @@ async function fetchOfficeMap() {
  */
 async function fetchMachineTypeMap() {
     try {
-        const response = await fetch('/api/machine-types', {
+        const response = await tenantFetch('/api/machine-types', {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
         });
         const data = await response.json();
@@ -2609,7 +2654,7 @@ async function loadDatabaseStats() {
     try {
         const token = localStorage.getItem('user_token');
         console.log('[loadDatabaseStats] Fetching database stats...');
-        const response = await fetch('/api/database/stats', {
+        const response = await tenantFetch('/api/database/stats', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -2722,7 +2767,7 @@ function initializeTableManagement() {
 
         try {
             const token = localStorage.getItem('user_token');
-            const response = await fetch(`/api/database/export-csv/${currentTable}`, {
+            const response = await tenantFetch(`/api/database/export-csv/${currentTable}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
 
@@ -2761,7 +2806,7 @@ function initializeTableManagement() {
                 const csvData = event.target.result;
                 const token = localStorage.getItem('user_token');
 
-                const response = await fetch(`/api/database/import-csv/${currentTable}`, {
+                const response = await tenantFetch(`/api/database/import-csv/${currentTable}`, {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -2792,7 +2837,7 @@ function initializeTableManagement() {
 
         try {
             const token = localStorage.getItem('user_token');
-            const response = await fetch('/api/database/backup', {
+            const response = await tenantFetch('/api/database/backup', {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -2839,7 +2884,7 @@ async function loadTableData(schemaTable) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/database/table/${schemaTable}`, {
+        const response = await tenantFetch(`/api/database/table/${schemaTable}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -2954,7 +2999,7 @@ async function saveRecord(mode, recordId) {
             ? `/api/database/table/${currentTable}`
             : `/api/database/table/${currentTable}/${recordId}`;
 
-        const response = await fetch(url, {
+        const response = await tenantFetch(url, {
             method: mode === 'add' ? 'POST' : 'PUT',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -2987,7 +3032,7 @@ async function deleteRecord(recordId) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/database/table/${currentTable}/${recordId}`, {
+        const response = await tenantFetch(`/api/database/table/${currentTable}/${recordId}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -3019,7 +3064,7 @@ async function loadCorsSettings() {
     try {
         const token = localStorage.getItem('user_token');
         console.log('[loadCorsSettings] Fetching CORS settings...');
-        const response = await fetch('/api/config', {
+        const response = await tenantFetch('/api/config', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -3058,7 +3103,7 @@ function initializeCorsSettings() {
 
             try {
                 const token = localStorage.getItem('user_token');
-                const response = await fetch('/api/config', {
+                const response = await tenantFetch('/api/config', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${token}`,
@@ -3181,7 +3226,7 @@ async function loadInspectionTypes() {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/inspection-types', {
+        const response = await tenantFetch('/api/inspection-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -3263,7 +3308,7 @@ window.editInspectionType = async function (id) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/inspection-types/${id}`, {
+        const response = await tenantFetch(`/api/inspection-types/${id}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -3292,7 +3337,7 @@ window.deleteInspectionType = async function (id) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/inspection-types/${id}`, {
+        const response = await tenantFetch(`/api/inspection-types/${id}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -3342,7 +3387,7 @@ async function handleInspectionTypeSubmit(e) {
         const url = id ? `/api/inspection-types/${id}` : '/api/inspection-types';
         const method = id ? 'PUT' : 'POST';
 
-        const response = await fetch(url, {
+        const response = await tenantFetch(url, {
             method: method,
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -3372,7 +3417,7 @@ async function loadInspectionSchedules() {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/inspection-schedules', {
+        const response = await tenantFetch('/api/inspection-schedules', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -3471,7 +3516,7 @@ window.editInspectionSchedule = async function (id) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/inspection-schedules/${id}`, {
+        const response = await tenantFetch(`/api/inspection-schedules/${id}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -3510,7 +3555,7 @@ window.deleteInspectionSchedule = async function (id) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/inspection-schedules/${id}`, {
+        const response = await tenantFetch(`/api/inspection-schedules/${id}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -3545,7 +3590,7 @@ async function handleInspectionScheduleSubmit(e) {
         const url = id ? `/api/inspection-schedules/${id}` : '/api/inspection-schedules';
         const method = id ? 'PUT' : 'POST';
 
-        const response = await fetch(url, {
+        const response = await tenantFetch(url, {
             method: method,
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -3577,7 +3622,7 @@ async function loadCategoriesForSchedule() {
         const token = localStorage.getItem('user_token');
 
         // 機種マスタを取得してユニークなカテゴリーを抽出
-        const response = await fetch('/api/machine-types', {
+        const response = await tenantFetch('/api/machine-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -3607,7 +3652,7 @@ async function loadInspectionTypesForSchedule() {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/inspection-types', {
+        const response = await tenantFetch('/api/inspection-types', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -3952,7 +3997,7 @@ function initializeAIManagement() {
 async function loadStorageStats() {
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/ai/storage-stats', {
+        const response = await tenantFetch('/api/ai/storage-stats', {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
@@ -3979,7 +4024,7 @@ async function loadKnowledgeData() {
         const token = localStorage.getItem('user_token');
         console.log('[LoadKnowledge] Token:', token ? 'exists' : 'missing');
 
-        const response = await fetch('/api/ai/knowledge', {
+        const response = await tenantFetch('/api/ai/knowledge', {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
@@ -4040,7 +4085,7 @@ async function deleteKnowledgeData(id) {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch(`/api/ai/knowledge/${id}`, {
+        const response = await tenantFetch(`/api/ai/knowledge/${id}`, {
             method: 'DELETE',
             headers: {
                 'Authorization': `Bearer ${token}`
@@ -4129,7 +4174,7 @@ async function handleManualImport() {
             formData.append('description', `Manual: ${file.name}`);
 
             const token = localStorage.getItem('user_token');
-            const response = await fetch('/api/ai/knowledge/upload', {
+            const response = await tenantFetch('/api/ai/knowledge/upload', {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -4233,7 +4278,7 @@ async function diagnoseGCSConnection() {
 </div>`;
 
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/ai/diagnose-gcs', {
+        const response = await tenantFetch('/api/ai/diagnose-gcs', {
             method: 'GET',
             headers: {
                 'Authorization': `Bearer ${token}`
@@ -4360,7 +4405,7 @@ async function handleGCSImport() {
 async function loadRAGSettings() {
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/ai/settings', {
+        const response = await tenantFetch('/api/ai/settings', {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
@@ -4462,7 +4507,7 @@ async function saveRAGSettings() {
         const token = localStorage.getItem('user_token');
         console.log('[AI] Saving RAG settings:', settings);
 
-        const response = await fetch('/api/ai/settings', {
+        const response = await tenantFetch('/api/ai/settings', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -4572,7 +4617,7 @@ async function loadSystemOperationsData() {
  */
 async function loadSecurityAlerts(token) {
     try {
-        const response = await fetch('/api/security/alerts', {
+        const response = await tenantFetch('/api/security/alerts', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -4610,7 +4655,7 @@ async function loadSecurityAlerts(token) {
  */
 async function loadBlockedAccess(token) {
     try {
-        const response = await fetch('/api/security/blocked-access', {
+        const response = await tenantFetch('/api/security/blocked-access', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -4637,7 +4682,7 @@ async function loadBlockedAccess(token) {
  */
 async function loadRegisteredDevices(token) {
     try {
-        const response = await fetch('/api/security/devices', {
+        const response = await tenantFetch('/api/security/devices', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -4685,7 +4730,7 @@ async function loadRegisteredDevices(token) {
  */
 async function loadNpmAudit(token) {
     try {
-        const response = await fetch('/api/maintenance/npm-audit', {
+        const response = await tenantFetch('/api/maintenance/npm-audit', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -4714,7 +4759,7 @@ async function loadNpmAudit(token) {
  */
 async function loadStorageUsage(token) {
     try {
-        const response = await fetch('/api/maintenance/storage-usage', {
+        const response = await tenantFetch('/api/maintenance/storage-usage', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -4763,7 +4808,7 @@ async function loadStorageUsage(token) {
  */
 async function loadCertificateStatus(token) {
     try {
-        const response = await fetch('/api/maintenance/certificate-status', {
+        const response = await tenantFetch('/api/maintenance/certificate-status', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -4816,7 +4861,7 @@ async function handleCleanTempFiles() {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/maintenance/clean-temp', {
+        const response = await tenantFetch('/api/maintenance/clean-temp', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -4850,7 +4895,7 @@ async function handleBackupLogs() {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/maintenance/backup-logs', {
+        const response = await tenantFetch('/api/maintenance/backup-logs', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -4885,7 +4930,7 @@ async function handleCleanOrphanedImages() {
 
     try {
         const token = localStorage.getItem('user_token');
-        const response = await fetch('/api/maintenance/clean-orphaned-images', {
+        const response = await tenantFetch('/api/maintenance/clean-orphaned-images', {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -5170,7 +5215,7 @@ async function sendUsersToServer(users) {
     const token = localStorage.getItem('user_token');
 
     try {
-        const response = await fetch('/api/users/import', {
+        const response = await tenantFetch('/api/users/import', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

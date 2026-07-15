@@ -1170,6 +1170,7 @@ app.get('/api/tenant-context', async (req, res) => {
         companyId: runtime.companyId || '',
         companyName: runtime.companyName || '',
         dbName: runtime.dbName || '',
+        tenantPath: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || 'demo_env'),
         storageBucketName: runtime.storageBucketName || '',
         isFallback: !!runtime.isFallback
       },
@@ -2662,7 +2663,15 @@ app.get('/api/users', requireAdmin, async (req, res) => {
     }));
     res.json({ success: true, users: normalizedUsers });
   } catch (err) {
-    console.error('Users get error:', err);
+    console.error('[API DB Error]', {
+      path: req.path,
+      tenantId: req.tenantContext?.resolvedTenantId,
+      dbName: req.tenantContext?.dbName,
+      message: err.message,
+      code: err.code,
+      schema: err.schema,
+      table: err.table
+    });
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
   }
 });
@@ -3002,9 +3011,16 @@ app.get('/api/offices', authenticateToken, async (req, res) => {
     const result = await pool.query(query);
     res.json({ success: true, offices: result.rows });
   } catch (err) {
-    console.error('Offices list error:', err);
-    console.error('Offices list error stack:', err.stack);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました: ' + err.message });
+    console.error('[API DB Error]', {
+      path: req.path,
+      tenantId: req.tenantContext?.resolvedTenantId,
+      dbName: req.tenantContext?.dbName,
+      message: err.message,
+      code: err.code,
+      schema: err.schema,
+      table: err.table
+    });
+    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -3120,7 +3136,15 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
     const result = await pool.query(query);
     res.json({ success: true, bases: result.rows });
   } catch (err) {
-    console.error('Bases list error:', err);
+    console.error('[API DB Error]', {
+      path: req.path,
+      tenantId: req.tenantContext?.resolvedTenantId,
+      dbName: req.tenantContext?.dbName,
+      message: err.message,
+      code: err.code,
+      schema: err.schema,
+      table: err.table
+    });
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
   }
 });
