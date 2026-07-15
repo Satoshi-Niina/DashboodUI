@@ -2219,25 +2219,40 @@ app.post('/api/login', async (req, res) => {
       // DBのパスワードがbcryptハッシュ($2で始まる)かどうかを判定
       let match = false;
 
+      console.log('[Login] Password check for user:', user.username);
+      console.log('[Login] DB password status:', user.password ? (user.password.startsWith('$2') ? 'HASHED' : 'PLAINTEXT') : 'NULL');
+      console.log('[Login] Submitted password length:', password ? password.length : 'NULL');
+
       if (user.password && user.password.startsWith('$2')) {
         // ハッシュ化されたパスワード
+        console.log('[Login] Using bcrypt.compare for hashed password');
         match = await bcrypt.compare(password, user.password);
-      } else {
+      } else if (user.password) {
         // 平文パスワード（後方互換性のため）
+        console.log('[Login] Using plaintext comparison');
+        console.log('[Login] DB password value:', user.password);
+        console.log('[Login] Submitted password value:', password);
         match = (password === user.password);
+      } else {
+        // パスワードが NULL
+        console.log('[Login] ⚠️ Password is NULL in database!');
+        match = false;
+      }
 
-        // セキュリティ向上のため、平文パスワードをハッシュ化して更新（テナント DB に更新）
-        if (match) {
-          try {
-            const hashedPassword = await bcrypt.hash(password, 10);
-            await dynamicUpdate('users',
-              { password: hashedPassword },
-              { id: user.id },
-              false
-            );
-            console.log(`[Login] Password hashed for user: ${user.username}`);
-          } catch (hashErr) {
-            console.error('[Login] Failed to hash password:', hashErr);
+      console.log('[Login] Password match result:', match);
+
+      // セキュリティ向上のため、平文パスワードをハッシュ化して更新（テナント DB に更新）
+      if (match && user.password && !user.password.startsWith('$2')) {
+        try {
+          const hashedPassword = await bcrypt.hash(password, 10);
+          await dynamicUpdate('users',
+            { password: hashedPassword },
+            { id: user.id },
+            false
+          );
+          console.log(`[Login] Password hashed for user: ${user.username}`);
+        } catch (hashErr) {
+          console.error('[Login] Failed to hash password:', hashErr);
           }
         }
       }
