@@ -6178,14 +6178,46 @@ async function initializeAllTenantUsers() {
       console.log(`[TenantInit] Initializing users for ${tenant.dbName}...`);
       const runtime = await resolveTenantRuntime(tenant.id);
       const tenantPool = runtime.pool || getActiveDbPool();
+      
+      console.log(`[TenantInit] Runtime resolved: ${tenant.id} -> ${runtime.dbName}`);
 
       await requestTenantContextStorage.run(runtime, async () => {
         const activePool = getActiveDbPool();
+        
+        // users テーブル存在確認
+        try {
+          const tableCheck = await activePool.query(`
+            SELECT EXISTS(
+              SELECT 1 FROM information_schema.tables 
+              WHERE table_schema = 'public' AND table_name = 'users'
+            ) as exists
+          `);
+          if (!tableCheck.rows[0].exists) {
+            console.log(`[TenantInit] ⚠️ users table does not exist in ${tenant.dbName}. Creating...`);
+            await activePool.query(`
+              CREATE TABLE IF NOT EXISTS public.users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                username VARCHAR(255) UNIQUE NOT NULL,
+                password VARCHAR(255),
+                display_name VARCHAR(255),
+                role VARCHAR(50),
+                created_at TIMESTAMP DEFAULT now()
+              )
+            `);
+            console.log(`[TenantInit] ✅ users table created in ${tenant.dbName}`);
+          } else {
+            console.log(`[TenantInit] ✅ users table exists in ${tenant.dbName}`);
+          }
+        } catch (tableErr) {
+          console.error(`[TenantInit] Failed to check/create users table for ${tenant.dbName}:`, tableErr.message);
+          throw tableErr;
+        }
 
         // 既存ユーザーのパスワード NULL を修正
         const existing = await activePool.query(
           'SELECT id, username, password FROM public.users WHERE password IS NULL'
         );
+        console.log(`[TenantInit] Found ${existing.rows.length} users with NULL password in ${tenant.dbName}`);
         for (const user of existing.rows) {
           const defaultUser = tenant.users.find(u => u.username === user.username);
           const defaultPwd = defaultUser ? defaultUser.password : 'changeme123';
