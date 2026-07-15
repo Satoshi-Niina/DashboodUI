@@ -6057,14 +6057,65 @@ async function runEmergencyDbFix() {
   }
 }
 
+/**
+ * テナント DB のスキーマ初期化（password カラムが存在するか確認・追加）
+ */
+async function initializeTenantSchemas() {
+  console.log('[Schema] Initializing tenant DB schemas...');
+  
+  const tenants = [
+    { id: 'kosei', dbName: 'kosei_db' },
+    { id: 'demo', dbName: 'demo_db' },
+    { id: 'daitetsu', dbName: 'daitetsu_db' }
+  ];
+
+  for (const tenant of tenants) {
+    try {
+      const runtime = await resolveTenantRuntime(tenant.id);
+      
+      // tenantContext 内で password カラム確認 → 追加
+      await requestTenantContextStorage.run(runtime, async () => {
+        const checkRes = await pool.query(`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'password'
+        `);
+
+        if (checkRes.rows.length === 0) {
+          console.log(`[Schema] Adding password column to ${tenant.dbName}.users...`);
+          await pool.query(`
+            ALTER TABLE public.users 
+            ADD COLUMN password VARCHAR(255) DEFAULT NULL
+          `);
+          console.log(`[Schema] ✅ password column added to ${tenant.dbName}.users`);
+        } else {
+          console.log(`[Schema] ✅ password column already exists in ${tenant.dbName}.users`);
+        }
+      });
+    } catch (err) {
+      console.error(`[Schema] ⚠️ Failed to initialize ${tenant.dbName}: ${err.message}`);
+    }
+  }
+
+  console.log('[Schema] Tenant schema initialization completed.');
+}
+
 // --- サーバー起動 ---
 async function startServer() {
   if (serverInstance) {
     console.log('⚠️ Server already running');
     return;
   }
+
   console.log(`📡 Starting server on port ${PORT}...`);
   console.log(`📡 Binding to 0.0.0.0:${PORT} to accept external connections`);
+
+  // スキーマ初期化を実行
+  try {
+    await initializeTenantSchemas();
+  } catch (err) {
+    console.error('[Schema] Schema initialization error (non-fatal):', err.message);
+  }
 
   // まずサーバーをリッスン開始（Cloud Runのヘルスチェック対策）
   const server = app.listen(PORT, '0.0.0.0', (err) => {
