@@ -6234,6 +6234,36 @@ async function initializeDemoTenantTables() {
       const activePool = getActiveDbPool();
       const appId = 'dashboard-ui';
       
+      // 【重要】app_resource_routing テーブルの実際のカラル構造を検出
+      console.log('[DemoInit] 🔍 Detecting app_resource_routing schema...');
+      let logicalColumn, physicalSchemaColumn, physicalTableColumn;
+      try {
+        const appRoutingCols = await getControlPlanePool().query(`
+          SELECT column_name, data_type, is_nullable
+          FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'app_resource_routing'
+          ORDER BY ordinal_position
+        `);
+        
+        const appRoutingColumnNames = appRoutingCols.rows.map(r => r.column_name);
+        console.log(`[DemoInit] app_resource_routing columns: ${appRoutingColumnNames.join(', ')}`);
+        
+        // カラル名を自動検出（複数のバリアント対応）
+        logicalColumn = appRoutingColumnNames.find(c => 
+          c === 'logical_resource_name' || c === 'logical_name' || c === 'resource_name' || c === 'name'
+        );
+        physicalSchemaColumn = appRoutingColumnNames.find(c => 
+          c === 'physical_schema' || c === 'schema_name' || c === 'db_schema'
+        );
+        physicalTableColumn = appRoutingColumnNames.find(c => 
+          c === 'physical_table_name' || c === 'physical_table' || c === 'table_name'
+        );
+        
+        console.log(`[DemoInit] Detected: logical=${logicalColumn}, schema=${physicalSchemaColumn}, table=${physicalTableColumn}`);
+      } catch (schemaErr) {
+        console.warn(`[DemoInit] ⚠️ Could not detect app_resource_routing schema: ${schemaErr.message}`);
+      }
+      
       // ビジネステーブルの定義
       const businessTables = [
         {
@@ -6353,44 +6383,56 @@ async function initializeDemoTenantTables() {
         }
 
         // routing エントリ確認（common_db で実行）
-        try {
-          // app_resource_routing のカラル構造を確認
-          const routingColsRes = await getControlPlanePool().query(`
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_schema = 'public' AND table_name = 'app_resource_routing'
-            LIMIT 1
-          `);
-
-          if (routingColsRes.rows.length === 0) {
-            console.warn(`[DemoInit] ⚠️ app_resource_routing table has no columns`);
-          } else {
-            // まず、エントリが存在するか COUNT で確認（カラル不依存）
+        if (logicalColumn) {
+          try {
+            // WHERE 句でカラル名を使用（動的）
             const countRes = await getControlPlanePool().query(`
               SELECT COUNT(*) as cnt FROM public.app_resource_routing 
-              WHERE logical_resource_name = $1
+              WHERE "${logicalColumn}" = $1
             `, [table.logicalName]);
 
             if (countRes.rows[0].cnt === 0) {
               console.log(`[DemoInit] 🔗 Adding routing entry for ${table.logicalName}...`);
-              // INSERT を試みる。失敗してもログに記録するだけ
+              
+              // INSERT の列を動的に構築
+              let insertColumns = [`"${logicalColumn}"`];
+              let insertValues = ['$1'];
+              let paramValues = [table.logicalName];
+              let paramIndex = 2;
+              
+              if (physicalSchemaColumn) {
+                insertColumns.push(`"${physicalSchemaColumn}"`);
+                insertValues.push(`$${paramIndex}`);
+                paramValues.push(table.schema);
+                paramIndex++;
+              }
+              if (physicalTableColumn) {
+                insertColumns.push(`"${physicalTableColumn}"`);
+                insertValues.push(`$${paramIndex}`);
+                paramValues.push(table.physicalTableName);
+              }
+              
+              const insertSql = `
+                INSERT INTO public.app_resource_routing 
+                (${insertColumns.join(', ')})
+                VALUES (${insertValues.join(', ')})
+                ON CONFLICT DO NOTHING
+              `;
+              
               try {
-                await getControlPlanePool().query(`
-                  INSERT INTO public.app_resource_routing 
-                  (logical_resource_name, logical_name, physical_schema, physical_table_name)
-                  VALUES ($1, $2, $3, $4)
-                  ON CONFLICT DO NOTHING
-                `, [table.logicalName, table.logicalName, table.schema, table.physicalTableName]);
+                await getControlPlanePool().query(insertSql, paramValues);
                 console.log(`[DemoInit] ✅ Routing entry created for ${table.logicalName}`);
               } catch (insertErr) {
-                console.warn(`[DemoInit] ⚠️ Routing INSERT failed for ${table.logicalName}: ${insertErr.message}`);
+                console.warn(`[DemoInit] ⚠️ Routing INSERT failed: ${insertErr.message}`);
               }
             } else {
               console.log(`[DemoInit] ✅ Routing entry exists for ${table.logicalName}`);
             }
+          } catch (countErr) {
+            console.warn(`[DemoInit] ⚠️ Routing check failed for ${table.logicalName}: ${countErr.message}`);
           }
-        } catch (routingErr) {
-          console.warn(`[DemoInit] ⚠️ Routing check/update failed for ${table.logicalName}: ${routingErr.message}`);
+        } else {
+          console.log(`[DemoInit] ⏭️  Skipping routing for ${table.logicalName} (no logical column detected)`);
         }
       }
 
