@@ -2678,7 +2678,7 @@ app.get('/api/users', requireAdmin, async (req, res) => {
     // ゲートウェイ方式 + ORDER BY対応のため一部直接クエリ
     const route = await resolveTablePath('users');
     const query = `SELECT id, username, display_name, role, created_at FROM ${route.fullPath} ORDER BY id ASC`;
-    const result = await pool.query(query);
+    const result = await getActiveDbPool().query(query);
     const normalizedUsers = result.rows.map((row) => ({
       ...row,
       role: normalizeRoleForApp(row.role)
@@ -6114,67 +6114,84 @@ async function initializeTenantSchemas() {
 }
 
 /**
- * デモテナント（demo_db）のユーザーデータ初期化
+ * 全テナントのユーザーデータ初期化（パスワード NULL を修正 + デフォルトユーザー挿入）
  */
-async function initializeDemoUsers() {
-  console.log('[Demo] Initializing demo_db users...');
-  
-  try {
-    const runtime = await resolveTenantRuntime('demo');
-    
-    await requestTenantContextStorage.run(runtime, async () => {
-      // ユーザーデータ確認
-      const res = await pool.query(`
-        SELECT id, username, password 
-        FROM public.users 
-        WHERE username IN ('niina', 'demo_user', 'admin')
-      `);
-      
-      console.log(`[Demo] Found ${res.rows.length} demo users`);
-      
-      // password が NULL のユーザーに password を設定
-      for (const user of res.rows) {
-        if (!user.password) {
-          console.log(`[Demo] Setting password for user: ${user.username}`);
-          
-          const defaultPwd = user.username === 'admin' ? 'admin123' : 'demo123';
-          await pool.query(
+async function initializeAllTenantUsers() {
+  // テナントごとのデフォルトユーザー設定
+  const tenantDefaults = [
+    {
+      id: 'demo', dbName: 'demo_db',
+      users: [
+        { username: 'niina', password: 'demo123', display_name: '新井二郎', role: 'admin' },
+        { username: 'demo_user', password: 'demo123', display_name: 'デモユーザー', role: 'user' },
+        { username: 'admin', password: 'admin123', display_name: '管理者', role: 'admin' }
+      ]
+    },
+    {
+      id: 'kosei', dbName: 'kosei_db',
+      users: [
+        { username: 'admin', password: 'kosei123', display_name: '管理者', role: 'admin' },
+        { username: 'kosei_user', password: 'kosei123', display_name: 'Kosei User', role: 'user' }
+      ]
+    },
+    {
+      id: 'daitetsu', dbName: 'daitetsu_db',
+      users: [
+        { username: 'admin', password: 'daitetsu123', display_name: '管理者', role: 'admin' },
+        { username: 'daitetsu_user', password: 'daitetsu123', display_name: 'Daitetsu User', role: 'user' }
+      ]
+    }
+  ];
+
+  for (const tenant of tenantDefaults) {
+    try {
+      console.log(`[TenantInit] Initializing users for ${tenant.dbName}...`);
+      const runtime = await resolveTenantRuntime(tenant.id);
+      const tenantPool = runtime.pool || getActiveDbPool();
+
+      await requestTenantContextStorage.run(runtime, async () => {
+        const activePool = getActiveDbPool();
+
+        // 既存ユーザーのパスワード NULL を修正
+        const existing = await activePool.query(
+          'SELECT id, username, password FROM public.users WHERE password IS NULL'
+        );
+        for (const user of existing.rows) {
+          const defaultUser = tenant.users.find(u => u.username === user.username);
+          const defaultPwd = defaultUser ? defaultUser.password : 'changeme123';
+          await activePool.query(
             'UPDATE public.users SET password = $1 WHERE id = $2',
             [defaultPwd, user.id]
           );
-          console.log(`[Demo] ✅ Password set for ${user.username}`);
+          console.log(`[TenantInit] ✅ Set password for ${tenant.dbName}.${user.username}`);
         }
-      }
-      
-      // ユーザーが不足していれば追加
-      const insertRes = await pool.query(`
-        INSERT INTO public.users (username, password, display_name, role) VALUES 
-        ('niina', 'demo123', '新井二郎', 'admin'),
-        ('demo_user', 'demo123', 'デモユーザー', 'user'),
-        ('admin', 'admin123', '管理者', 'admin')
-        ON CONFLICT (username) DO NOTHING
-        RETURNING id, username
-      `);
-      
-      if (insertRes.rows.length > 0) {
-        console.log(`[Demo] ✅ Inserted ${insertRes.rows.length} new users:`, insertRes.rows.map(r => r.username).join(', '));
-      }
-      
-      // 最終確認
-      const finalRes = await pool.query(`
-        SELECT id, username, password, display_name, role 
-        FROM public.users 
-        WHERE username IN ('niina', 'demo_user', 'admin')
-      `);
-      
-      console.log(`[Demo] Final state: ${finalRes.rows.length} users configured`);
-      finalRes.rows.forEach(u => {
-        const pwdStatus = u.password ? (u.password.startsWith('$2') ? 'HASHED' : 'PLAINTEXT') : 'NULL';
-        console.log(`  - ${u.username}: ${pwdStatus}`);
+
+        // デフォルトユーザーが存在しなければ追加
+        for (const u of tenant.users) {
+          const ins = await activePool.query(
+            `INSERT INTO public.users (username, password, display_name, role)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (username) DO NOTHING
+             RETURNING username`,
+            [u.username, u.password, u.display_name, u.role]
+          );
+          if (ins.rows.length > 0) {
+            console.log(`[TenantInit] ✅ Inserted user ${tenant.dbName}.${u.username}`);
+          }
+        }
+
+        // 最終状態ログ
+        const final = await activePool.query(
+          'SELECT username, password FROM public.users ORDER BY id'
+        );
+        final.rows.forEach(u => {
+          const s = u.password ? (u.password.startsWith('$2') ? 'HASHED' : 'PLAINTEXT') : 'NULL';
+          console.log(`  [${tenant.dbName}] ${u.username}: ${s}`);
+        });
       });
-    });
-  } catch (err) {
-    console.error(`[Demo] ⚠️ Failed to initialize demo users: ${err.message}`);
+    } catch (err) {
+      console.error(`[TenantInit] ⚠️ Failed for ${tenant.dbName}: ${err.message}`);
+    }
   }
 }
 
@@ -6195,11 +6212,11 @@ async function startServer() {
     console.error('[Schema] Schema initialization error (non-fatal):', err.message);
   }
 
-  // デモテナントのユーザー初期化
+  // 全テナントのユーザー初期化
   try {
-    await initializeDemoUsers();
+    await initializeAllTenantUsers();
   } catch (err) {
-    console.error('[Demo] Demo user initialization error (non-fatal):', err.message);
+    console.error('[TenantInit] User initialization error (non-fatal):', err.message);
   }
 
   // まずサーバーをリッスン開始（Cloud Runのヘルスチェック対策）
