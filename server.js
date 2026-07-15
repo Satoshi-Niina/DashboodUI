@@ -235,7 +235,20 @@ function getTenantKeyFromPath(rawPath) {
   }
 
   const first = String(segments[0] || '').trim().toLowerCase();
-  if (!first || first === 'api' || first === 'assets' || first === 'health' || first === '_ah' || first === 'ready') {
+  // HTML/JS/CSS ファイル名やシステムパスをテナントIDとして扱わない
+  if (!first
+    || first === 'api'
+    || first === 'assets'
+    || first === 'health'
+    || first === '_ah'
+    || first === 'ready'
+    || first.endsWith('.html')
+    || first.endsWith('.js')
+    || first.endsWith('.css')
+    || first.endsWith('.json')
+    || first.endsWith('.png')
+    || first.endsWith('.ico')
+  ) {
     return 'demo_env';
   }
 
@@ -2519,6 +2532,23 @@ async function requireAdmin(req, res, next) {
     return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
   }
 
+  // JWT の tenantId でテナントコンテキストを再確定（URL パス解析の誤検知を防ぐ）
+  if (decoded.tenantId && decoded.tenantId !== 'demo_env') {
+    try {
+      const jwtRuntime = await resolveTenantRuntime(decoded.tenantId);
+      req.tenantContext = jwtRuntime;
+      // JWT tenantId で AsyncLocalStorage を上書きして後続処理を実行
+      return requestTenantContextStorage.run(jwtRuntime, async () => {
+        await requireAdminCore(req, res, next, decoded);
+      });
+    } catch (e) {
+      console.warn('[requireAdmin] JWT tenant resolve failed, using existing context:', e.message);
+    }
+  }
+  return requireAdminCore(req, res, next, decoded);
+}
+
+async function requireAdminCore(req, res, next, decoded) {
   try {
     const users = await dynamicSelect('users', { id: decoded.id }, ['id', 'username', 'role'], 1);
 
