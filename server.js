@@ -2300,7 +2300,6 @@ app.post('/api/login', async (req, res) => {
     console.error('[Login] Error stack:', err.stack);
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: err.message });
   }
-};
 });
 
 
