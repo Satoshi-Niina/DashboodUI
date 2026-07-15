@@ -6144,117 +6144,7 @@ async function initializeTenantSchemas() {
 }
 
 /**
- * 全テナント DB にビジネステーブルを作成
- */
-async function initializeTenantBusinessTables() {
-  const tenants = [
-    { id: 'demo', dbName: 'demo_db' },
-    { id: 'kosei', dbName: 'kosei_db' },
-    { id: 'daitetsu', dbName: 'daitetsu_db' }
-  ];
-
-  for (const tenant of tenants) {
-    try {
-      console.log(`[BusinessTables] Initializing business tables for ${tenant.dbName}...`);
-      const runtime = await resolveTenantRuntime(tenant.id);
-
-      await requestTenantContextStorage.run(runtime, async () => {
-        const activePool = getActiveDbPool();
-
-        // machine_types テーブル
-        await activePool.query(`
-          CREATE TABLE IF NOT EXISTS public.machine_types (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            machine_type_name VARCHAR(255) NOT NULL,
-            model_name VARCHAR(255),
-            description TEXT,
-            category VARCHAR(100),
-            manufacturer VARCHAR(255),
-            type_code VARCHAR(50),
-            type_name VARCHAR(255),
-            created_at TIMESTAMP DEFAULT now(),
-            updated_at TIMESTAMP DEFAULT now()
-          )
-        `);
-        console.log(`[BusinessTables] ✅ machine_types table created/verified in ${tenant.dbName}`);
-
-        // machines テーブル
-        await activePool.query(`
-          CREATE TABLE IF NOT EXISTS public.machines (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            machine_type_id UUID REFERENCES public.machine_types(id),
-            serial_number VARCHAR(255) UNIQUE,
-            status VARCHAR(50),
-            location VARCHAR(255),
-            created_at TIMESTAMP DEFAULT now(),
-            updated_at TIMESTAMP DEFAULT now()
-          )
-        `);
-        console.log(`[BusinessTables] ✅ machines table created/verified in ${tenant.dbName}`);
-
-        // management_offices テーブル
-        await activePool.query(`
-          CREATE TABLE IF NOT EXISTS public.management_offices (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            office_name VARCHAR(255) NOT NULL,
-            office_code VARCHAR(100),
-            address TEXT,
-            phone VARCHAR(20),
-            created_at TIMESTAMP DEFAULT now(),
-            updated_at TIMESTAMP DEFAULT now()
-          )
-        `);
-        console.log(`[BusinessTables] ✅ management_offices table created/verified in ${tenant.dbName}`);
-
-        // bases テーブル
-        await activePool.query(`
-          CREATE TABLE IF NOT EXISTS public.bases (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            base_name VARCHAR(255) NOT NULL,
-            base_code VARCHAR(100),
-            location VARCHAR(255),
-            office_id UUID REFERENCES public.management_offices(id),
-            created_at TIMESTAMP DEFAULT now(),
-            updated_at TIMESTAMP DEFAULT now()
-          )
-        `);
-        console.log(`[BusinessTables] ✅ bases table created/verified in ${tenant.dbName}`);
-
-        // inspection_types テーブル
-        await activePool.query(`
-          CREATE TABLE IF NOT EXISTS public.inspection_types (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            inspection_type_name VARCHAR(255) NOT NULL,
-            description TEXT,
-            created_at TIMESTAMP DEFAULT now(),
-            updated_at TIMESTAMP DEFAULT now()
-          )
-        `);
-        console.log(`[BusinessTables] ✅ inspection_types table created/verified in ${tenant.dbName}`);
-
-        // inspection_schedules テーブル
-        await activePool.query(`
-          CREATE TABLE IF NOT EXISTS public.inspection_schedules (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            machine_id UUID REFERENCES public.machines(id),
-            inspection_type_id UUID REFERENCES public.inspection_types(id),
-            scheduled_date DATE,
-            completed_date DATE,
-            notes TEXT,
-            created_at TIMESTAMP DEFAULT now(),
-            updated_at TIMESTAMP DEFAULT now()
-          )
-        `);
-        console.log(`[BusinessTables] ✅ inspection_schedules table created/verified in ${tenant.dbName}`);
-      });
-    } catch (err) {
-      console.error(`[BusinessTables] ❌ Failed for ${tenant.dbName}: ${err.message}`);
-      console.error(`[BusinessTables] Error stack:`, err.stack);
-    }
-  }
-}
-
-/**
+ * 全テナントのユーザーデータ初期化（パスワード NULL を修正 + デフォルトユーザー挿入）
  */
 async function initializeAllTenantUsers() {
   // テナントごとのデフォルトユーザー設定
@@ -6389,13 +6279,6 @@ async function startServer() {
     await initializeAllTenantUsers();
   } catch (err) {
     console.error('[TenantInit] User initialization error (non-fatal):', err.message);
-  }
-
-  // ビジネステーブルの初期化（machine_types, machines など）
-  try {
-    await initializeTenantBusinessTables();
-  } catch (err) {
-    console.error('[BusinessTables] Business table initialization error (non-fatal):', err.message);
   }
 
   // まずサーバーをリッスン開始（Cloud Runのヘルスチェック対策）
