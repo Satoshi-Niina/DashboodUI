@@ -2253,7 +2253,6 @@ app.post('/api/login', async (req, res) => {
           console.log(`[Login] Password hashed for user: ${user.username}`);
         } catch (hashErr) {
           console.error('[Login] Failed to hash password:', hashErr);
-          }
         }
       }
 
