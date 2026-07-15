@@ -6114,6 +6114,71 @@ async function initializeTenantSchemas() {
   console.log('[Schema] Tenant schema initialization completed.');
 }
 
+/**
+ * デモテナント（demo_db）のユーザーデータ初期化
+ */
+async function initializeDemoUsers() {
+  console.log('[Demo] Initializing demo_db users...');
+  
+  try {
+    const runtime = await resolveTenantRuntime('demo');
+    
+    await requestTenantContextStorage.run(runtime, async () => {
+      // ユーザーデータ確認
+      const res = await pool.query(`
+        SELECT id, username, password 
+        FROM public.users 
+        WHERE username IN ('niina', 'demo_user', 'admin')
+      `);
+      
+      console.log(`[Demo] Found ${res.rows.length} demo users`);
+      
+      // password が NULL のユーザーに password を設定
+      for (const user of res.rows) {
+        if (!user.password) {
+          console.log(`[Demo] Setting password for user: ${user.username}`);
+          
+          const defaultPwd = user.username === 'admin' ? 'admin123' : 'demo123';
+          await pool.query(
+            'UPDATE public.users SET password = $1 WHERE id = $2',
+            [defaultPwd, user.id]
+          );
+          console.log(`[Demo] ✅ Password set for ${user.username}`);
+        }
+      }
+      
+      // ユーザーが不足していれば追加
+      const insertRes = await pool.query(`
+        INSERT INTO public.users (username, password, display_name, role) VALUES 
+        ('niina', 'demo123', '新井二郎', 'admin'),
+        ('demo_user', 'demo123', 'デモユーザー', 'user'),
+        ('admin', 'admin123', '管理者', 'admin')
+        ON CONFLICT (username) DO NOTHING
+        RETURNING id, username
+      `);
+      
+      if (insertRes.rows.length > 0) {
+        console.log(`[Demo] ✅ Inserted ${insertRes.rows.length} new users:`, insertRes.rows.map(r => r.username).join(', '));
+      }
+      
+      // 最終確認
+      const finalRes = await pool.query(`
+        SELECT id, username, password, display_name, role 
+        FROM public.users 
+        WHERE username IN ('niina', 'demo_user', 'admin')
+      `);
+      
+      console.log(`[Demo] Final state: ${finalRes.rows.length} users configured`);
+      finalRes.rows.forEach(u => {
+        const pwdStatus = u.password ? (u.password.startsWith('$2') ? 'HASHED' : 'PLAINTEXT') : 'NULL';
+        console.log(`  - ${u.username}: ${pwdStatus}`);
+      });
+    });
+  } catch (err) {
+    console.error(`[Demo] ⚠️ Failed to initialize demo users: ${err.message}`);
+  }
+}
+
 // --- サーバー起動 ---
 async function startServer() {
   if (serverInstance) {
@@ -6129,6 +6194,13 @@ async function startServer() {
     await initializeTenantSchemas();
   } catch (err) {
     console.error('[Schema] Schema initialization error (non-fatal):', err.message);
+  }
+
+  // デモテナントのユーザー初期化
+  try {
+    await initializeDemoUsers();
+  } catch (err) {
+    console.error('[Demo] Demo user initialization error (non-fatal):', err.message);
   }
 
   // まずサーバーをリッスン開始（Cloud Runのヘルスチェック対策）
