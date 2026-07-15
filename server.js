@@ -6144,6 +6144,169 @@ async function initializeTenantSchemas() {
 }
 
 /**
+ * demo テナント用：ビジネステーブルとrouting エントリを確認・修正
+ */
+async function initializeDemoTenantTables() {
+  try {
+    console.log('[DemoInit] ⏳ Checking demo_db schema and routing...');
+    const demoRuntime = await resolveTenantRuntime('demo');
+    
+    await requestTenantContextStorage.run(demoRuntime, async () => {
+      const activePool = getActiveDbPool();
+      const appId = 'dashboard-ui';
+      
+      // ビジネステーブルの定義
+      const businessTables = [
+        {
+          logicalName: 'machine_types',
+          physicalTableName: 'machine_types',
+          schema: 'public',
+          createSql: `
+            CREATE TABLE IF NOT EXISTS public.machine_types (
+              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+              machine_type_name VARCHAR(255),
+              model_name VARCHAR(255),
+              type_name VARCHAR(255),
+              type_code VARCHAR(50),
+              category VARCHAR(100),
+              manufacturer VARCHAR(255),
+              description TEXT,
+              created_at TIMESTAMP DEFAULT now(),
+              updated_at TIMESTAMP DEFAULT now()
+            )
+          `
+        },
+        {
+          logicalName: 'machines',
+          physicalTableName: 'machines',
+          schema: 'public',
+          createSql: `
+            CREATE TABLE IF NOT EXISTS public.machines (
+              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+              machine_type_id UUID REFERENCES public.machine_types(id),
+              serial_number VARCHAR(255),
+              status VARCHAR(50),
+              location VARCHAR(255),
+              created_at TIMESTAMP DEFAULT now(),
+              updated_at TIMESTAMP DEFAULT now()
+            )
+          `
+        },
+        {
+          logicalName: 'management_offices',
+          physicalTableName: 'management_offices',
+          schema: 'public',
+          createSql: `
+            CREATE TABLE IF NOT EXISTS public.management_offices (
+              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+              office_name VARCHAR(255),
+              office_code VARCHAR(100),
+              address TEXT,
+              phone VARCHAR(20),
+              created_at TIMESTAMP DEFAULT now(),
+              updated_at TIMESTAMP DEFAULT now()
+            )
+          `
+        },
+        {
+          logicalName: 'bases',
+          physicalTableName: 'bases',
+          schema: 'public',
+          createSql: `
+            CREATE TABLE IF NOT EXISTS public.bases (
+              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+              base_name VARCHAR(255),
+              base_code VARCHAR(100),
+              office_id UUID REFERENCES public.management_offices(id),
+              created_at TIMESTAMP DEFAULT now(),
+              updated_at TIMESTAMP DEFAULT now()
+            )
+          `
+        },
+        {
+          logicalName: 'inspection_types',
+          physicalTableName: 'inspection_types',
+          schema: 'public',
+          createSql: `
+            CREATE TABLE IF NOT EXISTS public.inspection_types (
+              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+              inspection_type_name VARCHAR(255),
+              description TEXT,
+              created_at TIMESTAMP DEFAULT now(),
+              updated_at TIMESTAMP DEFAULT now()
+            )
+          `
+        },
+        {
+          logicalName: 'inspection_schedules',
+          physicalTableName: 'inspection_schedules',
+          schema: 'public',
+          createSql: `
+            CREATE TABLE IF NOT EXISTS public.inspection_schedules (
+              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+              machine_id UUID REFERENCES public.machines(id),
+              inspection_type_id UUID REFERENCES public.inspection_types(id),
+              scheduled_date DATE,
+              completed_date DATE,
+              notes TEXT,
+              created_at TIMESTAMP DEFAULT now(),
+              updated_at TIMESTAMP DEFAULT now()
+            )
+          `
+        }
+      ];
+
+      for (const table of businessTables) {
+        // テーブル存在確認
+        const tableExists = await activePool.query(`
+          SELECT EXISTS(
+            SELECT 1 FROM information_schema.tables 
+            WHERE table_schema = $1 AND table_name = $2
+          ) as exists
+        `, [table.schema, table.physicalTableName]);
+
+        if (!tableExists.rows[0].exists) {
+          console.log(`[DemoInit] 📋 Creating table ${table.logicalName} in demo_db...`);
+          await activePool.query(table.createSql);
+          console.log(`[DemoInit] ✅ Table ${table.logicalName} created`);
+        } else {
+          console.log(`[DemoInit] ✅ Table ${table.logicalName} exists`);
+        }
+
+        // routing エントリ確認（common_db で実行）
+        try {
+          const routingCheckRes = await getControlPlanePool().query(`
+            SELECT id FROM public.app_resource_routing 
+            WHERE app_id = $1 
+              AND logical_resource_name = $2
+          `, [appId, table.logicalName]);
+
+          if (routingCheckRes.rows.length === 0) {
+            console.log(`[DemoInit] 🔗 Adding routing entry for ${table.logicalName}...`);
+            await getControlPlanePool().query(`
+              INSERT INTO public.app_resource_routing 
+              (app_id, logical_resource_name, logical_name, physical_schema, physical_table_name, tenant_db_name)
+              VALUES ($1, $2, $3, $4, $5, 'demo_db')
+              ON CONFLICT (app_id, logical_resource_name, tenant_db_name) DO NOTHING
+            `, [appId, table.logicalName, table.logicalName, table.schema, table.physicalTableName]);
+            console.log(`[DemoInit] ✅ Routing entry created for ${table.logicalName}`);
+          } else {
+            console.log(`[DemoInit] ✅ Routing entry exists for ${table.logicalName}`);
+          }
+        } catch (routingErr) {
+          console.warn(`[DemoInit] ⚠️ Routing update failed for ${table.logicalName}: ${routingErr.message}`);
+        }
+      }
+
+      console.log('[DemoInit] ✅ Demo tenant initialization complete');
+    });
+  } catch (err) {
+    console.error('[DemoInit] ❌ Error:', err.message);
+    console.error('[DemoInit] Stack:', err.stack);
+  }
+}
+
+/**
  * 全テナントのユーザーデータ初期化（パスワード NULL を修正 + デフォルトユーザー挿入）
  */
 async function initializeAllTenantUsers() {
@@ -6279,6 +6442,13 @@ async function startServer() {
     await initializeAllTenantUsers();
   } catch (err) {
     console.error('[TenantInit] User initialization error (non-fatal):', err.message);
+  }
+
+  // demo テナント用の初期化（優先実施）
+  try {
+    await initializeDemoTenantTables();
+  } catch (err) {
+    console.error('[DemoInit] Demo initialization error (non-fatal):', err.message);
   }
 
   // まずサーバーをリッスン開始（Cloud Runのヘルスチェック対策）
