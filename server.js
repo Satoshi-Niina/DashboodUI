@@ -2192,22 +2192,24 @@ app.post('/api/login', async (req, res) => {
       originalUrl: String(req.originalUrl || req.url || '').trim()
     });
 
-    // 接続の切り替えを確実にするため、AsyncLocalStorageの非同期コンテキストをバインドして処理
+    // 認証はcommon_dbから検索（セントラルユーザー管理）
+    // テナントコンテキストはデータアクセス制御に使用
+    console.log(`[Login] Searching user in common_db (central user management)`);
+    const result = await pool.query(
+      'SELECT id, username, password, display_name, role FROM public.users WHERE username = $1 LIMIT 1',
+      [username]
+    );
+    const users = result.rows;
+
+    console.log('[Login] Query result:', users.length > 0 ? 'User found' : 'User not found');
+
+    if (users.length === 0) {
+      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+    }
+
+    // テナントコンテキストに設定（後続のAPI呼び出しで使用）
     return requestTenantContextStorage.run(runtime, async () => {
-      console.log(`[Login] [BoundContext] Target database in run: ${runtime.dbName}`);
-
-      // ゲートウェイ方式でユーザー検索（このクエリは確実に解決されたテナントDBに向かいます）
-      const users = await dynamicSelect('users',
-        { username },
-        ['id', 'username', 'password', 'display_name', 'role'],
-        1
-      );
-
-      console.log('[Login] Query result:', users.length > 0 ? 'User found' : 'User not found');
-
-      if (users.length === 0) {
-        return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
-      }
+      console.log(`[Login] [BoundContext] Authenticated for tenant: ${runtime.dbName}`);
 
       const user = users[0];
 
@@ -2222,18 +2224,18 @@ app.post('/api/login', async (req, res) => {
         // 平文パスワード（後方互換性のため）
         match = (password === user.password);
 
-        // セキュリティ向上のため、平文パスワードをハッシュ化して更新
+        // セキュリティ向上のため、平文パスワードをハッシュ化して更新（common_dbで実行）
         if (match) {
           try {
             const hashedPassword = await bcrypt.hash(password, 10);
-            await dynamicUpdate('users',
-              { password: hashedPassword },
-              { id: user.id },
-              false
+            // common_db の users テーブルを直接更新
+            await pool.query(
+              'UPDATE public.users SET password = $1 WHERE id = $2',
+              [hashedPassword, user.id]
             );
-            console.log(`Password hashed for user: ${user.username}`);
+            console.log(`[Login] Password hashed for user: ${user.username}`);
           } catch (hashErr) {
-            console.error('Failed to hash password:', hashErr);
+            console.error('[Login] Failed to hash password:', hashErr);
           }
         }
       }
@@ -2292,6 +2294,7 @@ app.post('/api/login', async (req, res) => {
     console.error('[Login] Error stack:', err.stack);
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: err.message });
   }
+};
 });
 
 
