@@ -2192,24 +2192,26 @@ app.post('/api/login', async (req, res) => {
       originalUrl: String(req.originalUrl || req.url || '').trim()
     });
 
-    // 認証はcommon_dbから検索（セントラルユーザー管理）
-    // テナントコンテキストはデータアクセス制御に使用
-    console.log(`[Login] Searching user in common_db (central user management)`);
-    const result = await pool.query(
-      'SELECT id, username, password, display_name, role FROM public.users WHERE username = $1 LIMIT 1',
-      [username]
-    );
-    const users = result.rows;
+    console.log(`[Login] Tenant resolved: ${tenantId} → DB: ${runtime.dbName}`);
 
-    console.log('[Login] Query result:', users.length > 0 ? 'User found' : 'User not found');
-
-    if (users.length === 0) {
-      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
-    }
-
-    // テナントコンテキストに設定（後続のAPI呼び出しで使用）
+    // テナント DB に接続してユーザー認証（各テナント DB 内で認証）
     return requestTenantContextStorage.run(runtime, async () => {
-      console.log(`[Login] [BoundContext] Authenticated for tenant: ${runtime.dbName}`);
+      console.log(`[Login] Querying tenant DB: ${runtime.dbName}`);
+
+      // テナント DB から users を検索
+      const users = await dynamicSelect('users',
+        { username },
+        ['id', 'username', 'password', 'display_name', 'role'],
+        1
+      );
+
+      console.log('[Login] Query result:', users.length > 0 ? 'User found' : 'User not found');
+
+      if (users.length === 0) {
+        return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+      }
+
+      // テナント コンテキスト に設定（JWT に含める）
 
       const user = users[0];
 
@@ -2224,14 +2226,14 @@ app.post('/api/login', async (req, res) => {
         // 平文パスワード（後方互換性のため）
         match = (password === user.password);
 
-        // セキュリティ向上のため、平文パスワードをハッシュ化して更新（common_dbで実行）
+        // セキュリティ向上のため、平文パスワードをハッシュ化して更新（テナント DB に更新）
         if (match) {
           try {
             const hashedPassword = await bcrypt.hash(password, 10);
-            // common_db の users テーブルを直接更新
-            await pool.query(
-              'UPDATE public.users SET password = $1 WHERE id = $2',
-              [hashedPassword, user.id]
+            await dynamicUpdate('users',
+              { password: hashedPassword },
+              { id: user.id },
+              false
             );
             console.log(`[Login] Password hashed for user: ${user.username}`);
           } catch (hashErr) {
@@ -2254,6 +2256,8 @@ app.post('/api/login', async (req, res) => {
           displayName: user.display_name,  // Emergency-Assistanceで必要
           role: mapRoleForExternal(normalizedRole), // 外部システムが期待するロールにマッピング
           department: department,  // Emergency-Assistanceで必要
+          tenantId: runtime.tenantId,  // テナント ID（マルチテナント制御用）
+          dbName: runtime.dbName,  // DB 名（データベース接続用）
           iat: Math.floor(Date.now() / 1000)  // 発行時刻を明示
         };
 
@@ -2266,6 +2270,8 @@ app.post('/api/login', async (req, res) => {
         console.log('[Login] 🎫 JWT Token generated:', {
           userId: user.id,
           username: user.username,
+          tenantId: runtime.tenantId,
+          dbName: runtime.dbName,
           tokenLength: token.length,
           issuer: 'emergency-assistance-app',
           audience: 'emergency-assistance-app',
