@@ -6144,6 +6144,66 @@ async function initializeTenantSchemas() {
 }
 
 /**
+ * company_db_routing テーブルをクリーンアップ
+ * - 古い demo_env エントリを削除
+ * - kosei エントリが存在しない場合は追加
+ * - テナント ID を統一（demo_env → demo）
+ */
+async function cleanupCompanyDbRouting() {
+  try {
+    console.log('[CompanyDbCleanup] Starting cleanup of company_db_routing...');
+    const controlPool = getControlPlanePool();
+
+    // 現在のデータを確認
+    const beforeRes = await controlPool.query('SELECT * FROM public.company_db_routing ORDER BY tenant_id');
+    console.log(`[CompanyDbCleanup] Current entries: ${beforeRes.rows.length}`);
+    beforeRes.rows.forEach(row => {
+      console.log(`  - tenant_id=${row.tenant_id}, db_name=${row.db_name}`);
+    });
+
+    // demo_env を削除（古い重複）
+    const hasOldDemo = beforeRes.rows.some(r => r.tenant_id === 'demo_env');
+    if (hasOldDemo) {
+      console.log('[CompanyDbCleanup] 🗑️ Removing old demo_env entry...');
+      await controlPool.query('DELETE FROM public.company_db_routing WHERE tenant_id = $1', ['demo_env']);
+      console.log('[CompanyDbCleanup] ✅ demo_env removed');
+    }
+
+    // kosei エントリを確認・追加
+    const hasKosei = beforeRes.rows.some(r => r.tenant_id === 'kosei');
+    if (!hasKosei) {
+      console.log('[CompanyDbCleanup] ⚠️ kosei entry not found. Creating...');
+      await controlPool.query(`
+        INSERT INTO public.company_db_routing 
+        (tenant_id, cloud_sql_instance, db_name, company_name, gcs_bucket, url_base, updated_at)
+        VALUES 
+        ($1, $2, $3, $4, $5, $6, now())
+        ON CONFLICT (tenant_id) DO NOTHING
+      `, [
+        'kosei',
+        '/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project',
+        'kosei_db',
+        '高清工業株式会社',
+        'gcs-bucket-kosei',
+        'https://dashboard-ui-800711608362.asia-northeast2.run.app/kosei'
+      ]);
+      console.log('[CompanyDbCleanup] ✅ kosei entry created');
+    }
+
+    // 修正後のデータを確認
+    const afterRes = await controlPool.query('SELECT * FROM public.company_db_routing ORDER BY tenant_id');
+    console.log(`[CompanyDbCleanup] After cleanup: ${afterRes.rows.length} entries`);
+    afterRes.rows.forEach(row => {
+      console.log(`  - tenant_id=${row.tenant_id}, db_name=${row.db_name}`);
+    });
+    console.log('[CompanyDbCleanup] ✅ Cleanup complete');
+  } catch (err) {
+    console.error('[CompanyDbCleanup] ❌ Error:', err.message);
+    throw err;
+  }
+}
+
+/**
  * demo テナント用：ビジネステーブルとrouting エントリを確認・修正
  */
 async function initializeDemoTenantTables() {
@@ -6429,6 +6489,13 @@ async function startServer() {
 
   console.log(`📡 Starting server on port ${PORT}...`);
   console.log(`📡 Binding to 0.0.0.0:${PORT} to accept external connections`);
+
+  // company_db_routing のクリーンアップ
+  try {
+    await cleanupCompanyDbRouting();
+  } catch (err) {
+    console.error('[CompanyDbCleanup] Cleanup error (non-fatal):', err.message);
+  }
 
   // スキーマ初期化を実行
   try {
