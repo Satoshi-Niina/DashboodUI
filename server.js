@@ -258,6 +258,12 @@ async function getAllCompanyRoutingRows() {
 }
 
 function extractTenantIdFromRequest(req) {
+  // Query parameters are most explicit for API requests
+  const tenantIdQuery = String(req.query && (req.query.tenant_id || req.query.tenantId) || '').trim().toLowerCase();
+  if (tenantIdQuery && /^[a-z0-9_-]+$/.test(tenantIdQuery) && tenantIdQuery !== 'demo_env') {
+    return tenantIdQuery;
+  }
+
   const tenantIdHeader = String(req.headers['x-tenant-id'] || '').trim().toLowerCase();
   const tenantFullUrlHeader = String(req.headers['x-tenant-full-url'] || '').trim();
   const tenantPathHeader = String(req.headers['x-tenant-path'] || '').trim();
@@ -265,6 +271,22 @@ function extractTenantIdFromRequest(req) {
 
   if (tenantIdHeader && /^[a-z0-9_-]+$/.test(tenantIdHeader)) {
     return tenantIdHeader;
+  }
+
+  // Check body as fallback (e.g. login POST body)
+  const tenantIdBody = String(req.body && (req.body.tenant_id || req.body.tenantId) || '').trim().toLowerCase();
+  if (tenantIdBody && /^[a-z0-9_-]+$/.test(tenantIdBody) && tenantIdBody !== 'demo_env') {
+    return tenantIdBody;
+  }
+
+  const fromQueryPath = getTenantKeyFromPath(req.query && req.query.tenant_path || '/');
+  if (fromQueryPath !== 'demo_env') {
+    return fromQueryPath;
+  }
+
+  const fromQueryUrl = getTenantKeyFromPath(req.query && req.query.full_url || '');
+  if (fromQueryUrl !== 'demo_env') {
+    return fromQueryUrl;
   }
 
   const fromFullUrl = getTenantKeyFromPath(tenantFullUrlHeader || '/');
@@ -2020,12 +2042,38 @@ function authenticateToken(req, res, next) {
 }
 
 // 外部システム（仕業点検管理UIなど）が期待するロール（'admin' | 'manager' | 'operator'）にマッピングする関数
+function normalizeRoleForApp(role) {
+  const raw = String(role || '').trim();
+  const normalized = raw.toLowerCase();
+
+  if (normalized === 'system_admin' || normalized === 'administrator' || normalized === 'admin') {
+    return 'system_admin';
+  }
+
+  if (normalized === 'operation_admin' || normalized === 'manager' || raw === '責任者') {
+    return 'operation_admin';
+  }
+
+  return 'user';
+}
+
+function getDepartmentByRole(role) {
+  const normalizedRole = normalizeRoleForApp(role);
+  if (normalizedRole === 'system_admin') {
+    return 'システム管理部';
+  }
+  if (normalizedRole === 'operation_admin') {
+    return '運用管理部';
+  }
+  return '一般';
+}
+
 function mapRoleForExternal(role) {
-  const r = String(role || '').trim();
-  console.log(`[mapRoleForExternal] Mapping role: "${role}" -> "${r}"`);
-  if (r === 'system_admin' || r === 'admin' || r === '責任者') {
+  const normalizedRole = normalizeRoleForApp(role);
+  console.log(`[mapRoleForExternal] Mapping role: "${role}" -> "${normalizedRole}"`);
+  if (normalizedRole === 'system_admin') {
     return 'admin';
-  } else if (r === 'operation_admin' || r === 'manager') {
+  } else if (normalizedRole === 'operation_admin') {
     return 'manager';
   }
   return 'operator';
@@ -2102,25 +2150,16 @@ app.post('/api/login', async (req, res) => {
       if (match) {
         console.log('[Login] Password matched for user:', username);
 
-        // 認証成功 - Emergency-Assistanceと互換性のあるトークンを生成
-        // department情報を設定（DBカラムがなくてもエラーにならないよう対応）
-        let department = 'システム管理部';  // デフォルト値
-
-        // roleに基づいてdepartmentを設定
-        if (user.role === 'system_admin') {
-          department = 'システム管理部';
-        } else if (user.role === 'operation_admin') {
-          department = '運用管理部';
-        } else {
-          department = '一般';
-        }
+        // 認証成功 - 旧ロールを3種類へ正規化して扱う
+        const normalizedRole = normalizeRoleForApp(user.role);
+        const department = getDepartmentByRole(normalizedRole);
 
         const payload = {
           id: user.id,
           userId: user.id,  // 外部アプリ連携用
           username: user.username,
           displayName: user.display_name,  // Emergency-Assistanceで必要
-          role: mapRoleForExternal(user.role), // 外部システムが期待するロールにマッピング
+          role: mapRoleForExternal(normalizedRole), // 外部システムが期待するロールにマッピング
           department: department,  // Emergency-Assistanceで必要
           iat: Math.floor(Date.now() / 1000)  // 発行時刻を明示
         };
@@ -2141,7 +2180,16 @@ app.post('/api/login', async (req, res) => {
         });
 
         console.log('[Login] Token generated successfully');
-        res.json({ success: true, token, user: { username: user.username, displayName: user.display_name, role: mapRoleForExternal(user.role) } });
+        res.json({
+          success: true,
+          token,
+          user: {
+            username: user.username,
+            displayName: user.display_name,
+            role: normalizedRole,
+            externalRole: mapRoleForExternal(normalizedRole)
+          }
+        });
       } else {
         // パスワード不一致
         console.log('[Login] Password mismatch for user:', username);
@@ -2191,14 +2239,8 @@ app.post('/api/verify-token', async (req, res) => {
     }
 
     const user = users[0];
-
-    // departmentをroleから動的に生成
-    let department = '一般';
-    if (user.role === 'system_admin') {
-      department = 'システム管理部';
-    } else if (user.role === 'operation_admin') {
-      department = '運用管理部';
-    }
+    const normalizedRole = normalizeRoleForApp(user.role);
+    const department = getDepartmentByRole(normalizedRole);
 
     res.json({
       valid: true,
@@ -2207,7 +2249,7 @@ app.post('/api/verify-token', async (req, res) => {
         id: user.id,
         username: user.username,
         displayName: user.display_name,
-        role: mapRoleForExternal(user.role), // 外部システムが期待するロールにマッピング
+        role: mapRoleForExternal(normalizedRole), // 外部システムが期待するロールにマッピング
         department: department
       }
     });
@@ -2251,24 +2293,15 @@ app.post('/api/refresh-token', async (req, res) => {
     });
 
     // 新しいトークンを発行（Emergency-Assistanceと互換性のある形式）
-    // departmentが存在しない場合のフォールバック処理
-    let department = decoded.department;
-    if (!department) {
-      if (decoded.role === 'system_admin' || decoded.role === 'admin') {
-        department = 'システム管理部';
-      } else if (decoded.role === 'operation_admin' || decoded.role === 'manager') {
-        department = '運用管理部';
-      } else {
-        department = '未設定';
-      }
-    }
+    const normalizedRole = normalizeRoleForApp(decoded.role);
+    const department = decoded.department || getDepartmentByRole(normalizedRole);
 
     const payload = {
       id: decoded.id,
       userId: decoded.id,  // 外部アプリ連携用
       username: decoded.username,
       displayName: decoded.displayName,
-      role: mapRoleForExternal(decoded.role), // 外部システム向けにマッピング
+      role: mapRoleForExternal(normalizedRole), // 外部システム向けにマッピング
       department: department,
       iat: Math.floor(Date.now() / 1000)
     };
@@ -2381,25 +2414,27 @@ async function requireAdmin(req, res, next) {
     }
 
     const user = users[0];
+    const normalizedRole = normalizeRoleForApp(user.role);
 
     // テナントDBの権限マッピングを動的にチェックする
     const tenantRoles = await UserRbacRepository.getRolesByUsername(user.username);
     console.log(`[RbacMiddleware] Roles for ${user.username} from tenant DB:`, tenantRoles);
 
     // テナントDBの roles で 'admin' または 'manager' であるか、もしくはマスタ上の管理者ロール
-    const isAuthorized = tenantRoles.includes('admin') || 
-                         tenantRoles.includes('manager') || 
-                         user.role === 'system_admin' || 
-                         user.role === 'operation_admin' || 
-                         user.role === 'admin' || 
-                         user.role === 'manager' ||
-                         user.role === '責任者';
+    const normalizedTenantRoles = tenantRoles.map((r) => normalizeRoleForApp(r));
+    const isAuthorized = normalizedTenantRoles.includes('system_admin')
+      || normalizedTenantRoles.includes('operation_admin')
+      || normalizedRole === 'system_admin'
+      || normalizedRole === 'operation_admin';
 
     if (!isAuthorized) {
       return res.status(403).json({ success: false, message: 'アクセス権限がありません。管理者権限が必要です。' });
     }
 
-    req.user = user;
+    req.user = {
+      ...user,
+      role: normalizedRole
+    };
     next();
   } catch (err) {
     console.error('Auth middleware user lookup error:', err);
@@ -2434,13 +2469,17 @@ async function requireSystemAdmin(req, res, next) {
     }
 
     const user = users[0];
+    const normalizedRole = normalizeRoleForApp(user.role);
 
     // system_admin のみアクセス可能
-    if (user.role !== 'system_admin') {
+    if (normalizedRole !== 'system_admin') {
       return res.status(403).json({ success: false, message: 'アクセス権限がありません。システム管理者権限が必要です。' });
     }
 
-    req.user = user;
+    req.user = {
+      ...user,
+      role: normalizedRole
+    };
     next();
   } catch (err) {
     console.error('System admin middleware user lookup error:', err);
@@ -2527,7 +2566,11 @@ app.get('/api/users', requireAdmin, async (req, res) => {
     const route = await resolveTablePath('users');
     const query = `SELECT id, username, display_name, role, created_at FROM ${route.fullPath} ORDER BY id ASC`;
     const result = await pool.query(query);
-    res.json({ success: true, users: result.rows });
+    const normalizedUsers = result.rows.map((row) => ({
+      ...row,
+      role: normalizeRoleForApp(row.role)
+    }));
+    res.json({ success: true, users: normalizedUsers });
   } catch (err) {
     console.error('Users get error:', err);
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
@@ -2549,7 +2592,14 @@ app.get('/api/users/:id', requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
     }
 
-    res.json({ success: true, user: users[0] });
+    const user = users[0];
+    res.json({
+      success: true,
+      user: {
+        ...user,
+        role: normalizeRoleForApp(user.role)
+      }
+    });
   } catch (err) {
     console.error('User get error:', err);
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
@@ -2561,6 +2611,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
   try {
     console.log('[POST /api/users] Request body:', req.body);
     const { username, password, display_name, role, email } = req.body;
+    const normalizedRole = normalizeRoleForApp(role || 'user');
 
     // バリデーション
     if (!username || !password) {
@@ -2591,7 +2642,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
       username,
       password: hashedPassword,
       display_name: display_name || null,
-      role: role || 'user'
+      role: normalizedRole
     };
 
     // emailフィールドが存在する場合のみ追加
@@ -2599,11 +2650,12 @@ app.post('/api/users', requireAdmin, async (req, res) => {
       userData.email = email;
     }
 
-    console.log('[POST /api/users] Inserting user:', { username, display_name, role, email });
+    console.log('[POST /api/users] Inserting user:', { username, display_name, role: normalizedRole, email });
     const users = await dynamicInsert('users', userData);
 
     console.log('[POST /api/users] User created successfully:', users[0]);
-    res.json({ success: true, user: users[0], message: 'ユーザーを追加しました' });
+    const created = users[0];
+    res.json({ success: true, user: { ...created, role: normalizeRoleForApp(created.role) }, message: 'ユーザーを追加しました' });
   } catch (err) {
     console.error('[POST /api/users] User create error:', err);
     console.error('[POST /api/users] Error stack:', err.stack);
@@ -2629,6 +2681,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 
     console.log('[PUT /api/users/:id] Request body:', req.body);
     const { username, display_name, password, role, email } = req.body;
+    const normalizedRole = normalizeRoleForApp(role || 'user');
 
     // バリデーション
     if (!username) {
@@ -2658,7 +2711,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         username,
         display_name: display_name || null,
         password: hashedPassword,
-        role: role || 'user',
+        role: normalizedRole,
         updated_at: new Date()
       };
 
@@ -2674,13 +2727,13 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
       }
 
-      res.json({ success: true, user: users[0], message: 'ユーザーを更新しました' });
+      res.json({ success: true, user: { ...users[0], role: normalizeRoleForApp(users[0].role) }, message: 'ユーザーを更新しました' });
     } else {
       // パスワードを変更しない場合
       const updateData = {
         username,
         display_name: display_name || null,
-        role: role || 'user',
+        role: normalizedRole,
         updated_at: new Date()
       };
 
@@ -2698,7 +2751,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         return res.status(404).json({ success: false, message: 'ユーザーが見つかりません' });
       }
 
-      res.json({ success: true, user: users[0], message: 'ユーザーを更新しました' });
+      res.json({ success: true, user: { ...users[0], role: normalizeRoleForApp(users[0].role) }, message: 'ユーザーを更新しました' });
     }
   } catch (err) {
     console.error('User update error:', err);
@@ -2796,11 +2849,13 @@ app.post('/api/users/import', requireAdmin, async (req, res) => {
         const hashedPassword = await bcrypt.hash(user.password, 10);
 
         // ユーザー挿入
+        const normalizedRole = normalizeRoleForApp(user.role || 'user');
+
         const userData = {
           username: user.username,
           password: hashedPassword,
           display_name: user.display_name,
-          role: user.role || 'user'
+          role: normalizedRole
         };
 
         // emailがある場合追加

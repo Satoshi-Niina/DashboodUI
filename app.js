@@ -134,15 +134,30 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.log('[App] Current computed display style:', currentDisplay);
             console.log('[App] Current inline display style:', adminLink.style.display);
 
-            console.log('[App] Checking role... system_admin?', userInfo.role === 'system_admin');
-            console.log('[App] Checking role... operation_admin?', userInfo.role === 'operation_admin');
-            console.log('[App] Checking role... admin?', userInfo.role === 'admin');
-            console.log('[App] Checking role... manager?', userInfo.role === 'manager');
-            console.log('[App] Checking role... 責任者?', userInfo.role === '責任者');
+            // 旧ロールを3種類へ正規化して権限判定
+            const normalizeRole = (role) => {
+                const raw = String(role || '').trim();
+                const normalized = raw.toLowerCase();
+
+                if (normalized === 'system_admin' || normalized === 'administrator' || normalized === 'admin') {
+                    return 'system_admin';
+                }
+
+                if (normalized === 'operation_admin' || normalized === 'manager' || raw === '責任者') {
+                    return 'operation_admin';
+                }
+
+                return 'user';
+            };
+
+            const normalizedRole = normalizeRole(userInfo.role);
+            const isAllowed = normalizedRole === 'system_admin' || normalizedRole === 'operation_admin';
+
+            console.log('[App] Checking role via fuzzy check... role check result:', isAllowed);
 
             // admin, system_admin, operation_admin, manager, 責任者 のいずれかであれば表示
-            if (userInfo.role === 'system_admin' || userInfo.role === 'operation_admin' || userInfo.role === 'admin' || userInfo.role === 'manager' || userInfo.role === '責任者') {
-                // システム管理者・運用管理者には表示
+            if (isAllowed) {
+                // システム管理者・運用管理者、適切な権限を持つ役職に表示
                 adminLink.style.display = 'inline';
                 adminLink.style.visibility = 'visible';
                 adminLink.style.opacity = '1';

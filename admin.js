@@ -46,6 +46,36 @@ function getApiMessage(payload, fallbackMessage) {
     return fallbackMessage;
 }
 
+function normalizeUserRole(role) {
+    const raw = String(role || '').trim();
+    const normalized = raw.toLowerCase();
+
+    if (normalized === 'system_admin' || normalized === 'administrator' || normalized === 'admin') {
+        return 'system_admin';
+    }
+
+    if (normalized === 'operation_admin' || normalized === 'manager' || raw === '責任者') {
+        return 'operation_admin';
+    }
+
+    if (!raw || normalized === 'user' || normalized === 'general_user' || normalized === 'operator') {
+        return 'user';
+    }
+
+    return null;
+}
+
+function getRoleDisplayName(role) {
+    const normalizedRole = normalizeUserRole(role) || 'user';
+    if (normalizedRole === 'system_admin') {
+        return 'システム管理者';
+    }
+    if (normalizedRole === 'operation_admin') {
+        return '運用管理者';
+    }
+    return '一般ユーザー';
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     if (window.TenantContext && typeof window.TenantContext.init === 'function') {
         await window.TenantContext.init();
@@ -76,7 +106,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('admin-user').textContent = userInfo.displayName || userInfo.username;
 
     // システム管理者または運用管理者のみアクセス可能
-    if (userInfo.role !== 'system_admin' && userInfo.role !== 'operation_admin' && userInfo.role !== 'admin' && userInfo.role !== 'manager' && userInfo.role !== '責任者') {
+    const normalizedRole = normalizeUserRole(userInfo.role);
+    const isAllowed = normalizedRole === 'system_admin' || normalizedRole === 'operation_admin';
+
+    if (!isAllowed) {
         console.error('[Admin] Access denied - role:', userInfo.role);
         alert('アクセス権限がありません。管理者権限が必要です。');
         window.location.href = buildTenantPath('/index.html');
@@ -86,7 +119,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('[Admin] Access granted for admin user');
 
     // ロールに基づいてタブの表示制御
-    applyRoleBasedTabVisibility(userInfo.role);
+    applyRoleBasedTabVisibility(normalizedRole || 'user');
 
     // メイン画面に戻る
     document.getElementById('back-to-main-btn').addEventListener('click', () => {
@@ -183,6 +216,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ロールに基づいてタブの表示制御
 function applyRoleBasedTabVisibility(role) {
     console.log('[applyRoleBasedTabVisibility] Applying visibility for role:', role);
+    const normalizedRole = normalizeUserRole(role) || 'user';
 
     // システム管理者専用のタブ
     const systemAdminOnlyTabs = [
@@ -195,8 +229,7 @@ function applyRoleBasedTabVisibility(role) {
         const tabButton = document.querySelector(`.tab-button[data-tab="${tabName}"]`);
         const tabContent = document.getElementById(`${tabName}-tab`);
 
-        // admin ロールは system_admin として扱う（後方互換性）
-        if (role === 'system_admin' || role === 'admin') {
+        if (normalizedRole === 'system_admin') {
             // システム管理者には表示
             if (tabButton) {
                 tabButton.style.display = '';
@@ -657,7 +690,10 @@ async function loadUsers() {
 
         if (data.success && data.users.length > 0) {
             // 全ユーザーデータをグローバル変数に保存
-            allUsers = data.users;
+            allUsers = data.users.map(user => ({
+                ...user,
+                role: normalizeUserRole(user.role) || 'user'
+            }));
             // フィルター選択肢を更新
             updateUserFilterOptions();
             // フィルター適用して表示
@@ -705,7 +741,7 @@ function applyUserFilters() {
     const filteredUsers = allUsers.filter(user => {
         const matchDisplayName = !filterDisplayName || user.display_name === filterDisplayName;
         const matchUsername = !filterUsername || user.username === filterUsername;
-        const matchRole = !filterRole || user.role === filterRole;
+        const matchRole = !filterRole || (normalizeUserRole(user.role) || 'user') === filterRole;
 
         return matchDisplayName && matchUsername && matchRole;
     });
@@ -724,24 +760,15 @@ function displayUsers(users) {
     }
 
     usersList.innerHTML = users.map(user => {
-        // 役割の表示名を取得
-        let roleDisplayName = 'ユーザー';
-        if (user.role === 'system_admin') {
-            roleDisplayName = 'システム管理者';
-        } else if (user.role === 'operation_admin' || user.role === 'manager') {
-            roleDisplayName = '運用管理者';
-        } else if (user.role === 'admin') {
-            roleDisplayName = '管理者';
-        } else if (user.role === 'user') {
-            roleDisplayName = 'ユーザー';
-        }
+        const normalizedRole = normalizeUserRole(user.role) || 'user';
+        const roleDisplayName = getRoleDisplayName(normalizedRole);
 
         return `
-            <div class="user-item" data-username="${escapeHtml(user.username)}" data-displayname="${escapeHtml(user.display_name || '')}" data-role="${user.role}">
+            <div class="user-item" data-username="${escapeHtml(user.username)}" data-displayname="${escapeHtml(user.display_name || '')}" data-role="${normalizedRole}">
                 <div class="user-info">
                     <div class="username">${escapeHtml(user.username)}</div>
                     <div class="display-name">${escapeHtml(user.display_name || '')}</div>
-                    <span class="role-badge role-${user.role}">${roleDisplayName}</span>
+                    <span class="role-badge role-${normalizedRole}">${roleDisplayName}</span>
                 </div>
                 <div class="user-actions-buttons">
                     <button class="btn-edit" onclick="editUser(${user.id})">✏️ 編集</button>
@@ -784,7 +811,7 @@ async function loadUserData(userId) {
             document.getElementById('user-username').value = user.username;
             document.getElementById('user-full-name').value = user.display_name || '';
             document.getElementById('user-email').value = user.email || '';
-            document.getElementById('user-role').value = user.role;
+            document.getElementById('user-role').value = normalizeUserRole(user.role) || 'user';
         }
     } catch (error) {
         console.error('Failed to load user data:', error);
@@ -799,7 +826,7 @@ async function saveUser() {
         display_name: document.getElementById('user-full-name').value,
         email: document.getElementById('user-email').value,
         password: document.getElementById('user-password').value,
-        role: document.getElementById('user-role').value
+        role: normalizeUserRole(document.getElementById('user-role').value) || 'user'
     };
 
     console.log('[saveUser] Saving user:', { userId, userData: { ...userData, password: '***' } });
@@ -4893,7 +4920,7 @@ async function handleCleanOrphanedImages() {
  * ユーザー管理用テンプレート'のダウンロード (CSV形式)
  */
 async function downloadUserTemplate() {
-    const headers = ['ログインユーザー名', '表示名', 'メールアドレス', '権限(system_admin/operation_admin/admin/user)', '初期パスワード'];
+    const headers = ['ログインユーザー名', '表示名', 'メールアドレス', '権限(system_admin/operation_admin/user)', '初期パスワード'];
     const filename = 'ユーザー管理_テンプレート.csv';
 
     const csvContent = "\uFEFF" + headers.join(',') + '\n';
@@ -5097,7 +5124,7 @@ async function parseExcelFile(file) {
 function validateUsers(users) {
     const errors = [];
     const usernames = new Set();
-    const validRoles = ['system_admin', 'operation_admin', 'admin', 'user'];
+    const validRoles = ['system_admin', 'operation_admin', 'user'];
 
     users.forEach((user, index) => {
         const rowNum = index + 2; // +2 for header and 0-index
@@ -5116,9 +5143,12 @@ function validateUsers(users) {
             errors.push(`行${rowNum}: 表示名が空です`);
         }
 
-        // 権限チェック
-        if (!validRoles.includes(user.role)) {
+        // 権限チェック（旧ロールは3種へ正規化）
+        const normalizedRole = normalizeUserRole(user.role);
+        if (!normalizedRole || !validRoles.includes(normalizedRole)) {
             errors.push(`行${rowNum}: 権限が不正です (${user.role})`);
+        } else {
+            user.role = normalizedRole;
         }
 
         // パスワードチェック

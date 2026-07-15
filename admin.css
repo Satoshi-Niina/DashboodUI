@@ -744,6 +744,16 @@ body {
     color: #e65100;
 }
 
+.role-system_admin {
+    background: #fff3e0;
+    color: #e65100;
+}
+
+.role-operation_admin {
+    background: #ede7f6;
+    color: #4527a0;
+}
+
 .role-user {
     background: #e3f2fd;
     color: #1565c0;
