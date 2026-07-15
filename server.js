@@ -3059,7 +3059,20 @@ app.post('/api/users/import', requireAdmin, async (req, res) => {
 app.get('/api/offices', authenticateToken, async (req, res) => {
   try {
     const route = await resolveTablePath('management_offices');
-    const query = `SELECT * FROM ${route.fullPath} ORDER BY office_id DESC`;
+    const query = `
+      SELECT 
+        id as office_id,
+        office_name,
+        office_code,
+        office_type,
+        address,
+        postal_code,
+        phone_number,
+        created_at,
+        updated_at
+      FROM ${route.fullPath} 
+      ORDER BY id DESC
+    `;
     const result = await pool.query(query);
     res.json({ success: true, offices: result.rows });
   } catch (err) {
@@ -5042,8 +5055,8 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
         : 'm.machine_type_id::text = mt.id::text')
       : '1 = 0';
 
-    const officeJoinCondition = machineColumns.has('office_id') && officeColumns.has('office_id')
-      ? 'm.office_id = mo.office_id'
+    const officeJoinCondition = machineColumns.has('office_id') && officeColumns.has('id')
+      ? 'm.office_id = mo.id'
       : '1 = 0';
 
     const orderByExpr = machineColumns.has('machine_number')
@@ -5586,7 +5599,7 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
       FROM ${inspectionSchedulesRoute.fullPath} s
       LEFT JOIN ${machinesRoute.fullPath} m ON s.machine_id::text = m.id::text
       LEFT JOIN ${machineTypesRoute.fullPath} mt ON ${machineTypeJoinCondition}
-      LEFT JOIN ${officesRoute.fullPath} o ON m.office_id::integer = o.office_id
+      LEFT JOIN ${officesRoute.fullPath} o ON m.office_id::text = o.id::text
       LEFT JOIN ${inspectionTypesRoute.fullPath} it ON s.inspection_type_id = it.id
       ORDER BY ${hasTargetCategory ? 's.target_category,' : ''} o.office_name, model_name, m.machine_number, it.display_order
     `;
