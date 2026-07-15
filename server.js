@@ -182,6 +182,51 @@ function normalizePathForCompare(rawPath) {
   }
 }
 
+function normalizeTenantIdForUrl(rawTenantId) {
+  const normalized = String(rawTenantId || '').trim().toLowerCase();
+  if (!normalized || normalized === 'demo_env' || normalized === 'demo') {
+    return 'demo';
+  }
+  return normalized;
+}
+
+function buildTenantPath(tenantId) {
+  const normalizedTenantId = normalizeTenantIdForUrl(tenantId);
+  if (normalizedTenantId === 'demo') {
+    return '/';
+  }
+  return `/${normalizedTenantId}`;
+}
+
+function buildTenantUrl(baseUrl, tenantId) {
+  const normalizedTenantId = normalizeTenantIdForUrl(tenantId);
+  const safeBaseUrl = String(baseUrl || '').trim().replace(/\/+$/, '');
+
+  if (!safeBaseUrl) {
+    return buildTenantPath(normalizedTenantId);
+  }
+
+  if (normalizedTenantId === 'demo') {
+    return `${safeBaseUrl}/`;
+  }
+
+  return `${safeBaseUrl}/${encodeURIComponent(normalizedTenantId)}`;
+}
+
+function getRequestBaseUrl(req) {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+  const host = req.headers['x-forwarded-host'] || req.get('host') || '';
+  return host ? `${protocol}://${host}` : '';
+}
+
+function normalizeTenantPathForResponse(rawTenantPath, fallbackTenantId) {
+  const normalizedPath = normalizePathForCompare(rawTenantPath || '');
+  if (normalizedPath === '/' || !normalizedPath) {
+    return buildTenantPath(fallbackTenantId);
+  }
+  return normalizedPath;
+}
+
 function getTenantKeyFromPath(rawPath) {
   const normalizedPath = normalizePathForCompare(rawPath);
   const segments = normalizedPath.split('/').filter(Boolean);
@@ -346,11 +391,14 @@ async function getCompanyRoutingByTenantRequest({ tenantId = '', tenantPath = ''
       }
     }
 
-    const byUrl = allRows.find((row) => {
-      if (!row) return false;
-      return row.normalizedTenantPath === normalizedFullUrl
-        || row.normalizedTenantPathOnly === normalizedTenantPath;
-    });
+    const hasUrlHint = Boolean(String(tenantPath || '').trim() || String(fullUrl || '').trim());
+    const byUrl = hasUrlHint
+      ? allRows.find((row) => {
+        if (!row) return false;
+        return row.normalizedTenantPath === normalizedFullUrl
+          || row.normalizedTenantPathOnly === normalizedTenantPath;
+      })
+      : null;
 
     return byUrl || null;
   } catch (err) {
@@ -718,17 +766,53 @@ app.get('/api/tenant-routing', async (req, res) => {
       }
     }
 
+    if (!row && tenantId) {
+      const runtime = await resolveTenantRuntime(tenantId, {
+        tenantPath,
+        fullUrl,
+        referer: String(req.headers.referer || '').trim(),
+        originalUrl: String(req.originalUrl || req.url || '').trim()
+      });
+
+      if (runtime && runtime.resolvedTenantId) {
+        row = {
+          company_id: runtime.companyId || runtime.resolvedTenantId,
+          company_name: runtime.companyName || '',
+          db_name: runtime.dbName || '',
+          storage_bucket_name: runtime.storageBucketName || '',
+          tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId)
+        };
+        lookupSource = 'runtime_fallback';
+      }
+    }
+
+    const effectiveTenantId = row
+      ? (row.company_id || tenantId || 'demo')
+      : (tenantId || 'demo');
+    const effectiveTenantPath = normalizeTenantPathForResponse(row ? row.tenant_path : '', effectiveTenantId);
+    const tenantBaseUrl = getRequestBaseUrl(req);
+    const effectiveTenantUrl = buildTenantUrl(tenantBaseUrl, effectiveTenantId);
+
     res.json({
       success: true,
-      route: row,
+      route: row ? {
+        company_id: row.company_id,
+        company_name: row.company_name,
+        db_name: row.db_name,
+        storage_bucket_name: row.storage_bucket_name,
+        tenant_path: effectiveTenantPath,
+        tenant_id: row.company_id,
+        tenant_url: effectiveTenantUrl
+      } : null,
       routes: row ? [
         {
           company_id: row.company_id,
           company_name: row.company_name,
           db_name: row.db_name,
           storage_bucket_name: row.storage_bucket_name,
-          tenant_path: row.tenant_path,
-          tenant_id: row.company_id
+          tenant_path: effectiveTenantPath,
+          tenant_id: row.company_id,
+          tenant_url: effectiveTenantUrl
         }
       ] : [],
       error: row
@@ -1066,13 +1150,17 @@ app.get('/api/tenant-context', async (req, res) => {
       fullUrl: String(req.headers['x-tenant-full-url'] || req.query.full_url || req.headers.referer || '').trim()
     }) || (runtime.companyId ? await getCompanyRoutingByCompanyId(runtime.companyId) : null);
 
+    const effectiveTenantId = runtime.companyId || runtime.resolvedTenantId || runtime.requestedTenantId || 'demo_env';
     const routeForResponse = route || {
-      company_id: runtime.companyId || runtime.resolvedTenantId || runtime.requestedTenantId || 'demo_env',
+      company_id: effectiveTenantId,
       company_name: runtime.companyName || '',
       db_name: runtime.dbName || '',
       storage_bucket_name: runtime.storageBucketName || '',
-      tenant_path: runtime.tenantPath || (runtime.resolvedTenantId && runtime.resolvedTenantId !== 'demo_env' ? `/${runtime.resolvedTenantId}` : '/')
+      tenant_path: runtime.tenantPath || buildTenantPath(effectiveTenantId)
     };
+    const effectiveTenantPath = normalizeTenantPathForResponse(routeForResponse.tenant_path, effectiveTenantId);
+    const tenantBaseUrl = getRequestBaseUrl(req);
+    const effectiveTenantUrl = buildTenantUrl(tenantBaseUrl, effectiveTenantId);
 
     return res.json({
       success: true,
@@ -1090,7 +1178,8 @@ app.get('/api/tenant-context', async (req, res) => {
         company_name: routeForResponse.company_name,
         db_name: routeForResponse.db_name,
         storage_bucket_name: routeForResponse.storage_bucket_name,
-        tenant_path: routeForResponse.tenant_path
+        tenant_path: effectiveTenantPath,
+        tenant_url: effectiveTenantUrl
       },
       routes: [
         {
@@ -1098,7 +1187,8 @@ app.get('/api/tenant-context', async (req, res) => {
           company_name: routeForResponse.company_name,
           db_name: routeForResponse.db_name,
           storage_bucket_name: routeForResponse.storage_bucket_name,
-          tenant_path: routeForResponse.tenant_path
+          tenant_path: effectiveTenantPath,
+          tenant_url: effectiveTenantUrl
         }
       ]
     });
