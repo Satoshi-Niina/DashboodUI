@@ -6167,52 +6167,58 @@ async function cleanupCompanyDbRouting() {
     console.log('[CompanyDbCleanup] Starting cleanup of company_db_routing...');
     const controlPool = getControlPlanePool();
 
+    // テーブル構造を確認してカラル名を自動検出
+    const colsRes = await controlPool.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_schema = 'public' AND table_name = 'company_db_routing'
+      ORDER BY ordinal_position
+    `);
+    
+    if (colsRes.rows.length === 0) {
+      console.warn('[CompanyDbCleanup] ⚠️ company_db_routing table not found or has no columns');
+      return;
+    }
+
+    console.log('[CompanyDbCleanup] Table columns:', colsRes.rows.map(r => r.column_name).join(', '));
+
+    // 最初のカラムをテナントIDとして使用（通常は tenant_id, tenant_key, または company_id など）
+    const tenantIdColumn = colsRes.rows[0].column_name;
+    const dbNameColumn = colsRes.rows.find(r => r.column_name.includes('db') || r.column_name.includes('database'))?.column_name || colsRes.rows[2]?.column_name || 'db_name';
+    
+    console.log(`[CompanyDbCleanup] Using tenant ID column: "${tenantIdColumn}", DB name column: "${dbNameColumn}"`);
+
     // 現在のデータを確認
-    const beforeRes = await controlPool.query('SELECT * FROM public.company_db_routing ORDER BY tenant_id');
-    console.log(`[CompanyDbCleanup] Current entries: ${beforeRes.rows.length}`);
-    beforeRes.rows.forEach(row => {
-      console.log(`  - tenant_id=${row.tenant_id}, db_name=${row.db_name}`);
-    });
-
-    // demo_env を削除（古い重複）
-    const hasOldDemo = beforeRes.rows.some(r => r.tenant_id === 'demo_env');
-    if (hasOldDemo) {
-      console.log('[CompanyDbCleanup] 🗑️ Removing old demo_env entry...');
-      await controlPool.query('DELETE FROM public.company_db_routing WHERE tenant_id = $1', ['demo_env']);
-      console.log('[CompanyDbCleanup] ✅ demo_env removed');
+    try {
+      const beforeRes = await controlPool.query(`SELECT * FROM public.company_db_routing LIMIT 10`);
+      console.log(`[CompanyDbCleanup] Current entries: ${beforeRes.rows.length}`);
+      beforeRes.rows.forEach(row => {
+        const tenantIdVal = row[tenantIdColumn] || Object.values(row)[0];
+        const dbNameVal = row[dbNameColumn] || Object.values(row)[2];
+        console.log(`  - ${tenantIdColumn}=${tenantIdVal}, ${dbNameColumn}=${dbNameVal}`);
+      });
+    } catch (err) {
+      console.warn('[CompanyDbCleanup] ⚠️ Could not retrieve current entries:', err.message);
     }
 
-    // kosei エントリを確認・追加
-    const hasKosei = beforeRes.rows.some(r => r.tenant_id === 'kosei');
-    if (!hasKosei) {
-      console.log('[CompanyDbCleanup] ⚠️ kosei entry not found. Creating...');
-      await controlPool.query(`
-        INSERT INTO public.company_db_routing 
-        (tenant_id, cloud_sql_instance, db_name, company_name, gcs_bucket, url_base, updated_at)
-        VALUES 
-        ($1, $2, $3, $4, $5, $6, now())
-        ON CONFLICT (tenant_id) DO NOTHING
-      `, [
-        'kosei',
-        '/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project',
-        'kosei_db',
-        '高清工業株式会社',
-        'gcs-bucket-kosei',
-        'https://dashboard-ui-800711608362.asia-northeast2.run.app/kosei'
-      ]);
-      console.log('[CompanyDbCleanup] ✅ kosei entry created');
+    // demo_env を削除しようとする（ただし、エラーをキャッチ）
+    try {
+      const deleteRes = await controlPool.query(`
+        DELETE FROM public.company_db_routing 
+        WHERE "${tenantIdColumn}" = $1
+      `, ['demo_env']);
+      
+      if (deleteRes.rowCount > 0) {
+        console.log(`[CompanyDbCleanup] ✅ Removed ${deleteRes.rowCount} demo_env entry(ies)`);
+      }
+    } catch (deleteErr) {
+      console.warn(`[CompanyDbCleanup] ⚠️ Could not delete demo_env: ${deleteErr.message}`);
     }
 
-    // 修正後のデータを確認
-    const afterRes = await controlPool.query('SELECT * FROM public.company_db_routing ORDER BY tenant_id');
-    console.log(`[CompanyDbCleanup] After cleanup: ${afterRes.rows.length} entries`);
-    afterRes.rows.forEach(row => {
-      console.log(`  - tenant_id=${row.tenant_id}, db_name=${row.db_name}`);
-    });
-    console.log('[CompanyDbCleanup] ✅ Cleanup complete');
+    console.log('[CompanyDbCleanup] ✅ Cleanup attempt complete');
   } catch (err) {
     console.error('[CompanyDbCleanup] ❌ Error:', err.message);
-    throw err;
+    console.error('[CompanyDbCleanup] Stack:', err.stack);
   }
 }
 
@@ -6348,26 +6354,43 @@ async function initializeDemoTenantTables() {
 
         // routing エントリ確認（common_db で実行）
         try {
-          const routingCheckRes = await getControlPlanePool().query(`
-            SELECT id FROM public.app_resource_routing 
-            WHERE app_id = $1 
-              AND logical_resource_name = $2
-          `, [appId, table.logicalName]);
+          // app_resource_routing のカラル構造を確認
+          const routingColsRes = await getControlPlanePool().query(`
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_schema = 'public' AND table_name = 'app_resource_routing'
+            LIMIT 1
+          `);
 
-          if (routingCheckRes.rows.length === 0) {
-            console.log(`[DemoInit] 🔗 Adding routing entry for ${table.logicalName}...`);
-            await getControlPlanePool().query(`
-              INSERT INTO public.app_resource_routing 
-              (app_id, logical_resource_name, logical_name, physical_schema, physical_table_name, tenant_db_name)
-              VALUES ($1, $2, $3, $4, $5, 'demo_db')
-              ON CONFLICT (app_id, logical_resource_name, tenant_db_name) DO NOTHING
-            `, [appId, table.logicalName, table.logicalName, table.schema, table.physicalTableName]);
-            console.log(`[DemoInit] ✅ Routing entry created for ${table.logicalName}`);
+          if (routingColsRes.rows.length === 0) {
+            console.warn(`[DemoInit] ⚠️ app_resource_routing table has no columns`);
           } else {
-            console.log(`[DemoInit] ✅ Routing entry exists for ${table.logicalName}`);
+            // まず、エントリが存在するか COUNT で確認（カラル不依存）
+            const countRes = await getControlPlanePool().query(`
+              SELECT COUNT(*) as cnt FROM public.app_resource_routing 
+              WHERE logical_resource_name = $1
+            `, [table.logicalName]);
+
+            if (countRes.rows[0].cnt === 0) {
+              console.log(`[DemoInit] 🔗 Adding routing entry for ${table.logicalName}...`);
+              // INSERT を試みる。失敗してもログに記録するだけ
+              try {
+                await getControlPlanePool().query(`
+                  INSERT INTO public.app_resource_routing 
+                  (logical_resource_name, logical_name, physical_schema, physical_table_name)
+                  VALUES ($1, $2, $3, $4)
+                  ON CONFLICT DO NOTHING
+                `, [table.logicalName, table.logicalName, table.schema, table.physicalTableName]);
+                console.log(`[DemoInit] ✅ Routing entry created for ${table.logicalName}`);
+              } catch (insertErr) {
+                console.warn(`[DemoInit] ⚠️ Routing INSERT failed for ${table.logicalName}: ${insertErr.message}`);
+              }
+            } else {
+              console.log(`[DemoInit] ✅ Routing entry exists for ${table.logicalName}`);
+            }
           }
         } catch (routingErr) {
-          console.warn(`[DemoInit] ⚠️ Routing update failed for ${table.logicalName}: ${routingErr.message}`);
+          console.warn(`[DemoInit] ⚠️ Routing check/update failed for ${table.logicalName}: ${routingErr.message}`);
         }
       }
 
@@ -6420,7 +6443,8 @@ async function initializeAllTenantUsers() {
       await requestTenantContextStorage.run(runtime, async () => {
         const activePool = getActiveDbPool();
         
-        // users テーブル存在確認
+        // users テーブル存在確認 + カラル構造検出
+        let passwordColumnName = 'password';  // デフォルト
         try {
           const tableCheck = await activePool.query(`
             SELECT EXISTS(
@@ -6443,6 +6467,22 @@ async function initializeAllTenantUsers() {
             console.log(`[TenantInit] ✅ users table created in ${tenant.dbName}`);
           } else {
             console.log(`[TenantInit] ✅ users table exists in ${tenant.dbName}`);
+            
+            // テーブルのカラル構造を確認
+            const colsRes = await activePool.query(`
+              SELECT column_name FROM information_schema.columns
+              WHERE table_schema = 'public' AND table_name = 'users'
+              ORDER BY ordinal_position
+            `);
+            const columns = colsRes.rows.map(r => r.column_name);
+            console.log(`[TenantInit] users columns: ${columns.join(', ')}`);
+            
+            // パスワードカラルを特定
+            if (columns.includes('password_hash')) {
+              passwordColumnName = 'password_hash';
+            } else if (!columns.includes('password')) {
+              console.warn(`[TenantInit] ⚠️ Neither 'password' nor 'password_hash' column found. Will try to use 'password'.`);
+            }
           }
         } catch (tableErr) {
           console.error(`[TenantInit] Failed to check/create users table for ${tenant.dbName}:`, tableErr.message);
@@ -6450,42 +6490,54 @@ async function initializeAllTenantUsers() {
         }
 
         // 既存ユーザーのパスワード NULL を修正
-        const existing = await activePool.query(
-          'SELECT id, username, password FROM public.users WHERE password IS NULL'
-        );
-        console.log(`[TenantInit] Found ${existing.rows.length} users with NULL password in ${tenant.dbName}`);
-        for (const user of existing.rows) {
-          const defaultUser = tenant.users.find(u => u.username === user.username);
-          const defaultPwd = defaultUser ? defaultUser.password : 'changeme123';
-          await activePool.query(
-            'UPDATE public.users SET password = $1 WHERE id = $2',
-            [defaultPwd, user.id]
+        try {
+          const existing = await activePool.query(
+            `SELECT id, username, ${passwordColumnName} as password FROM public.users WHERE ${passwordColumnName} IS NULL`
           );
-          console.log(`[TenantInit] ✅ Set password for ${tenant.dbName}.${user.username}`);
+          console.log(`[TenantInit] Found ${existing.rows.length} users with NULL ${passwordColumnName} in ${tenant.dbName}`);
+          for (const user of existing.rows) {
+            const defaultUser = tenant.users.find(u => u.username === user.username);
+            const defaultPwd = defaultUser ? defaultUser.password : 'changeme123';
+            await activePool.query(
+              `UPDATE public.users SET ${passwordColumnName} = $1 WHERE id = $2`,
+              [defaultPwd, user.id]
+            );
+            console.log(`[TenantInit] ✅ Set ${passwordColumnName} for ${tenant.dbName}.${user.username}`);
+          }
+        } catch (updateErr) {
+          console.warn(`[TenantInit] ⚠️ Failed to update NULL passwords for ${tenant.dbName}: ${updateErr.message}`);
         }
 
         // デフォルトユーザーが存在しなければ追加
         for (const u of tenant.users) {
-          const ins = await activePool.query(
-            `INSERT INTO public.users (username, password, display_name, role)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (username) DO NOTHING
-             RETURNING username`,
-            [u.username, u.password, u.display_name, u.role]
-          );
-          if (ins.rows.length > 0) {
-            console.log(`[TenantInit] ✅ Inserted user ${tenant.dbName}.${u.username}`);
+          try {
+            const ins = await activePool.query(
+              `INSERT INTO public.users (username, ${passwordColumnName}, display_name, role)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (username) DO NOTHING
+               RETURNING username`,
+              [u.username, u.password, u.display_name, u.role]
+            );
+            if (ins.rows.length > 0) {
+              console.log(`[TenantInit] ✅ Inserted user ${tenant.dbName}.${u.username}`);
+            }
+          } catch (insertErr) {
+            console.warn(`[TenantInit] ⚠️ Failed to insert ${u.username} for ${tenant.dbName}: ${insertErr.message}`);
           }
         }
 
         // 最終状態ログ
-        const final = await activePool.query(
-          'SELECT username, password FROM public.users ORDER BY id'
-        );
-        final.rows.forEach(u => {
-          const s = u.password ? (u.password.startsWith('$2') ? 'HASHED' : 'PLAINTEXT') : 'NULL';
-          console.log(`  [${tenant.dbName}] ${u.username}: ${s}`);
-        });
+        try {
+          const final = await activePool.query(
+            `SELECT username, ${passwordColumnName} as password FROM public.users ORDER BY id`
+          );
+          final.rows.forEach(u => {
+            const s = u.password ? (u.password.startsWith('$2') ? 'HASHED' : 'PLAINTEXT') : 'NULL';
+            console.log(`  [${tenant.dbName}] ${u.username}: ${s}`);
+          });
+        } catch (finalErr) {
+          console.warn(`[TenantInit] ⚠️ Failed to query final user state: ${finalErr.message}`);
+        }
       });
     } catch (err) {
       console.error(`[TenantInit] ⚠️ Failed for ${tenant.dbName}: ${err.message}`);
