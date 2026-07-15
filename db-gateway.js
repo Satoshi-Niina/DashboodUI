@@ -205,7 +205,7 @@ function parseGatewayArgs(appIdOrOptions = 'dashboard-ui', maybeOptions = {}) {
  * @example
  * // 基本的な使い方
  * const route = await getTablePath('users');
- * // => { fullPath: 'master_data.users', schema: 'master_data', table: 'users' }
+ * // => { fullPath: 'public.users', schema: 'public', table: 'users' }
  * 
  * // アプリIDを指定
  * const route = await getTablePath('vehicles', 'dashboard-ui');
@@ -317,12 +317,12 @@ async function getTablePath(logicalResourceName, appIdOrOptions = 'dashboard-ui'
         // ルーティングが見つからない場合はmaster_dataスキーマにフォールバック
         console.warn(
             `[db-gateway] ⚠️ No route found for ${routingContext.tenantId}:${appId}:${logicalResourceName}, ` +
-            `falling back to master_data.${logicalResourceName}`
+            `falling back to public.${logicalResourceName}`
         );
         
         const fallback = {
-            fullPath: `master_data."${logicalResourceName}"`,
-            schema: 'master_data',
+            fullPath: `public."${logicalResourceName}"`,
+            schema: 'public',
             table: logicalResourceName,
             logicalName: logicalResourceName,
             appId: appId,
@@ -338,10 +338,10 @@ async function getTablePath(logicalResourceName, appIdOrOptions = 'dashboard-ui'
         console.error(`[db-gateway] ❌ Error resolving ${logicalResourceName}:`, err.message);
         console.error(`[db-gateway] Stack:`, err.stack);
         
-        // エラー時もmaster_dataスキーマにフォールバック
+        // エラー時もpublicスキーマにフォールバック
         const fallback = {
-            fullPath: `master_data."${logicalResourceName}"`,
-            schema: 'master_data',
+            fullPath: `public."${logicalResourceName}"`,
+            schema: 'public',
             table: logicalResourceName,
             logicalName: logicalResourceName,
             appId: appId,

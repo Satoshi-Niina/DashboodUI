@@ -1309,10 +1309,10 @@ async function resolveTablePath(logicalName) {
       : (columns.has('active') ? 'active' : null);
 
     if (!schemaColumn || !tableColumn || !logicalNameColumn) {
-      console.log('[Gateway] Routing table is tenant-registry style. Using master_data fallback.');
+      console.log('[Gateway] Routing table is tenant-registry style. Using public fallback.');
       const fallback = {
-        fullPath: `master_data."${logicalName}"`,
-        schema: 'master_data',
+        fullPath: `public."${logicalName}"`,
+        schema: 'public',
         table: logicalName,
         timestamp: Date.now()
       };
@@ -1392,11 +1392,11 @@ async function resolveTablePath(logicalName) {
       return resolved;
     }
 
-    // ルーティングが見つからない場合はmaster_dataスキーマにフォールバック
-    console.log(`[Gateway] ⚠️ No route found for ${logicalName}, falling back to master_data.${logicalName}`);
+    // ルーティングが見つからない場合はpublicスキーマにフォールバック
+    console.log(`[Gateway] ⚠️ No route found for ${logicalName}, falling back to public.${logicalName}`);
     const fallback = {
-      fullPath: `master_data."${logicalName}"`,
-      schema: 'master_data',
+      fullPath: `public."${logicalName}"`,
+      schema: 'public',
       table: logicalName,
       timestamp: Date.now()
     };
@@ -1410,14 +1410,14 @@ async function resolveTablePath(logicalName) {
     console.error(`[Gateway] Query that failed:`, 'SELECT FROM public.app_resource_routing');
     console.error(`[Gateway] Parameters:`, { APP_ID, logicalName });
     console.error(`[Gateway] Error stack:`, err.stack);
-    // エラー時もmaster_dataスキーマにフォールバック
+    // エラー時もpublicスキーマにフォールバック
     const fallback = {
-      fullPath: `master_data."${logicalName}"`,
-      schema: 'master_data',
+      fullPath: `public."${logicalName}"`,
+      schema: 'public',
       table: logicalName,
       timestamp: Date.now()
     };
-    console.log(`[Gateway] Using fallback: master_data."${logicalName}"`);
+    console.log(`[Gateway] Using fallback: public."${logicalName}"`);
     return fallback;
   }
 }
