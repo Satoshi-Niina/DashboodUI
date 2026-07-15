@@ -104,6 +104,12 @@ jobs:
             exit 1
           fi
       
+      - name: Validate JavaScript syntax
+        run: |
+          echo "🔍 Validating JavaScript syntax..."
+          node --check server.js
+          echo "✅ server.js syntax OK"
+      
       - name: Build and Deploy to Cloud Run (Clean Build)
         id: deploy
         run: |
