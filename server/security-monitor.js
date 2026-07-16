@@ -218,7 +218,7 @@ async function getRegisteredDevices(pool) {
                 username,
                 display_name,
                 created_at as last_login
-            FROM master_data.users
+            FROM public.users
             WHERE last_login_at IS NOT NULL
             ORDER BY last_login_at DESC
             LIMIT 10

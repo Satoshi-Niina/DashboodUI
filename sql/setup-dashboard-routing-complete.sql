@@ -35,7 +35,7 @@ INSERT INTO public.app_resource_routing (
     is_active,
     description
 ) VALUES 
-    ('dashboard-ui', 'users', 'master_data', 'users', true, 'ユーザーマスタ');
+    ('dashboard-ui', 'users', 'public', 'users', true, 'ユーザーマスタ');
 
 -- 事業所マスタ
 INSERT INTO public.app_resource_routing (
@@ -46,7 +46,7 @@ INSERT INTO public.app_resource_routing (
     is_active,
     description
 ) VALUES 
-    ('dashboard-ui', 'managements_offices', 'master_data', 'managements_offices', true, '事業所マスタ');
+    ('dashboard-ui', 'managements_offices', 'public', 'management_offices', true, '事業所マスタ');
 
 -- 保守基地マスタ
 INSERT INTO public.app_resource_routing (
@@ -57,7 +57,7 @@ INSERT INTO public.app_resource_routing (
     is_active,
     description
 ) VALUES 
-    ('dashboard-ui', 'bases', 'master_data', 'bases', true, '保守基地マスタ');
+    ('dashboard-ui', 'bases', 'public', 'bases', true, '保守基地マスタ');
 
 -- 保守用車マスタ
 INSERT INTO public.app_resource_routing (
@@ -79,7 +79,7 @@ INSERT INTO public.app_resource_routing (
     is_active,
     description
 ) VALUES 
-    ('dashboard-ui', 'machines', 'master_data', 'machines', true, '機械番号マスタ');
+    ('dashboard-ui', 'machines', 'public', 'machines', true, '機械番号マスタ');
 
 -- 機種マスタ
 INSERT INTO public.app_resource_routing (
@@ -90,7 +90,7 @@ INSERT INTO public.app_resource_routing (
     is_active,
     description
 ) VALUES 
-    ('dashboard-ui', 'machine_types', 'master_data', 'machine_types', true, '機種マスタ');
+    ('dashboard-ui', 'machine_types', 'public', 'machine_types', true, '機種マスタ');
 
 -- 保守用車種別マスタ
 INSERT INTO public.app_resource_routing (
@@ -112,7 +112,7 @@ INSERT INTO public.app_resource_routing (
     is_active,
     description
 ) VALUES 
-    ('dashboard-ui', 'inspection_types', 'master_data', 'inspection_types', true, '検修種別マスタ');
+    ('dashboard-ui', 'inspection_types', 'public', 'inspection_types', true, '検修種別マスタ');
 
 -- 検修周期・期間設定
 INSERT INTO public.app_resource_routing (
@@ -123,7 +123,7 @@ INSERT INTO public.app_resource_routing (
     is_active,
     description
 ) VALUES 
-    ('dashboard-ui', 'inspection_schedules', 'master_data', 'inspection_schedules', true, '検修周期・期間設定');
+    ('dashboard-ui', 'inspection_schedules', 'public', 'inspection_schedules', true, '検修周期・期間設定');
 
 -- 基地ドキュメント
 INSERT INTO public.app_resource_routing (
@@ -235,12 +235,12 @@ BEGIN
     RAISE NOTICE '登録されたルーティング数: %', route_count;
     RAISE NOTICE '============================================================';
     RAISE NOTICE '主要なルーティング:';
-    RAISE NOTICE '  - users                    → master_data.users';
-    RAISE NOTICE '  - managements_offices      → master_data.managements_offices';
-    RAISE NOTICE '  - bases                    → master_data.bases';
+    RAISE NOTICE '  - users                    → public.users';
+    RAISE NOTICE '  - managements_offices      → public.management_offices';
+    RAISE NOTICE '  - bases                    → public.bases';
     RAISE NOTICE '  - vehicles                 → master_data.vehicles';
-    RAISE NOTICE '  - machines                 → master_data.machines';
-    RAISE NOTICE '  - machine_types            → master_data.machine_types';
+    RAISE NOTICE '  - machines                 → public.machines';
+    RAISE NOTICE '  - machine_types            → public.machine_types';
     RAISE NOTICE '  - app_config               → master_data.app_config';
     RAISE NOTICE '  - ai_settings              → master_data.ai_settings';
     RAISE NOTICE '  - ai_knowledge_data        → master_data.ai_knowledge_data';

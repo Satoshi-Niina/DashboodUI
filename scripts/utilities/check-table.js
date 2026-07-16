@@ -13,7 +13,7 @@ async function checkTableStructure() {
     const result = await pool.query(`
       SELECT column_name, data_type, is_nullable
       FROM information_schema.columns
-      WHERE table_schema = 'master_data'
+      WHERE table_schema = 'public'
         AND table_name = 'ai_knowledge_data'
       ORDER BY ordinal_position
     `);

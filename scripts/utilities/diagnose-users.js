@@ -14,7 +14,7 @@ async function run() {
     await client.connect();
     console.log('[Connect] データベースに接続成功しました。');
 
-    const result = await client.query('SELECT id, username, display_name, email, role FROM master_data.users ORDER BY id');
+    const result = await client.query('SELECT id, username, display_name, email, role FROM public.users ORDER BY id');
     console.log('\n=== 登録ユーザー一覧 ===');
     console.table(result.rows);
     

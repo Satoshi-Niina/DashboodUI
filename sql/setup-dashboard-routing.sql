@@ -16,7 +16,7 @@ INSERT INTO public.app_resource_routing (
     physical_table, 
     is_active
 ) VALUES 
-    ('dashboard-ui', 'users', 'master_data', 'users', true);
+    ('dashboard-ui', 'users', 'public', 'users', true);
 
 -- 事業所マスタ
 INSERT INTO public.app_resource_routing (
@@ -26,7 +26,7 @@ INSERT INTO public.app_resource_routing (
     physical_table, 
     is_active
 ) VALUES 
-    ('dashboard-ui', 'managements_offices', 'master_data', 'management_offices', true);
+    ('dashboard-ui', 'managements_offices', 'public', 'management_offices', true);
 
 -- 検修周期・期間設定
 INSERT INTO public.app_resource_routing (
@@ -36,7 +36,7 @@ INSERT INTO public.app_resource_routing (
     physical_table, 
     is_active
 ) VALUES 
-    ('dashboard-ui', 'inspection_schedules', 'master_data', 'inspection_schedules', true);
+    ('dashboard-ui', 'inspection_schedules', 'public', 'inspection_schedules', true);
 
 
 -- 保守基地マスタ
@@ -47,7 +47,7 @@ INSERT INTO public.app_resource_routing (
     physical_table, 
     is_active
 ) VALUES 
-    ('dashboard-ui', 'bases', 'master_data', 'bases', true);
+    ('dashboard-ui', 'bases', 'public', 'bases', true);
 
 -- 保守用車マスタ
 INSERT INTO public.app_resource_routing (
@@ -67,7 +67,7 @@ INSERT INTO public.app_resource_routing (
     physical_table, 
     is_active
 ) VALUES 
-    ('dashboard-ui', 'machines', 'master_data', 'machines', true);
+    ('dashboard-ui', 'machines', 'public', 'machines', true);
 
 -- 機種マスタ
 INSERT INTO public.app_resource_routing (
@@ -77,7 +77,7 @@ INSERT INTO public.app_resource_routing (
     physical_table, 
     is_active
 ) VALUES 
-    ('dashboard-ui', 'machine_types', 'master_data', 'machine_types', true);
+    ('dashboard-ui', 'machine_types', 'public', 'machine_types', true);
 
 -- 登録結果の確認
 SELECT 
@@ -96,12 +96,12 @@ BEGIN
     RAISE NOTICE '===================================================';
     RAISE NOTICE 'ダッシュボードUIのルーティング設定が完了しました';
     RAISE NOTICE '登録されたルーティング:';
-    RAISE NOTICE '  - users → master_data.users';
-    RAISE NOTICE '  - managements_offices → master_data.management_offices';
-    RAISE NOTICE '  - bases → master_data.bases';
+    RAISE NOTICE '  - users → public.users';
+    RAISE NOTICE '  - managements_offices → public.management_offices';
+    RAISE NOTICE '  - bases → public.bases';
     RAISE NOTICE '  - vehicles → master_data.vehicles';
-    RAISE NOTICE '  - machines → master_data.machines';
-    RAISE NOTICE '  - machine_types → master_data.machine_types';
-    RAISE NOTICE '  - inspection_schedules → master_data.inspection_schedules';
+    RAISE NOTICE '  - machines → public.machines';
+    RAISE NOTICE '  - machine_types → public.machine_types';
+    RAISE NOTICE '  - inspection_schedules → public.inspection_schedules';
     RAISE NOTICE '===================================================';
 END $$;

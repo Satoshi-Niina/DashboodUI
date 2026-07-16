@@ -571,8 +571,8 @@ async function dynamicDelete(logicalTableName, conditions, returning = false, ap
  * 
  * @example
  * const query = "SELECT * FROM users WHERE id = 1";
- * const mapped = replaceTableNames(query, { users: 'master_data.users' });
- * // => "SELECT * FROM master_data.users WHERE id = 1"
+ * const mapped = replaceTableNames(query, { users: 'public.users' });
+ * // => "SELECT * FROM public.users WHERE id = 1"
  */
 function replaceTableNames(query, resourceMap) {
     let result = query;

@@ -54,7 +54,7 @@ SET
 INSERT INTO public.app_resource_routing (
     tenant_id, app_id, logical_resource_name, physical_schema, physical_table_name, is_active
 ) VALUES 
-('kintetsu', 'dashboard-ui', 'users',             'master_data', 'users',             true),
+('kintetsu', 'dashboard-ui', 'users',             'public',      'users',             true),
 ('kintetsu', 'dashboard-ui', 'vehicles',          'master_data', 'vehicles',          true),
 ('kintetsu', 'dashboard-ui', 'ai_settings',       'master_data', 'ai_settings',       true),
 ('kintetsu', 'dashboard-ui', 'ai_knowledge_data', 'master_data', 'ai_knowledge_data', true)

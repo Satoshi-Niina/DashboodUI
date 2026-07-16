@@ -19,7 +19,6 @@ async function dropUnusedTables() {
     // 5. public.roles
     // 6. public.permissions
     // 7. public.users
-    // 8. master_data.users
     
     const dropQueries = [
       'DROP TABLE IF EXISTS public.user_role_assignments CASCADE',
@@ -29,7 +28,6 @@ async function dropUnusedTables() {
       'DROP TABLE IF EXISTS public.roles CASCADE',
       'DROP TABLE IF EXISTS public.permissions CASCADE',
       'DROP TABLE IF EXISTS public.users CASCADE',
-      'DROP TABLE IF EXISTS master_data.users CASCADE'
     ];
 
     for (const sql of dropQueries) {

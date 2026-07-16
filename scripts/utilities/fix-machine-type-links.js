@@ -1,7 +1,7 @@
 const { Client } = require('pg');
 require('dotenv').config();
 
-const DEFAULT_SCHEMA = process.env.DB_SCHEMA || 'master_data';
+const DEFAULT_SCHEMA = process.env.DB_SCHEMA || 'public';
 const LIMIT = Number(process.env.FIX_MACHINE_TYPE_LIMIT || 10);
 
 function normalizeText(value) {
