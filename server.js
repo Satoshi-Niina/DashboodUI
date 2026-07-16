@@ -2969,25 +2969,37 @@ app.post('/api/users/import', requireAdmin, async (req, res) => {
 
 // 事業所一覧取得
 app.get('/api/offices', authenticateToken, async (req, res) => {
+  let query = '';
+  let params = [];
   try {
     const route = await resolveTablePath('management_offices');
-    const query = `
+    query = `
       SELECT 
         id as office_id,
         office_name,
         office_code,
-        office_type,
+        NULL as office_type,
         address,
-        postal_code,
-        phone_number,
+        NULL as postal_code,
+        phone as phone_number,
+        NULL as manager_namene_number,
+        NULL as manager_name,
         created_at,
         updated_at
       FROM ${route.fullPath} 
       ORDER BY id DESC
     `;
-    const result = await pool.query(query);
+    const result = await pool.query(query, params);
     res.json({ success: true, offices: result.rows });
   } catch (err) {
+    console.error('OFFICES API ERROR', err);
+    console.error('SQL:', query);
+    console.error('PARAMS:', params);
+    console.error('err.message:', err.message);
+    console.error('err.code:', err.code);
+    console.error('err.detail:', err.detail);
+    console.error('err.schema:', err.schema);
+    console.error('err.table:', err.table);
     console.error('[API DB Error]', {
       path: req.path,
       tenantId: req.tenantContext?.resolvedTenantId,
@@ -3022,10 +3034,8 @@ app.post('/api/offices', requireAdmin, async (req, res) => {
     const offices = await dynamicInsert('management_offices', {
       office_code,
       office_name,
-      office_type: office_type || null,
       address: address || null,
-      postal_code: postal_code || null,
-      phone_number: phone_number || null
+      phone: phone_number || null
     });
 
     res.json({ success: true, office: offices[0], message: '事業所を追加しました' });
@@ -3054,13 +3064,11 @@ app.put('/api/offices/:id', requireAdmin, async (req, res) => {
       {
         office_code: office_code || null,
         office_name,
-        office_type: office_type || null,
         address: address || null,
-        postal_code: postal_code || null,
-        phone_number: phone_number || null,
+        phone: phone_number || null,
         updated_at: new Date()
       },
-      { office_id: officeId }
+      { id: officeId }
     );
 
     if (offices.length === 0) {
@@ -3080,7 +3088,7 @@ app.delete('/api/offices/:id', requireAdmin, async (req, res) => {
   const officeId = req.params.id;
 
   try {
-    const offices = await dynamicDelete('management_offices', { office_id: officeId }, true);
+    const offices = await dynamicDelete('management_offices', { id: officeId }, true);
 
     if (offices.length === 0) {
       return res.status(404).json({ success: false, message: '事業所が見つかりません' });
@@ -3100,19 +3108,39 @@ app.delete('/api/offices/:id', requireAdmin, async (req, res) => {
 
 // 保守基地一覧取得
 app.get('/api/bases', authenticateToken, async (req, res) => {
+  let query = '';
+  let params = [];
   try {
     const basesRoute = await resolveTablePath('bases');
     const officesRoute = await resolveTablePath('management_offices');
 
-    const query = `
-      SELECT b.*, o.office_name 
+    query = `
+      SELECT 
+        b.id as base_id,
+        b.base_code,
+        b.base_name,
+        b.location,
+        b.office_id,
+        NULL as capacity,
+        NULL as manager_name,
+        b.created_at,
+        b.updated_at,
+        o.office_name 
       FROM ${basesRoute.fullPath} b
-      LEFT JOIN ${officesRoute.fullPath} o ON b.office_id = o.office_id
-      ORDER BY b.base_id DESC
+      LEFT JOIN ${officesRoute.fullPath} o ON b.office_id = o.id
+      ORDER BY b.id DESC
     `;
-    const result = await pool.query(query);
+    const result = await pool.query(query, params);
     res.json({ success: true, bases: result.rows });
   } catch (err) {
+    console.error('OFFICES API ERROR', err);
+    console.error('SQL:', query);
+    console.error('PARAMS:', params);
+    console.error('err.message:', err.message);
+    console.error('err.code:', err.code);
+    console.error('err.detail:', err.detail);
+    console.error('err.schema:', err.schema);
+    console.error('err.table:', err.table);
     console.error('[API DB Error]', {
       path: req.path,
       tenantId: req.tenantContext?.resolvedTenantId,
@@ -3152,20 +3180,24 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
 
     const insertQuery = `
       INSERT INTO ${basesRoute.fullPath} 
-      (base_code, base_name, location, office_id, address, postal_code)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      (base_code, base_name, location, office_id)
+      VALUES ($1, $2, $3, $4)
       RETURNING *
     `;
     const result = await pool.query(insertQuery, [
       base_code,
       base_name,
       location || null,
-      management_office_id || null,
-      address || null,
-      postal_code || null
+      management_office_id || null
     ]);
 
-    res.json({ success: true, base: result.rows[0], message: '保守基地を追加しました' });
+    // フロントエンドとの互換性のために base_id プロパティを付加
+    const createdRow = result.rows[0];
+    if (createdRow) {
+      createdRow.base_id = createdRow.id;
+    }
+
+    res.json({ success: true, base: createdRow, message: '保守基地を追加しました' });
   } catch (err) {
     console.error('Base insert error:', err);
     console.error('Base insert error stack:', err.stack);
@@ -3192,17 +3224,15 @@ app.put('/api/bases/:id', requireAdmin, async (req, res) => {
 
     const updateQuery = `
       UPDATE ${basesRoute.fullPath} 
-      SET base_name = $1, location = $2, office_id = $3, address = $4, postal_code = $5,
+      SET base_name = $1, location = $2, office_id = $3,
           updated_at = CURRENT_TIMESTAMP
-      WHERE base_id = $6
+      WHERE id = $4
       RETURNING *
     `;
     const result = await pool.query(updateQuery, [
       base_name,
       location || null,
       management_office_id || null,
-      address || null,
-      postal_code || null,
       baseId
     ]);
 
@@ -3210,7 +3240,13 @@ app.put('/api/bases/:id', requireAdmin, async (req, res) => {
       return res.status(404).json({ success: false, message: '保守基地が見つかりません' });
     }
 
-    res.json({ success: true, base: result.rows[0], message: '保守基地を更新しました' });
+    // フロントエンドとの互換性のために base_id プロパティを付加
+    const updatedRow = result.rows[0];
+    if (updatedRow) {
+      updatedRow.base_id = updatedRow.id;
+    }
+
+    res.json({ success: true, base: updatedRow, message: '保守基地を更新しました' });
   } catch (err) {
     console.error('Base update error:', err);
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
@@ -3223,7 +3259,7 @@ app.delete('/api/bases/:id', requireAdmin, async (req, res) => {
 
   try {
     const basesRoute = await resolveTablePath('bases');
-    const deleteQuery = `DELETE FROM ${basesRoute.fullPath} WHERE base_id = $1 RETURNING base_name`;
+    const deleteQuery = `DELETE FROM ${basesRoute.fullPath} WHERE id = $1 RETURNING base_name`;
     const result = await pool.query(deleteQuery, [baseId]);
 
     if (result.rows.length === 0) {

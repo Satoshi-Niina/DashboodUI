@@ -39,12 +39,21 @@
         const segments = normalizedPath.split('/').filter(Boolean);
 
         if (segments.length === 0) {
-            return 'demo_env';
+            return 'demo';
         }
 
         const first = String(segments[0] || '').trim().toLowerCase();
-        if (!first || first === 'api' || first === 'assets') {
-            return 'demo_env';
+        const excludedPaths = new Set([
+            'api',
+            'assets',
+            'admin.html',
+            'index.html',
+            'login.html'
+        ]);
+
+        // HTMLファイル名や予約パスはテナント名として扱わず demo にフォールバック
+        if (!first || excludedPaths.has(first) || first.endsWith('.html')) {
+            return 'demo';
         }
 
         return first;
@@ -56,7 +65,7 @@
 
     function tenantPathFromUrl(fullUrl) {
         const tenantId = tenantIdFromPath(fullUrl);
-        return tenantId === 'demo_env' ? '/' : `/${tenantId}`;
+        return tenantId === 'demo' ? '/' : `/${tenantId}`;
     }
 
     function getBasePath() {
@@ -84,7 +93,7 @@
         return {
             tenantId,
             tenantPath,
-            isDemo: tenantId === 'demo_env'
+            isDemo: tenantId === 'demo' || tenantId === 'demo_env'
         };
     }
 
@@ -151,7 +160,7 @@
         const storageBucketName = routeRow ? (routeRow.storage_bucket_name || '') : '';
         const resolvedTenantPath = matchedTenantPath ? normalizePath(matchedTenantPath) : resolved.tenantPath;
         const effectiveTenantId = routeTenantId || resolved.tenantId;
-        const isDemoTenant = effectiveTenantId === 'demo_env';
+        const isDemoTenant = effectiveTenantId === 'demo' || effectiveTenantId === 'demo_env';
 
         tenantContext = {
             fullUrl,
@@ -228,22 +237,15 @@
                 return tenantContext.tenantId;
             }
             // フォールバック: 現在のURLパスから動的に取得
-            const pathSegments = window.location.pathname.split('/').filter(Boolean);
-            if (pathSegments.length > 0 && pathSegments[0] !== 'api' && pathSegments[0] !== 'assets') {
-                return pathSegments[0];
-            }
-            return 'demo_env';
+            return tenantIdFromPath(window.location.pathname);
         },
         getTenantPath: () => {
             if (tenantContext) {
                 return tenantContext.tenantPath;
             }
             // フォールバック: 現在のURLパスから動的に取得
-            const pathSegments = window.location.pathname.split('/').filter(Boolean);
-            if (pathSegments.length > 0 && pathSegments[0] !== 'api' && pathSegments[0] !== 'assets') {
-                return `/${pathSegments[0]}`;
-            }
-            return '/';
+            const tenantId = tenantIdFromPath(window.location.pathname);
+            return tenantId === 'demo' ? '/' : `/${tenantId}`;
         },
         getCompanyName: () => (tenantContext ? (tenantContext.companyName || '') : ''),
         getDbName: () => (tenantContext ? (tenantContext.dbName || '') : ''),
