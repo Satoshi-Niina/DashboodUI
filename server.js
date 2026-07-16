@@ -1235,6 +1235,19 @@ const CACHE_TTL = 60 * 1000; // 1分（本番での即座な反映を重視）
 const routingColumnCache = new Map(); // { dbName: { columns: Set<string>, timestamp: number } }
 const physicalTableColumnCache = new Map(); // { cacheKey: { columns: Set<string>, timestamp: number } }
 
+// NOTE:
+// common_db.public.app_resource_routing はテナント管理専用テーブルとして扱う。
+// dashboard-ui のテーブル解決は固定マッピングを優先し、将来の拡張用に resolveTablePath() は維持する。
+const DASHBOARD_TABLE_MAP = {
+  users: { schema: 'public', table: 'users' },
+  offices: { schema: 'public', table: 'management_offices' },
+  management_offices: { schema: 'public', table: 'management_offices' },
+  bases: { schema: 'public', table: 'maintenance_bases' },
+  maintenance_bases: { schema: 'public', table: 'maintenance_bases' },
+  machines: { schema: 'public', table: 'machines' },
+  machine_types: { schema: 'public', table: 'machine_types' }
+};
+
 async function getRoutingTableColumns() {
   const runtime = getActiveTenantRuntime();
   const dbName = runtime?.dbName || getDefaultDbName();
@@ -1303,136 +1316,35 @@ async function resolveTablePath(logicalName) {
     return cached;
   }
 
-  try {
-    const columns = await getRoutingTableColumns();
-    const appIdColumn = columns.has('app_id')
-      ? 'app_id'
-      : (columns.has('application_id') ? 'application_id' : null);
-    const schemaColumn = columns.has('physical_schema')
-      ? 'physical_schema'
-      : (columns.has('schema_name') ? 'schema_name' : null);
-    const tableColumn = columns.has('physical_table')
-      ? 'physical_table'
-      : (columns.has('physical_table_name') ? 'physical_table_name' : (columns.has('table_name') ? 'table_name' : null));
-    const logicalNameColumn = columns.has('logical_resource_name')
-      ? 'logical_resource_name'
-      : (columns.has('logical_name') ? 'logical_name' : (columns.has('resource_name') ? 'resource_name' : null));
-    const isActiveColumn = columns.has('is_active')
-      ? 'is_active'
-      : (columns.has('active') ? 'active' : null);
+  const mapped = DASHBOARD_TABLE_MAP[logicalName];
 
-    if (!schemaColumn || !tableColumn || !logicalNameColumn) {
-      console.log('[Gateway] Routing table is tenant-registry style. Using public fallback.');
-      const fallback = {
-        fullPath: `public."${logicalName}"`,
-        schema: 'public',
-        table: logicalName,
-        timestamp: Date.now()
-      };
-      routingCache.set(cacheKey, fallback);
-      return fallback;
-    }
-
-    const selectColumns = [
-      `${schemaColumn} AS physical_schema`,
-      `${tableColumn} AS physical_table`
-    ];
-    if (appIdColumn) {
-      selectColumns.push(`${appIdColumn} AS app_id`);
-    }
-    if (columns.has('id')) {
-      selectColumns.push('id');
-    }
-    if (columns.has('tenant_id')) {
-      selectColumns.push('tenant_id');
-    }
-    if (columns.has('physical_table_name')) {
-      selectColumns.push('physical_table_name');
-    }
-    if (columns.has('physical_table')) {
-      selectColumns.push('physical_table');
-    }
-
-    const params = [];
-    const conditions = [];
-    if (columns.has('tenant_id')) {
-      params.push(routingTenantId);
-      conditions.push(`tenant_id = $${params.length}`);
-    }
-    if (appIdColumn) {
-      params.push(APP_ID);
-      conditions.push(`${appIdColumn} = $${params.length}`);
-    }
-    params.push(logicalName);
-    conditions.push(`${logicalNameColumn} = $${params.length}`);
-    if (isActiveColumn) {
-      conditions.push(`${isActiveColumn} = true`);
-    }
-
-    const query = `
-      SELECT ${selectColumns.join(', ')}
-      FROM public.app_resource_routing
-      WHERE ${conditions.join(' AND ')}
-      LIMIT 1
-    `;
-
-    const result = await getTenantRoutingPool().query(query, params);
-
-    if (result.rows.length > 0) {
-      const row = result.rows[0] || {};
-      const physical_schema = row.physical_schema;
-      const physical_table = row.physical_table;
-
-      if (!physical_schema || !physical_table) {
-        throw new Error(`[Gateway] Invalid routing row: missing schema/table for ${runtime?.resolvedTenantId || 'demo_env'}:${APP_ID}:${logicalName}`);
-      }
-
-      const fullPath = `${physical_schema}."${physical_table}"`;
-      const resolved = {
-        id: row.id || null,
-        appId: row.app_id || APP_ID,
-        fullPath,
-        schema: physical_schema,
-        table: physical_table,
-        physical_table_name: row.physical_table_name || physical_table,
-        physical_table: physical_table,
-        timestamp: Date.now()
-      };
-
-      // キャッシュに保存
-      routingCache.set(cacheKey, resolved);
-      console.log(`[Gateway] ✅ Resolved: ${logicalName} → ${fullPath}`);
-      return resolved;
-    }
-
-    // ルーティングが見つからない場合はpublicスキーマにフォールバック
-    console.log(`[Gateway] ⚠️ No route found for ${logicalName}, falling back to public.${logicalName}`);
-    const fallback = {
-      fullPath: `public."${logicalName}"`,
-      schema: 'public',
-      table: logicalName,
+  if (mapped) {
+    const resolved = {
+      fullPath: `${mapped.schema}."${mapped.table}"`,
+      schema: mapped.schema,
+      table: mapped.table,
+      appId: APP_ID,
+      source: 'fixed-map',
       timestamp: Date.now()
     };
-    routingCache.set(cacheKey, fallback);
-    return fallback;
-
-  } catch (err) {
-    console.error(`[Gateway] ❌ Error resolving ${logicalName}:`, err.message);
-    console.error(`[Gateway] Error code:`, err.code);
-    console.error(`[Gateway] Error detail:`, err.detail || 'N/A');
-    console.error(`[Gateway] Query that failed:`, 'SELECT FROM public.app_resource_routing');
-    console.error(`[Gateway] Parameters:`, { APP_ID, logicalName });
-    console.error(`[Gateway] Error stack:`, err.stack);
-    // エラー時もpublicスキーマにフォールバック
-    const fallback = {
-      fullPath: `public."${logicalName}"`,
-      schema: 'public',
-      table: logicalName,
-      timestamp: Date.now()
-    };
-    console.log(`[Gateway] Using fallback: public."${logicalName}"`);
-    return fallback;
+    routingCache.set(cacheKey, resolved);
+    console.log(`[Gateway] ✅ Fixed map resolved: ${logicalName} → ${resolved.fullPath}`);
+    return resolved;
   }
+
+  // 将来の拡張時に動的ルーティングを復活しやすくするため、
+  // 未定義テーブルは従来どおり public.<logicalName> にフォールバックする。
+  const fallback = {
+    fullPath: `public."${logicalName}"`,
+    schema: 'public',
+    table: logicalName,
+    appId: APP_ID,
+    source: 'public-fallback',
+    timestamp: Date.now()
+  };
+  routingCache.set(cacheKey, fallback);
+  console.log(`[Gateway] ⚠️ Fixed map not found. Fallback: ${logicalName} → ${fallback.fullPath}`);
+  return fallback;
 }
 
 /**
@@ -2735,7 +2647,7 @@ app.get('/api/users/:id', requireAdmin, async (req, res) => {
   try {
     const users = await dynamicSelect('users',
       { id: userId },
-      ['id', 'username', 'display_name', 'role'],
+      ['id', 'username', 'display_name', 'email', 'role'],
       1
     );
 
@@ -6246,7 +6158,12 @@ async function initializeDemoTenantTables() {
         `);
         
         const appRoutingColumnNames = appRoutingCols.rows.map(r => r.column_name);
-        console.log(`[DemoInit] app_resource_routing columns: ${appRoutingColumnNames.join(', ')}`);
+        console.log(`[DemoInit] 📊 app_resource_routing columns: [${appRoutingColumnNames.join(', ')}]`);
+        
+        // 全カラル情報をログに出力
+        appRoutingCols.rows.forEach(col => {
+          console.log(`[DemoInit]   - ${col.column_name} (${col.data_type}, nullable=${col.is_nullable})`);
+        });
         
         // カラル名を自動検出（複数のバリアント対応）
         logicalColumn = appRoutingColumnNames.find(c => 
@@ -6259,9 +6176,10 @@ async function initializeDemoTenantTables() {
           c === 'physical_table_name' || c === 'physical_table' || c === 'table_name'
         );
         
-        console.log(`[DemoInit] Detected: logical=${logicalColumn}, schema=${physicalSchemaColumn}, table=${physicalTableColumn}`);
+        console.log(`[DemoInit] 🎯 Detected: logical='${logicalColumn}', schema='${physicalSchemaColumn}', table='${physicalTableColumn}'`);
       } catch (schemaErr) {
-        console.warn(`[DemoInit] ⚠️ Could not detect app_resource_routing schema: ${schemaErr.message}`);
+        console.warn(`[DemoInit] ⚠️ Could not detect schema: ${schemaErr.message}`);
+        console.error(`[DemoInit] Stack: ${schemaErr.stack}`);
       }
       
       // ビジネステーブルの定義

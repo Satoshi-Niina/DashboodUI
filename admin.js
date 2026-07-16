@@ -848,18 +848,34 @@ async function loadUserData(userId) {
         const response = await tenantFetch(`/api/users/${userId}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
-        const data = await response.json();
+        let data = null;
 
-        if (data.success) {
-            const user = data.user;
-            document.getElementById('user-id').value = user.id;
-            document.getElementById('user-username').value = user.username;
-            document.getElementById('user-full-name').value = user.display_name || '';
-            document.getElementById('user-email').value = user.email || '';
-            document.getElementById('user-role').value = normalizeUserRole(user.role) || 'user';
+        try {
+            data = await response.json();
+        } catch (_) {
+            data = null;
         }
+
+        if (!response.ok || !data || !data.success || !data.user) {
+            throw new Error((data && data.message) || `HTTP ${response.status}`);
+        }
+
+        const user = data.user;
+        document.getElementById('user-id').value = user.id;
+        document.getElementById('user-username').value = user.username || '';
+        document.getElementById('user-full-name').value = user.display_name || '';
+        document.getElementById('user-email').value = user.email || '';
+        document.getElementById('user-role').value = normalizeUserRole(user.role) || 'user';
     } catch (error) {
         console.error('Failed to load user data:', error);
+        // 詳細APIが失敗した場合でも、一覧で取得済みの最低限の情報は表示する
+        const fallbackUser = allUsers.find(u => String(u.id) === String(userId));
+        if (fallbackUser) {
+            document.getElementById('user-id').value = fallbackUser.id;
+            document.getElementById('user-username').value = fallbackUser.username || '';
+            document.getElementById('user-full-name').value = fallbackUser.display_name || '';
+            document.getElementById('user-role').value = normalizeUserRole(fallbackUser.role) || 'user';
+        }
         showToast('ユーザー情報の読み込みに失敗しました', 'error');
     }
 }
