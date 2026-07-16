@@ -13,51 +13,10 @@ CREATE SCHEMA IF NOT EXISTS emergency;
 CREATE SCHEMA IF NOT EXISTS google_vacuum_mgmt;
 
 -- ========================================
--- master_data スキーマ（既存構造に合わせる）
+-- master_data スキーマの非移行テーブル
 -- ========================================
 
--- ユーザーテーブル（既存）
--- role: 'user' (一般ユーザー), 'operation_admin' (運用管理者), 'system_admin' (システム管理者)
-CREATE TABLE IF NOT EXISTS master_data.users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(50) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL,
-    display_name VARCHAR(100),
-    email VARCHAR(100),
-    role VARCHAR(20) DEFAULT 'user',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 事業所マスタ（既存: managements_offices）
-CREATE TABLE IF NOT EXISTS master_data.managements_offices (
-    office_id SERIAL PRIMARY KEY,
-    office_code VARCHAR(20) UNIQUE NOT NULL,
-    office_name VARCHAR(100) NOT NULL,
-    office_type VARCHAR(50),
-    address VARCHAR(200),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 保守基地マスタ（既存: bases）
-CREATE TABLE IF NOT EXISTS master_data.bases (
-    base_id SERIAL PRIMARY KEY,
-    base_code VARCHAR(20) UNIQUE NOT NULL,
-    base_name VARCHAR(100) NOT NULL,
-    office_id INTEGER,
-    location VARCHAR(200),
-    address VARCHAR(200),
-    postal_code VARCHAR(20),
-    phone_number VARCHAR(20),
-    latitude DECIMAL(10, 8),
-    longitude DECIMAL(11, 8),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (office_id) REFERENCES master_data.managements_offices(office_id)
-);
-
--- 保守用車マスタ（既存: vehicles）
+-- 保守用車マスタ（業務テーブル移行対象外の既存テーブル）
 CREATE TABLE IF NOT EXISTS master_data.vehicles (
     vehicle_id SERIAL PRIMARY KEY,
     vehicle_number VARCHAR(50) UNIQUE NOT NULL,
@@ -71,65 +30,12 @@ CREATE TABLE IF NOT EXISTS master_data.vehicles (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- 機種マスタ
-CREATE TABLE IF NOT EXISTS master_data.machine_types (
-    id SERIAL PRIMARY KEY,
-    model_name VARCHAR(100) NOT NULL,  -- メーカー型式（必須）
-    manufacturer VARCHAR(100),          -- メーカー
-    category VARCHAR(50) NOT NULL,      -- カテゴリ（必須）
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(model_name, manufacturer)    -- 型式とメーカーの組み合わせで一意
-);
-
--- 機械番号マスタ
-CREATE TABLE IF NOT EXISTS master_data.machines (
-    id SERIAL PRIMARY KEY,
-    machine_number VARCHAR(50) UNIQUE NOT NULL,
-    machine_type_id INTEGER,
-    serial_number VARCHAR(100),
-    manufacture_date DATE,
-    purchase_date DATE,
-    status VARCHAR(20) DEFAULT 'active',
-    assigned_base_id INTEGER,
-    notes TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (machine_type_id) REFERENCES master_data.machine_types(id),
-    FOREIGN KEY (assigned_base_id) REFERENCES master_data.bases(base_id)
-);
-
--- 外部キー制約を追加
-ALTER TABLE master_data.vehicles 
-    DROP CONSTRAINT IF EXISTS fk_vehicles_machine_id;
-ALTER TABLE master_data.vehicles 
-    ADD CONSTRAINT fk_vehicles_machine_id 
-    FOREIGN KEY (machine_id) REFERENCES master_data.machines(id) ON DELETE SET NULL;
-
-ALTER TABLE master_data.vehicles 
-    DROP CONSTRAINT IF EXISTS fk_vehicles_office_id;
-ALTER TABLE master_data.vehicles 
-    ADD CONSTRAINT fk_vehicles_office_id 
-    FOREIGN KEY (office_id) REFERENCES master_data.managements_offices(office_id) ON DELETE SET NULL;
-
 -- 車両タイプマスタ（既存）
 CREATE TABLE IF NOT EXISTS master_data.vehicle_types (
     type_id SERIAL PRIMARY KEY,
     type_name VARCHAR(50) UNIQUE NOT NULL,
     description TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- 点検タイプマスタ（既存）
-CREATE TABLE IF NOT EXISTS master_data.inspection_types (
-    id SERIAL PRIMARY KEY,
-    type_code VARCHAR(50) UNIQUE NOT NULL,
-    type_name VARCHAR(100) NOT NULL,
-    description TEXT,
-    display_order INT DEFAULT 0,
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ベース文書（既存）
@@ -250,15 +156,6 @@ CREATE TABLE IF NOT EXISTS emergency.emergency_records (
 -- 初期データ投入
 -- ========================================
 
--- デフォルト管理者ユーザー
--- admin: パスワード admin123 (システム管理者)
--- niina: システム管理者
-INSERT INTO master_data.users (username, password, display_name, email, role)
-VALUES 
-    ('admin', '$2b$10$Wvq4AxAkP52kudPSW2.A0.J7j2VPbdCigM0EyoiePhn1Wvvg9Mtpe', '管理者', 'admin@example.com', 'system_admin'),
-    ('niina', '$2b$10$BiKD0cFkIZfpxPlfwu6wTeBla8pXoBf59NC8Ap9gOWefpzExp1oZq', '管理者', 'niina@example.com', 'system_admin')
-ON CONFLICT (username) DO NOTHING;
-
 -- デフォルトCORS設定
 INSERT INTO master_data.app_config (config_key, config_value, description)
 VALUES 
@@ -273,19 +170,9 @@ ON CONFLICT (config_key) DO NOTHING;
 -- インデックス作成（パフォーマンス最適化）
 -- ========================================
 
--- master_data スキーマ
-CREATE INDEX IF NOT EXISTS idx_users_username ON master_data.users(username);
-CREATE INDEX IF NOT EXISTS idx_users_role ON master_data.users(role);
-CREATE INDEX IF NOT EXISTS idx_offices_code ON master_data.managements_offices(office_code);
-CREATE INDEX IF NOT EXISTS idx_bases_code ON master_data.bases(base_code);
-CREATE INDEX IF NOT EXISTS idx_bases_office ON master_data.bases(office_id);
+-- public業務テーブルのインデックスは init-business-tables.sql で管理する
 CREATE INDEX IF NOT EXISTS idx_vehicles_number ON master_data.vehicles(vehicle_number);
 CREATE INDEX IF NOT EXISTS idx_vehicles_status ON master_data.vehicles(status);
-CREATE INDEX IF NOT EXISTS idx_machines_number ON master_data.machines(machine_number);
-CREATE INDEX IF NOT EXISTS idx_machines_type ON master_data.machines(machine_type_id);
-CREATE INDEX IF NOT EXISTS idx_machines_base ON master_data.machines(assigned_base_id);
-CREATE INDEX IF NOT EXISTS idx_machine_types_category ON master_data.machine_types(category);
-CREATE INDEX IF NOT EXISTS idx_machine_types_manufacturer ON master_data.machine_types(manufacturer);
 
 -- operations スキーマ
 CREATE INDEX IF NOT EXISTS idx_schedules_vehicle ON operations.schedules(vehicle_id);
@@ -313,12 +200,12 @@ BEGIN
     RAISE NOTICE '既存クラウドDB構造に対応';
     RAISE NOTICE 'スキーマ: master_data, maintenance, operations, inspections, emergency';
     RAISE NOTICE '主要テーブル:';
-    RAISE NOTICE '  - master_data.managements_offices (事業所)';
-    RAISE NOTICE '  - master_data.bases (保守基地)';
+    RAISE NOTICE '  - public.management_offices (事業所)';
+    RAISE NOTICE '  - public.bases (保守基地)';
     RAISE NOTICE '  - master_data.vehicles (保守用車)';
-    RAISE NOTICE '  - master_data.machine_types (機種マスタ)';
-    RAISE NOTICE '  - master_data.machines (機械番号マスタ)';
-    RAISE NOTICE '  - master_data.users (ユーザー)';
+    RAISE NOTICE '  - public.machine_types (機種マスタ)';
+    RAISE NOTICE '  - public.machines (機械番号マスタ)';
+    RAISE NOTICE '  - public.users (ユーザー)';
     RAISE NOTICE '========================================';
 END $$;
 

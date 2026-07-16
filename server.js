@@ -1242,8 +1242,8 @@ const DASHBOARD_TABLE_MAP = {
   users: { schema: 'public', table: 'users' },
   offices: { schema: 'public', table: 'management_offices' },
   management_offices: { schema: 'public', table: 'management_offices' },
-  bases: { schema: 'public', table: 'maintenance_bases' },
-  maintenance_bases: { schema: 'public', table: 'maintenance_bases' },
+  bases: { schema: 'public', table: 'bases' },
+  maintenance_bases: { schema: 'public', table: 'bases' },
   machines: { schema: 'public', table: 'machines' },
   machine_types: { schema: 'public', table: 'machine_types' }
 };
@@ -1289,6 +1289,38 @@ async function getPhysicalTableColumns(route) {
   const columns = new Set(result.rows.map((row) => String(row.column_name || '').trim().toLowerCase()));
   physicalTableColumnCache.set(cacheKey, { columns, timestamp: now });
   return columns;
+}
+
+async function resolveCompatibleTablePath(logicalName, candidates, requiredColumns) {
+  for (const candidate of candidates) {
+    const route = {
+      fullPath: `${candidate.schema}."${candidate.table}"`,
+      schema: candidate.schema,
+      table: candidate.table,
+      appId: APP_ID,
+      source: candidate.source || 'schema-compatible',
+      timestamp: Date.now()
+    };
+    const columns = await getPhysicalTableColumns(route);
+    const missingColumns = requiredColumns.filter((columnName) => !columns.has(columnName));
+    if (columns.size > 0 && missingColumns.length === 0) {
+      console.log(`[Gateway] Compatible map resolved: ${logicalName} -> ${route.fullPath}`);
+      return { route, columns };
+    }
+    console.warn(`[Gateway] Incomplete table skipped: ${route.fullPath}`, { missingColumns });
+  }
+
+  const firstCandidate = candidates[0];
+  const fallback = {
+    fullPath: `${firstCandidate.schema}."${firstCandidate.table}"`,
+    schema: firstCandidate.schema,
+    table: firstCandidate.table,
+    appId: APP_ID,
+    source: 'schema-incomplete',
+    timestamp: Date.now()
+  };
+  console.warn(`[Gateway] No complete table found for ${logicalName}; using ${fallback.fullPath}`);
+  return { route: fallback, columns: await getPhysicalTableColumns(fallback) };
 }
 
 function filterDataByColumns(data, columnSet) {
@@ -1356,12 +1388,14 @@ async function resolveTablePath(logicalName) {
  * @returns {Promise<Array>}
  */
 async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'], limit = null) {
+  let query = '';
+  const params = [];
+  let route = null;
   try {
-    const route = await resolveTablePath(logicalTableName);
+    route = await resolveTablePath(logicalTableName);
 
     const columnList = columns.join(', ');
-    let query = `SELECT ${columnList} FROM ${route.fullPath}`;
-    const params = [];
+    query = `SELECT ${columnList} FROM ${route.fullPath}`;
 
     // WHERE句の構築
     const whereConditions = Object.entries(conditions).map(([key, value], index) => {
@@ -1634,7 +1668,7 @@ app.get('/api/debug/routing', async (req, res) => {
 
 // スキーマ存在チェックエンドポイント（認証なし）
 app.get('/api/debug/schema-check', async (req, res) => {
-  const { table, schema = 'master_data' } = req.query;
+  const { table, schema = 'public' } = req.query;
 
   if (!table) {
     return res.status(400).json({
@@ -1941,7 +1975,7 @@ INSERT INTO public.app_resource_routing (
     is_active, description
 ) VALUES (
     'demo', '${APP_ID}', 'new_table', 
-    'master_data', 'new_table', 'new_table',
+    'public', 'new_table', 'new_table',
     true, '新しいテーブルの説明'
 )
 ON CONFLICT (tenant_id, app_id, logical_resource_name) 
@@ -2616,10 +2650,16 @@ app.get('/api/config/history', requireAdmin, async (req, res) => {
 
 // ユーザー一覧取得エンドポイント
 app.get('/api/users', requireAdmin, async (req, res) => {
+  let query = '';
+  const params = [];
+  let route = null;
   try {
-    // ゲートウェイ方式 + ORDER BY対応のため一部直接クエリ
-    const route = await resolveTablePath('users');
-    const query = `SELECT id, username, display_name, role, created_at FROM ${route.fullPath} ORDER BY id ASC`;
+    const compatible = await resolveCompatibleTablePath('users', [
+      { schema: 'public', table: 'users' },
+      { schema: 'master_data', table: 'users', source: 'legacy-fallback' }
+    ], ['id', 'username', 'display_name', 'role', 'created_at']);
+    route = compatible.route;
+    query = `SELECT id, username, display_name, role, created_at FROM ${route.fullPath} ORDER BY id ASC`;
     const result = await getActiveDbPool().query(query);
     const normalizedUsers = result.rows.map((row) => ({
       ...row,
@@ -2633,6 +2673,10 @@ app.get('/api/users', requireAdmin, async (req, res) => {
       dbName: req.tenantContext?.dbName,
       message: err.message,
       code: err.code,
+      detail: err.detail,
+      sql: query,
+      params,
+      route: route?.fullPath,
       schema: err.schema,
       table: err.table
     });
@@ -3110,9 +3154,20 @@ app.delete('/api/offices/:id', requireAdmin, async (req, res) => {
 app.get('/api/bases', authenticateToken, async (req, res) => {
   let query = '';
   let params = [];
+  let basesRoute = null;
+  let officesRoute = null;
   try {
-    const basesRoute = await resolveTablePath('bases');
-    const officesRoute = await resolveTablePath('management_offices');
+    const basesCompatible = await resolveCompatibleTablePath('bases', [
+      { schema: 'public', table: 'bases' },
+      { schema: 'public', table: 'maintenance_bases', source: 'legacy-fallback' },
+      { schema: 'master_data', table: 'bases', source: 'legacy-fallback' }
+    ], ['id', 'base_code', 'base_name', 'location', 'office_id', 'created_at', 'updated_at']);
+    const officesCompatible = await resolveCompatibleTablePath('management_offices', [
+      { schema: 'public', table: 'management_offices' },
+      { schema: 'master_data', table: 'managements_offices', source: 'legacy-fallback' }
+    ], ['id', 'office_name']);
+    basesRoute = basesCompatible.route;
+    officesRoute = officesCompatible.route;
 
     query = `
       SELECT 
@@ -3130,6 +3185,9 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
       LEFT JOIN ${officesRoute.fullPath} o ON b.office_id = o.id
       ORDER BY b.id DESC
     `;
+    console.log('[GET /api/bases] Resolved tables:', { bases: basesRoute.fullPath, offices: officesRoute.fullPath });
+    console.log('[GET /api/bases] SQL:', query);
+    console.log('[GET /api/bases] PARAMS:', params);
     const result = await pool.query(query, params);
     res.json({ success: true, bases: result.rows });
   } catch (err) {
@@ -3147,6 +3205,10 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
       dbName: req.tenantContext?.dbName,
       message: err.message,
       code: err.code,
+      detail: err.detail,
+      sql: query,
+      params,
+      route: { bases: basesRoute?.fullPath, offices: officesRoute?.fullPath },
       schema: err.schema,
       table: err.table
     });
@@ -4399,7 +4461,7 @@ app.get('/debug/users', async (req, res) => {
           ELSE '平文'
         END as password_type,
         LEFT(password, 10) as password_preview
-      FROM master_data.users 
+      FROM public.users 
       ORDER BY id
     `);
 
@@ -4413,7 +4475,7 @@ app.get('/debug/users', async (req, res) => {
     res.status(500).json({
       success: false,
       error: err.message,
-      hint: 'master_data.usersテーブルが存在しない可能性があります'
+      hint: 'public.usersテーブルが存在しない可能性があります'
     });
   }
 });
@@ -4423,7 +4485,7 @@ app.post('/debug/test-login', async (req, res) => {
   const { username, password } = req.body;
 
   try {
-    const query = 'SELECT id, username, password FROM master_data.users WHERE username = $1';
+    const query = 'SELECT id, username, password FROM public.users WHERE username = $1';
     const result = await pool.query(query, [username]);
 
     if (result.rows.length === 0) {
@@ -4474,7 +4536,7 @@ app.get('/debug/tables', async (req, res) => {
         const checkQuery = `
           SELECT EXISTS(
             SELECT FROM information_schema.tables 
-            WHERE table_schema = 'master_data' 
+            WHERE table_schema = 'public' 
             AND table_name = $1
           ) as exists
         `;
@@ -4489,7 +4551,7 @@ app.get('/debug/tables', async (req, res) => {
           const columnsQuery = `
             SELECT column_name, data_type, is_nullable
             FROM information_schema.columns
-            WHERE table_schema = 'master_data' 
+            WHERE table_schema = 'public' 
             AND table_name = $1
             ORDER BY ordinal_position
           `;
@@ -4548,15 +4610,15 @@ app.get('/debug/tables', async (req, res) => {
 // デバッグエンドポイント: postal_codeカラム追加
 app.post('/debug/add-postal-code', async (req, res) => {
   try {
-    console.log('managements_officesにpostal_codeカラムを追加...');
+    console.log('public.management_officesにpostal_codeカラムを追加...');
     await pool.query(`
-      ALTER TABLE master_data.managements_offices 
+      ALTER TABLE public.management_offices 
       ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20)
     `);
 
-    console.log('basesにpostal_codeカラムを追加...');
+    console.log('public.basesにpostal_codeカラムを追加...');
     await pool.query(`
-      ALTER TABLE master_data.bases 
+      ALTER TABLE public.bases 
       ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20)
     `);
 
@@ -5499,17 +5561,45 @@ app.delete('/api/inspection-types/:id', requireAdmin, async (req, res) => {
 
 // 検修周期・期間設定一覧取得
 app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
+  let query = '';
+  const params = [];
+  let routes = {};
   try {
     console.log('[GET /api/inspection-schedules] Fetching inspection schedules...');
 
-    const machinesRoute = await resolveTablePath('machines');
-    const machineTypesRoute = await resolveTablePath('machine_types');
-    const officesRoute = await resolveTablePath('management_offices');
-    const inspectionTypesRoute = await resolveTablePath('inspection_types');
-    const inspectionSchedulesRoute = await resolveTablePath('inspection_schedules');
+    const machinesCompatible = await resolveCompatibleTablePath('machines', [
+      { schema: 'public', table: 'machines' },
+      { schema: 'master_data', table: 'machines', source: 'legacy-fallback' }
+    ], ['id', 'machine_type_id']);
+    const machineTypesCompatible = await resolveCompatibleTablePath('machine_types', [
+      { schema: 'public', table: 'machine_types' },
+      { schema: 'master_data', table: 'machine_types', source: 'legacy-fallback' }
+    ], ['id']);
+    const officesCompatible = await resolveCompatibleTablePath('management_offices', [
+      { schema: 'public', table: 'management_offices' },
+      { schema: 'master_data', table: 'managements_offices', source: 'legacy-fallback' }
+    ], ['id', 'office_name']);
+    const inspectionTypesCompatible = await resolveCompatibleTablePath('inspection_types', [
+      { schema: 'public', table: 'inspection_types' },
+      { schema: 'master_data', table: 'inspection_types', source: 'legacy-fallback' }
+    ], ['id', 'type_name', 'type_code']);
+    const inspectionSchedulesCompatible = await resolveCompatibleTablePath('inspection_schedules', [
+      { schema: 'public', table: 'inspection_schedules' },
+      { schema: 'master_data', table: 'inspection_schedules', source: 'legacy-fallback' }
+    ], ['id', 'machine_id', 'inspection_type_id', 'cycle_months', 'duration_days']);
+    const machinesRoute = machinesCompatible.route;
+    const machineTypesRoute = machineTypesCompatible.route;
+    const machineTypeColumns = machineTypesCompatible.columns;
+    const officesRoute = officesCompatible.route;
+    const inspectionTypesRoute = inspectionTypesCompatible.route;
+    const inspectionTypeColumns = inspectionTypesCompatible.columns;
+    const inspectionSchedulesRoute = inspectionSchedulesCompatible.route;
     const scheduleColumns = await getPhysicalTableColumns(inspectionSchedulesRoute);
-    const machineTypeColumns = await getPhysicalTableColumns(machineTypesRoute);
+    const machineColumns = machinesCompatible.columns;
     const hasTargetCategory = scheduleColumns.has('target_category');
+    const machineNumberExpr = machineColumns.has('machine_number') ? 'm.machine_number' : 'NULL::text';
+    const machineOfficeIdExpr = machineColumns.has('office_id') ? 'm.office_id::text' : 'NULL::text';
+    const displayOrderExpr = inspectionTypeColumns.has('display_order') ? 'it.display_order' : '0';
     const machineTypeNameExpr = (() => {
       const candidates = ['model_name', 'machine_type_name', 'type_name', 'name'];
       const available = candidates
@@ -5539,7 +5629,7 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
         s.is_active,
         s.created_at,
         s.updated_at,
-        m.machine_number,
+        ${machineNumberExpr} AS machine_number,
         ${machineTypeNameExpr} AS model_name,
         o.office_name,
         it.type_name,
@@ -5547,12 +5637,22 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
       FROM ${inspectionSchedulesRoute.fullPath} s
       LEFT JOIN ${machinesRoute.fullPath} m ON s.machine_id::text = m.id::text
       LEFT JOIN ${machineTypesRoute.fullPath} mt ON ${machineTypeJoinCondition}
-      LEFT JOIN ${officesRoute.fullPath} o ON m.office_id::text = o.id::text
+      LEFT JOIN ${officesRoute.fullPath} o ON ${machineOfficeIdExpr} = o.id::text
       LEFT JOIN ${inspectionTypesRoute.fullPath} it ON s.inspection_type_id = it.id
-      ORDER BY ${hasTargetCategory ? 's.target_category,' : ''} o.office_name, model_name, m.machine_number, it.display_order
+      ORDER BY ${hasTargetCategory ? 's.target_category,' : ''} o.office_name, model_name, machine_number, ${displayOrderExpr}
     `;
 
     console.log('[GET /api/inspection-schedules] Executing SQL...');
+    routes = {
+      machines: machinesRoute.fullPath,
+      machineTypes: machineTypesRoute.fullPath,
+      offices: officesRoute.fullPath,
+      inspectionTypes: inspectionTypesRoute.fullPath,
+      inspectionSchedules: inspectionSchedulesRoute.fullPath
+    };
+    console.log('[GET /api/inspection-schedules] Resolved tables:', routes);
+    console.log('[GET /api/inspection-schedules] SQL:', query);
+    console.log('[GET /api/inspection-schedules] PARAMS:', params);
     const result = await pool.query(query);
     console.log('[GET /api/inspection-schedules] Success:', result.rows.length);
 
@@ -5561,6 +5661,9 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
     console.error('❌ Inspection schedules get error:', err.message);
     console.error('❌ Inspection schedules get error code:', err.code || 'N/A');
     console.error('❌ Inspection schedules get error detail:', err.detail || 'N/A');
+    console.error('❌ Inspection schedules SQL:', query);
+    console.error('❌ Inspection schedules PARAMS:', params);
+    console.error('❌ Inspection schedules tables:', routes);
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: 'サーバーエラーが発生しました' });
   }
 });
@@ -5953,87 +6056,26 @@ async function runEmergencyDbFix() {
             ) LOOP EXECUTE r.cmd; END LOOP;
         END $$;
       `);
-    const schemas = ['master_data'];
-    for (const schema of schemas) {
-      console.log(`[Self-Healing] Checking schema: ${schema}`);
-
-      // テーブルの存在確認
-      const mtCheck = await pool.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = $1 AND table_name = 'machine_types'
-        )
-      `, [schema]);
-      const machinesCheck = await pool.query(`
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_schema = $1 AND table_name = 'machines'
-        )
-      `, [schema]);
-
-      console.log(`[Self-Healing] machine_types exists in ${schema}:`, mtCheck.rows[0].exists);
-      console.log(`[Self-Healing] machines exists in ${schema}:`, machinesCheck.rows[0].exists);
-
-      if (!mtCheck.rows[0].exists) {
-        console.log(`[Self-Healing] Skipping ${schema}.machine_types - table does not exist`);
-        continue;
-      }
-
-      // machine_types 必要なカラムを全て確実に作成
-      await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS type_code TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS type_name TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS manufacturer TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS category TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS description TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machine_types ADD COLUMN IF NOT EXISTS model_name TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machine_types ALTER COLUMN id TYPE TEXT USING id::text`);
-
-      await pool.query(`
-          DO $$ DECLARE r RECORD; BEGIN
-            -- ユニーク制約の削除
-            FOR r IN (SELECT conname FROM pg_constraint con JOIN pg_class rel ON rel.oid = con.conrelid JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace WHERE nsp.nspname = '${schema}' AND rel.relname = 'machine_types' AND contype = 'u')
-            LOOP EXECUTE 'ALTER TABLE ${schema}.machine_types DROP CONSTRAINT IF EXISTS "' || r.conname || '" CASCADE'; END LOOP;
-            -- インデックスの削除 (PKEY以外)
-            FOR r IN (SELECT indexname FROM pg_indexes WHERE schemaname = '${schema}' AND tablename = 'machine_types' AND indexname NOT LIKE '%_pkey')
-            LOOP EXECUTE 'DROP INDEX IF EXISTS ${schema}."' || r.indexname || '" CASCADE'; END LOOP;
-          END $$;
-        `);
-
-      // machines 必要なカラムを全て確実に作成
-      if (!machinesCheck.rows[0].exists) {
-        console.log(`[Self-Healing] Skipping ${schema}.machines - table does not exist`);
-        continue;
-      }
-
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS id TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS machine_number TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS machine_type_id TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS serial_number TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS type_certification TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS office_id TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS manufacture_date TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS purchase_date TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS notes TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS assigned_base_id TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT now()`);
-      await pool.query(`ALTER TABLE ${schema}.machines ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()`);
-
-      // 型変更
-      await pool.query(`ALTER TABLE ${schema}.machines ALTER COLUMN id TYPE TEXT USING id::text`);
-      await pool.query(`ALTER TABLE ${schema}.machines ALTER COLUMN machine_type_id TYPE TEXT USING machine_type_id::text`);
-
-      await pool.query(`
-          DO $$ DECLARE r RECORD; BEGIN
-            FOR r IN (SELECT conname FROM pg_constraint con JOIN pg_class rel ON rel.oid = con.conrelid JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace WHERE nsp.nspname = '${schema}' AND rel.relname = 'machines' AND contype = 'u')
-            LOOP EXECUTE 'ALTER TABLE ${schema}.machines DROP CONSTRAINT IF EXISTS "' || r.conname || '" CASCADE'; END LOOP;
-            FOR r IN (SELECT indexname FROM pg_indexes WHERE schemaname = '${schema}' AND tablename = 'machines' AND indexname NOT LIKE '%_pkey')
-            LOOP EXECUTE 'DROP INDEX IF EXISTS ${schema}."' || r.indexname || '" CASCADE'; END LOOP;
-          END $$;
-        `);
-
-      await pool.query(`ALTER TABLE ${schema}.inspection_schedules ADD COLUMN IF NOT EXISTS target_category TEXT`);
-      await pool.query(`ALTER TABLE ${schema}.inspection_schedules ALTER COLUMN machine_id DROP NOT NULL`);
-      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS ux_${schema}_inspection_schedules_target_key ON ${schema}.inspection_schedules (COALESCE(machine_id::text, target_category), inspection_type_id)`);
+    // The business tables are canonical in public. Do not run the old
+    // master_data repair routine against the public UUID-based schema.
+    const businessTables = [
+      'users',
+      'management_offices',
+      'bases',
+      'machines',
+      'machine_types',
+      'inspection_types',
+      'inspection_schedules'
+    ];
+    const tableCheck = await pool.query(`
+      SELECT table_name
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_name = ANY($1::text[])
+    `, [businessTables]);
+    const foundTables = new Set(tableCheck.rows.map(row => row.table_name));
+    for (const tableName of businessTables) {
+      console.log(`[Self-Healing] public.${tableName} exists:`, foundTables.has(tableName));
     }
 
     // ルーティング再設定（現在のテーブル構造に対応していないため、スキップ）
@@ -6046,8 +6088,8 @@ async function runEmergencyDbFix() {
       /*
       await pool.query(`
         INSERT INTO public.app_resource_routing (app_id, logical_resource_name, physical_schema, physical_table, is_active)
-        VALUES ('dashboard-ui', 'machines', 'master_data', 'machines', true),
-               ('dashboard-ui', 'machine_types', 'master_data', 'machine_types', true)
+         VALUES ('dashboard-ui', 'machines', 'public', 'machines', true),
+           ('dashboard-ui', 'machine_types', 'public', 'machine_types', true)
         ON CONFLICT (app_id, logical_resource_name) DO UPDATE SET physical_schema = EXCLUDED.physical_schema, physical_table = EXCLUDED.physical_table;
       `);
       */

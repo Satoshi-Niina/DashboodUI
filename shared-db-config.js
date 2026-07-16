@@ -45,11 +45,11 @@ pool.on('error', (err) => {
 
 // 接続確立時にsearch_pathを設定（本番環境対応）
 pool.on('connect', (client) => {
-  client.query('SET search_path TO master_data, public', (err) => {
+  client.query('SET search_path TO public', (err) => {
     if (err) {
       console.error('Failed to set search_path:', err);
     } else {
-      console.log('✅ search_path set to: master_data, public');
+      console.log('✅ search_path set to: public');
     }
   });
 });
@@ -78,7 +78,7 @@ const ROUTING_CACHE_TTL = 60 * 1000; // 1分
 
 /**
  * ルーティングテーブルから物理スキーマとテーブル名を解決
- * フォールバック機能: ルーティングが見つからない場合は master_data を使用
+ * フォールバック機能: ルーティングが見つからない場合は public を使用
  * 
  * @param {string} tenantId - テナントID（デフォルト: 'demo'）
  * @param {string} appId - アプリケーションID（デフォルト: 'dashboard-ui'）
@@ -130,11 +130,11 @@ async function resolveRouting(tenantId = 'demo', appId = 'dashboard-ui', logical
     }
     
     // ルーティングが見つからない場合はフォールバック
-    console.warn(`[shared-db-config] ⚠️ No routing found for ${cacheKey}, falling back to master_data`);
+    console.warn(`[shared-db-config] ⚠️ No routing found for ${cacheKey}, falling back to public`);
     const fallback = {
-      schema: 'master_data',
+      schema: 'public',
       table: logicalName,
-      fullPath: `master_data."${logicalName}"`,
+      fullPath: `public."${logicalName}"`,
       isFallback: true
     };
     
@@ -145,12 +145,12 @@ async function resolveRouting(tenantId = 'demo', appId = 'dashboard-ui', logical
   } catch (error) {
     // DB接続エラーなどの場合もフォールバック
     console.error(`[shared-db-config] ❌ Routing resolution error for ${cacheKey}:`, error.message);
-    console.warn(`[shared-db-config] ⚠️ Falling back to master_data due to error`);
+    console.warn(`[shared-db-config] ⚠️ Falling back to public due to error`);
     
     return {
-      schema: 'master_data',
+      schema: 'public',
       table: logicalName,
-      fullPath: `master_data."${logicalName}"`,
+      fullPath: `public."${logicalName}"`,
       isFallback: true
     };
   }
