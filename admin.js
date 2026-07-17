@@ -1,4 +1,4 @@
-﻿// ========================================
+// ========================================
 // テナント判定・共通fetchユーティリティ
 // ========================================
 
@@ -669,42 +669,68 @@ function initializeEventListeners() {
         });
     }
 
-    // テーブルの編集・削除ボタンのイベント委譲
-    document.addEventListener('click', (e) => {
-        const target = e.target;
+    // 全テーブルの編集・削除ボタンをイベント委譲で一元管理
+    document.addEventListener('click', event => {
+        const btn = event.target.closest('[data-action]');
+        if (!btn) return;
 
-        // 機種の編集ボタン
-        if (target.classList.contains('btn-edit') && target.dataset.action === 'edit-type') {
-            e.preventDefault();
-            const typeId = target.dataset.id;
-            console.log('[Event] Edit machine type clicked:', typeId);
-            window.editMachineType(typeId);
-        }
+        event.preventDefault();
+        const action = btn.dataset.action;
+        const id = btn.dataset.id;
+        const name = btn.dataset.name || '';
 
-        // 機種の削除ボタン
-        if (target.classList.contains('btn-delete') && target.dataset.action === 'delete-type') {
-            e.preventDefault();
-            const typeId = target.dataset.id;
-            const typeCode = target.dataset.code;
-            console.log('[Event] Delete machine type clicked:', { id: typeId, code: typeCode });
-            window.deleteMachineType(typeId, typeCode);
-        }
-
-        // 保守用車の編集ボタン
-        if (target.classList.contains('btn-edit') && target.dataset.action === 'edit-machine') {
-            e.preventDefault();
-            const machineId = target.dataset.id;
-            console.log('[Event] Edit machine clicked:', machineId);
-            window.editMachine(machineId);
-        }
-
-        // 保守用車の削除ボタン
-        if (target.classList.contains('btn-delete') && target.dataset.action === 'delete-machine') {
-            e.preventDefault();
-            const machineId = target.dataset.id;
-            const machineNumber = target.dataset.number;
-            console.log('[Event] Delete machine clicked:', { id: machineId, number: machineNumber });
-            window.deleteMachine(machineId, machineNumber);
+        switch (action) {
+            // ユーザー管理
+            case 'edit-user':
+                editUser(id);
+                break;
+            case 'delete-user':
+                deleteUser(id, name);
+                break;
+            // 事業所マスタ
+            case 'edit-office':
+                window.editOffice(id);
+                break;
+            case 'delete-office':
+                window.deleteOffice(id, name);
+                break;
+            // 保守基地マスタ
+            case 'edit-base':
+                window.editBase(id);
+                break;
+            case 'delete-base':
+                window.deleteBase(id, name);
+                break;
+            // 機種マスタ
+            case 'edit-type':
+                window.editMachineType(id);
+                break;
+            case 'delete-type':
+                window.deleteMachineType(id, name);
+                break;
+            // 保守用車マスタ
+            case 'edit-machine':
+                window.editMachine(id);
+                break;
+            case 'delete-machine':
+                window.deleteMachine(id, btn.dataset.number || name);
+                break;
+            // 検修種別マスタ
+            case 'edit-inspection-type':
+                editInspectionType(id);
+                break;
+            case 'delete-inspection-type':
+                deleteInspectionType(id, name);
+                break;
+            // 検修設定
+            case 'edit-inspection-schedule':
+                editInspectionSchedule(id);
+                break;
+            case 'delete-inspection-schedule':
+                deleteInspectionSchedule(id, name);
+                break;
+            default:
+                console.warn('[Event] Unknown action:', action);
         }
     });
 }
@@ -816,8 +842,8 @@ function displayUsers(users) {
                     <span class="role-badge role-${normalizedRole}">${roleDisplayName}</span>
                 </div>
                 <div class="user-actions-buttons">
-                    <button class="btn-edit" onclick="editUser(${user.id})">✏️ 編集</button>
-                    <button class="btn-delete" onclick="deleteUser(${user.id}, '${escapeHtml(user.username)}')">🗑️ 削除</button>
+                    <button class="btn-edit" data-action="edit-user" data-id="${user.id}">✏️ 編集</button>
+                    <button class="btn-delete" data-action="delete-user" data-id="${user.id}" data-name="${escapeHtml(user.username)}">🗑️ 削除</button>
                 </div>
             </div>
         `;
@@ -930,6 +956,7 @@ async function saveUser() {
 function editUser(userId) {
     openUserModal(userId);
 }
+window.editUser = editUser;
 
 async function deleteUser(userId, username) {
     if (!confirm(`ユーザー「${username}」を削除してもよろしいですか？`)) {
@@ -956,6 +983,7 @@ async function deleteUser(userId, username) {
         showToast('削除中にエラーが発生しました', 'error');
     }
 }
+window.deleteUser = deleteUser;
 
 // ========== 機種マスタ管理 ==========
 async function loadMachineTypes() {
@@ -1008,7 +1036,7 @@ async function loadMachineTypes() {
                         <td>${escapeHtml(type.category || '-')}</td>
                         <td>
                             <button class="btn-sm btn-edit" data-id="${typeId}" data-action="edit-type">編集</button>
-                            <button class="btn-sm btn-delete" data-id="${typeId}" data-action="delete-type">削除</button>
+                            <button class="btn-sm btn-delete" data-id="${typeId}" data-name="${escapeHtml(type.model_name || String(type.id))}" data-action="delete-type">削除</button>
                         </td>
                     </tr>
                 `;
@@ -1608,8 +1636,8 @@ async function loadInspectionTypes() {
                         <td>${type.display_order || 0}</td>
                         <td>${statusBadge}</td>
                         <td>
-                            <button class="btn-sm btn-edit" onclick="editInspectionType('${type.id}')">編集</button>
-                            <button class="btn-sm btn-delete" onclick="deleteInspectionType('${type.id}', '${escapeHtml(type.type_name)}')">削除</button>
+                            <button class="btn-sm btn-edit" data-action="edit-inspection-type" data-id="${type.id}">編集</button>
+                            <button class="btn-sm btn-delete" data-action="delete-inspection-type" data-id="${type.id}" data-name="${escapeHtml(type.type_name)}">削除</button>
                         </td>
                     </tr>
                 `;
@@ -1687,8 +1715,8 @@ async function loadInspectionSchedules() {
                         <td>${escapeHtml(schedule.remarks || '-')}</td>
                         <td>${statusBadge}</td>
                         <td>
-                            <button class="btn-sm btn-edit" onclick="editInspectionSchedule('${schedule.id}')">編集</button>
-                            <button class="btn-sm btn-delete" onclick="deleteInspectionSchedule('${schedule.id}', '${escapeHtml(targetName)}')">削除</button>
+                            <button class="btn-sm btn-edit" data-action="edit-inspection-schedule" data-id="${schedule.id}">編集</button>
+                            <button class="btn-sm btn-delete" data-action="delete-inspection-schedule" data-id="${schedule.id}" data-name="${escapeHtml(targetName)}">削除</button>
                         </td>
                     </tr>
                 `;
@@ -2068,8 +2096,8 @@ async function loadOffices() {
                         </div>
                     </div>
                     <div class="user-actions-buttons">
-                        <button class="btn-edit" onclick="editOffice(${office.office_id})">✏️ 編集</button>
-                        <button class="btn-delete" onclick="deleteOffice(${office.office_id}, '${escapeHtml(office.office_name)}')">🗑️ 削除</button>
+                        <button class="btn-edit" data-action="edit-office" data-id="${office.office_id}">✏️ 編集</button>
+                        <button class="btn-delete" data-action="delete-office" data-id="${office.office_id}" data-name="${escapeHtml(office.office_name)}">🗑️ 削除</button>
                     </div>
                 </div>
             `).join('');
@@ -2092,7 +2120,7 @@ function showOfficeModal(mode, officeId) {
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    const office = data.offices.find(o => o.office_id === officeId);
+                    const office = data.offices.find(o => String(o.office_id) === String(officeId));
                     createOfficeModal(mode, office);
                 }
             });
@@ -2257,8 +2285,8 @@ async function loadBases() {
                         </div>
                     </div>
                     <div class="user-actions-buttons">
-                        <button class="btn-edit" onclick="editBase(${base.base_id})">✏️ 編集</button>
-                        <button class="btn-delete" onclick="deleteBase(${base.base_id}, '${escapeHtml(base.base_name)}')">🗑️ 削除</button>
+                        <button class="btn-edit" data-action="edit-base" data-id="${base.base_id}">✏️ 編集</button>
+                        <button class="btn-delete" data-action="delete-base" data-id="${base.base_id}" data-name="${escapeHtml(base.base_name)}">🗑️ 削除</button>
                     </div>
                 </div>
             `).join('');
@@ -2286,7 +2314,7 @@ async function showBaseModal(mode, baseId) {
         });
         const basesData = await basesRes.json();
         if (basesData.success) {
-            const base = basesData.bases.find(b => b.base_id === baseId);
+            const base = basesData.bases.find(b => String(b.base_id) === String(baseId));
             createBaseModal(mode, base, offices);
         }
     } else {
@@ -3285,8 +3313,8 @@ async function loadInspectionTypes() {
                     <td>${type.display_order || 0}</td>
                     <td>${statusBadge}</td>
                     <td>
-                        <button class="btn-edit" onclick="editInspectionType(${type.id})">編集</button>
-                        <button class="btn-delete" onclick="deleteInspectionType(${type.id})">削除</button>
+                        <button class="btn-edit" data-action="edit-inspection-type" data-id="${type.id}">編集</button>
+                        <button class="btn-delete" data-action="delete-inspection-type" data-id="${type.id}" data-name="${escapeHtml(type.type_name)}">削除</button>
                     </td>
                 </tr>
             `;
@@ -3485,8 +3513,8 @@ async function loadInspectionSchedules() {
                     <td>${escapeHtml(schedule.remarks || '')}</td>
                     <td>${statusBadge}</td>
                     <td>
-                        <button class="btn-edit" onclick="editInspectionSchedule(${schedule.id})">編集</button>
-                        <button class="btn-delete" onclick="deleteInspectionSchedule(${schedule.id})">削除</button>
+                        <button class="btn-edit" data-action="edit-inspection-schedule" data-id="${schedule.id}">編集</button>
+                        <button class="btn-delete" data-action="delete-inspection-schedule" data-id="${schedule.id}" data-name="${escapeHtml(schedule.target_category || schedule.model_name || schedule.machine_number || String(schedule.id))}">削除</button>
                     </td>
                 </tr>
             `;

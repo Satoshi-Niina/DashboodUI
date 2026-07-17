@@ -2745,9 +2745,11 @@ app.post('/api/users', requireAdmin, async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // ユーザーを追加（ゲートウェイ方式）
+    // DBカラム名が password または password_hash のどちらでも対応するため両キーを渡す
     const userData = {
       username,
       password: hashedPassword,
+      password_hash: hashedPassword,
       display_name: display_name || null,
       role: normalizedRole
     };
@@ -2814,10 +2816,12 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
+      // DBカラム名が password または password_hash のどちらでも対応
       const updateData = {
         username,
         display_name: display_name || null,
         password: hashedPassword,
+        password_hash: hashedPassword,
         role: normalizedRole,
         updated_at: new Date()
       };
