@@ -597,7 +597,13 @@ async function getCompanyRoutingByCompanyId(companyId) {
 
 function buildTenantRuntimeFromRoutingRow(routingRow, requestedTenantId, defaultDbName, defaultBucketName, fallbackTenantKey = '') {
   const resolvedTenantId = routingRow.company_id || fallbackTenantKey || requestedTenantId || 'demo_env';
-  const tenantDbName = routingRow.db_name || defaultDbName;
+  const tenantDbName = routingRow.db_name;
+  
+  // db_nameが空欄の場合はエラー（common_dbへfallbackしない）
+  if (!tenantDbName || String(tenantDbName).trim() === '') {
+    throw new Error(`Tenant routing row missing db_name: company_id=${routingRow.company_id}`);
+  }
+  
   const tenantPool = tenantDbName === defaultDbName
     ? getControlPlanePool()
     : getOrCreateTenantPool(tenantDbName);
@@ -651,16 +657,8 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
       );
     }
 
-    return {
-      requestedTenantId: normalizedTenantId,
-      resolvedTenantId: 'demo_env',
-      companyId: 'demo_env',
-      companyName: '',
-      dbName: defaultDbName,
-      storageBucketName: defaultBucketName,
-      pool: getControlPlanePool(),
-      isFallback: false
-    };
+    // 未登録テナントはfallbackせず503エラーとする
+    throw new Error(`Tenant not registered: demo (expectedTenantKey=demo_env)`);
   }
 
   try {
@@ -688,35 +686,12 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
       );
     }
 
-    const tenantDbName = inferTenantDbName(expectedTenantKey, defaultDbName);
-    const tenantPool = tenantDbName === defaultDbName ? getControlPlanePool() : getOrCreateTenantPool(tenantDbName);
-
-    return {
-      requestedTenantId: normalizedTenantId,
-      resolvedTenantId: expectedTenantKey,
-      companyId: expectedTenantKey,
-      companyName: '',
-      dbName: tenantDbName,
-      storageBucketName: defaultBucketName,
-      pool: tenantPool,
-      isFallback: false
-    };
+    // ルーティング情報が見つからない場合は503エラー（DBを推測してfallbackしない）
+    throw new Error(`Tenant not registered: ${expectedTenantKey}`);
   } catch (err) {
     console.error(`[TenantRouting] Failed to resolve tenant ${expectedTenantKey}:`, err.message);
-    return {
-      requestedTenantId: expectedTenantKey,
-      resolvedTenantId: 'demo_env',
-      companyId: 'demo_env',
-      companyName: '',
-      dbName: defaultDbName,
-      storageBucketName: defaultBucketName,
-      pool: getControlPlanePool(),
-      isFallback: true,
-      tenantResolutionError: {
-        message: err.message || String(err),
-        stack: err.stack || ''
-      }
-    };
+    // エラーを再スローして503を返す（fallbackしない）
+    throw err;
   }
 }
 
@@ -1116,28 +1091,16 @@ app.use('/api', async (req, res, next) => {
 
     requestTenantContextStorage.run(runtime, () => next());
   } catch (err) {
-    console.error('[TenantRouting] Middleware failed, falling back to demo_env:', err.message);
-    const fallbackRuntime = {
-      requestedTenantId: 'demo_env',
-      resolvedTenantId: 'demo_env',
-      companyId: 'demo_env',
-      companyName: '',
-      dbName: getDefaultDbName(),
-      storageBucketName: getDefaultBucketName(),
-      pool: getControlPlanePool(),
-      isFallback: true,
-      tenantResolutionError: {
-        message: err.message || String(err),
-        stack: err.stack || ''
-      }
-    };
-    req.tenantContext = fallbackRuntime;
-    res.setHeader('X-Resolved-Tenant-Id', 'demo_env');
-    res.setHeader('X-Resolved-Db-Name', fallbackRuntime.dbName || getDefaultDbName());
-    res.setHeader('X-Resolved-Company-Name', toSafeHeaderValue(''));
-    res.setHeader('X-Resolved-Bucket-Name', fallbackRuntime.storageBucketName || '');
+    console.error('[TenantRouting] Middleware failed:', err.message);
     applyTenantErrorHeaders(res, err);
-    requestTenantContextStorage.run(fallbackRuntime, () => next());
+    
+    // 未登録テナントまたはdb_name未設定の場合は503を返す（fallbackしない）
+    return res.status(503).json({
+      success: false,
+      message: 'Tenant not available',
+      error: err.message || String(err),
+      requestedTenantId: req.requestedTenantId || 'unknown'
+    });
   }
 });
 
@@ -3037,7 +3000,8 @@ app.get('/api/offices', authenticateToken, async (req, res) => {
       FROM ${route.fullPath} 
       ORDER BY id DESC
     `;
-    const result = await pool.query(query, params);
+    const activePool = getActiveDbPool();
+    const result = await activePool.query(query, params);
     res.json({ success: true, offices: result.rows });
   } catch (err) {
     console.error('OFFICES API ERROR', err);
@@ -3073,8 +3037,9 @@ app.post('/api/offices', requireAdmin, async (req, res) => {
     // 事業所コードが指定されていない場合は自動採番
     if (!office_code) {
       const route = await resolveTablePath('management_offices');
+      const activePool = getActiveDbPool();
       const maxCodeQuery = `SELECT MAX(CAST(office_code AS INTEGER)) as max_code FROM ${route.fullPath} WHERE office_code ~ '^[0-9]+$'`;
-      const maxCodeResult = await pool.query(maxCodeQuery);
+      const maxCodeResult = await activePool.query(maxCodeQuery);
       const maxCode = maxCodeResult.rows[0].max_code || 0;
       office_code = String(maxCode + 1).padStart(4, '0');
     }
@@ -3192,7 +3157,8 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
     console.log('[GET /api/bases] Resolved tables:', { bases: basesRoute.fullPath, offices: officesRoute.fullPath });
     console.log('[GET /api/bases] SQL:', query);
     console.log('[GET /api/bases] PARAMS:', params);
-    const result = await pool.query(query, params);
+    const activePool = getActiveDbPool();
+    const result = await activePool.query(query, params);
     res.json({ success: true, bases: result.rows });
   } catch (err) {
     console.error('OFFICES API ERROR', err);
@@ -3237,9 +3203,10 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
     const basesRoute = await resolveTablePath('bases');
 
     // 基地コードが指定されていない場合は自動採番
+    const activePool = getActiveDbPool();
     if (!base_code) {
       const maxCodeQuery = `SELECT MAX(CAST(base_code AS INTEGER)) as max_code FROM ${basesRoute.fullPath} WHERE base_code ~ '^[0-9]+$'`;
-      const maxCodeResult = await pool.query(maxCodeQuery);
+      const maxCodeResult = await activePool.query(maxCodeQuery);
       const maxCode = maxCodeResult.rows[0].max_code || 0;
       base_code = String(maxCode + 1).padStart(4, '0');
     }
@@ -3250,7 +3217,7 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
       VALUES ($1, $2, $3, $4)
       RETURNING *
     `;
-    const result = await pool.query(insertQuery, [
+    const result = await activePool.query(insertQuery, [
       base_code,
       base_name,
       location || null,
@@ -3287,6 +3254,7 @@ app.put('/api/bases/:id', requireAdmin, async (req, res) => {
 
   try {
     const basesRoute = await resolveTablePath('bases');
+    const activePool = getActiveDbPool();
 
     const updateQuery = `
       UPDATE ${basesRoute.fullPath} 
@@ -3295,7 +3263,7 @@ app.put('/api/bases/:id', requireAdmin, async (req, res) => {
       WHERE id = $4
       RETURNING *
     `;
-    const result = await pool.query(updateQuery, [
+    const result = await activePool.query(updateQuery, [
       base_name,
       location || null,
       management_office_id || null,
@@ -3325,8 +3293,9 @@ app.delete('/api/bases/:id', requireAdmin, async (req, res) => {
 
   try {
     const basesRoute = await resolveTablePath('bases');
+    const activePool = getActiveDbPool();
     const deleteQuery = `DELETE FROM ${basesRoute.fullPath} WHERE id = $1 RETURNING base_name`;
-    const result = await pool.query(deleteQuery, [baseId]);
+    const result = await activePool.query(deleteQuery, [baseId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: '保守基地が見つかりません' });
