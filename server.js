@@ -317,18 +317,14 @@ async function getAllCompanyRoutingRows() {
 
 function extractTenantIdFromRequest(req) {
   // Query parameters are most explicit for API requests
+  const fromOriginalUrl = getTenantKeyFromPath(req.originalUrl || req.url || req.path || '/');
+  if (fromOriginalUrl !== 'demo_env') {
+    return fromOriginalUrl;
+  }
+
   const tenantIdQuery = String(req.query && (req.query.tenant_id || req.query.tenantId) || '').trim().toLowerCase();
   if (tenantIdQuery && /^[a-z0-9_-]+$/.test(tenantIdQuery) && tenantIdQuery !== 'demo_env') {
     return tenantIdQuery;
-  }
-
-  const tenantIdHeader = String(req.headers['x-tenant-id'] || '').trim().toLowerCase();
-  const tenantFullUrlHeader = String(req.headers['x-tenant-full-url'] || '').trim();
-  const tenantPathHeader = String(req.headers['x-tenant-path'] || '').trim();
-  const refererHeader = String(req.headers.referer || '').trim();
-
-  if (tenantIdHeader && /^[a-z0-9_-]+$/.test(tenantIdHeader)) {
-    return tenantIdHeader;
   }
 
   // Check body as fallback (e.g. login POST body)
@@ -347,6 +343,10 @@ function extractTenantIdFromRequest(req) {
     return fromQueryUrl;
   }
 
+  const tenantFullUrlHeader = String(req.headers['x-tenant-full-url'] || '').trim();
+  const tenantPathHeader = String(req.headers['x-tenant-path'] || '').trim();
+  const tenantIdHeader = String(req.headers['x-tenant-id'] || '').trim().toLowerCase();
+
   const fromFullUrl = getTenantKeyFromPath(tenantFullUrlHeader || '/');
   if (fromFullUrl !== 'demo_env') {
     return fromFullUrl;
@@ -357,10 +357,11 @@ function extractTenantIdFromRequest(req) {
     return fromTenantPathHeader;
   }
 
-  const fromOriginalUrl = getTenantKeyFromPath(req.originalUrl || req.url || req.path || '/');
-  if (fromOriginalUrl !== 'demo_env') {
-    return fromOriginalUrl;
+  if (tenantIdHeader && /^[a-z0-9_-]+$/.test(tenantIdHeader)) {
+    return tenantIdHeader;
   }
+
+  const refererHeader = String(req.headers.referer || '').trim();
 
   const fromReferer = getTenantKeyFromPath(refererHeader || '/');
   if (fromReferer !== 'demo_env') {
@@ -702,6 +703,15 @@ function getActiveTenantRuntime() {
 function getActiveDbPool() {
   const runtime = getActiveTenantRuntime();
   return runtime && runtime.pool ? runtime.pool : getControlPlanePool();
+}
+
+function getRequestTenantContext(req) {
+  return (req && req.tenantContext) || getActiveTenantRuntime() || null;
+}
+
+function getRequestDbPool(req) {
+  const runtime = getRequestTenantContext(req);
+  return (req && req.db) || (runtime && runtime.pool) || getActiveDbPool();
 }
 
 function getRequestBucketName(req, fallbackBucketName = '') {
@@ -1047,7 +1057,7 @@ app.use('/api', async (req, res, next) => {
   res.setHeader('Surrogate-Control', 'no-store');
 
   try {
-    const requestedTenantId = req.requestedTenantId || extractTenantIdFromRequest(req) || 'demo_env';
+    const requestedTenantId = extractTenantIdFromRequest(req) || req.requestedTenantId || 'demo_env';
     const defaultDbName = getDefaultDbName();
 
     const runtime = await resolveTenantRuntime(requestedTenantId, {
@@ -1057,6 +1067,8 @@ app.use('/api', async (req, res, next) => {
       originalUrl: String(req.originalUrl || req.url || '').trim()
     });
     req.tenantContext = runtime;
+    req.tenantId = runtime.resolvedTenantId || requestedTenantId || 'demo_env';
+    req.db = runtime.pool || getControlPlanePool();
     res.setHeader('X-Resolved-Tenant-Id', runtime.resolvedTenantId || 'demo_env');
     res.setHeader('X-Resolved-Db-Name', runtime.dbName || defaultDbName);
     res.setHeader('X-Resolved-Company-Name', toSafeHeaderValue(runtime.companyName || ''));
@@ -2226,6 +2238,9 @@ app.post('/api/login', async (req, res) => {
     });
 
     console.log(`[Login] Tenant resolved: ${tenantId} → DB: ${runtime.dbName}`);
+    req.tenantContext = runtime;
+    req.tenantId = runtime.resolvedTenantId || tenantId;
+    req.db = runtime.pool || getControlPlanePool();
 
     // テナント DB に接続してユーザー認証（各テナント DB 内で認証）
     return requestTenantContextStorage.run(runtime, async () => {
@@ -2570,6 +2585,8 @@ async function requireAdmin(req, res, next) {
     try {
       const jwtRuntime = await resolveTenantRuntime(decoded.tenantId);
       req.tenantContext = jwtRuntime;
+      req.tenantId = jwtRuntime.resolvedTenantId || decoded.tenantId;
+      req.db = jwtRuntime.pool || getControlPlanePool();
       // JWT tenantId で AsyncLocalStorage を上書きして後続処理を実行
       return requestTenantContextStorage.run(jwtRuntime, async () => {
         await requireAdminCore(req, res, next, decoded);
@@ -2725,7 +2742,7 @@ app.get('/api/config/history', requireAdmin, async (req, res) => {
       ORDER BY updated_at DESC
       LIMIT 20
     `;
-    const result = await pool.query(query);
+    const result = await getRequestDbPool(req).query(query);
     res.json({ success: true, history: result.rows });
   } catch (err) {
     console.error('History get error:', err);
@@ -3124,7 +3141,7 @@ app.get('/api/offices', authenticateToken, async (req, res) => {
       FROM ${route.fullPath} 
       ORDER BY id DESC
     `;
-    const activePool = getActiveDbPool();
+    const activePool = getRequestDbPool(req);
     const result = await activePool.query(query, params);
     res.json({ success: true, offices: result.rows });
   } catch (err) {
@@ -3161,7 +3178,7 @@ app.post('/api/offices', requireAdmin, async (req, res) => {
     // 事業所コードが指定されていない場合は自動採番
     if (!office_code) {
       const route = await resolveStrictRoutedTablePath('management_offices');
-      const activePool = getActiveDbPool();
+      const activePool = getRequestDbPool(req);
       const maxCodeQuery = `SELECT MAX(CAST(office_code AS INTEGER)) as max_code FROM ${route.fullPath} WHERE office_code ~ '^[0-9]+$'`;
       const maxCodeResult = await activePool.query(maxCodeQuery);
       const maxCode = maxCodeResult.rows[0].max_code || 0;
@@ -3277,7 +3294,7 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
     console.log('[GET /api/bases] Resolved tables:', { bases: basesRoute.fullPath, offices: officesRoute.fullPath });
     console.log('[GET /api/bases] SQL:', query);
     console.log('[GET /api/bases] PARAMS:', params);
-    const activePool = getActiveDbPool();
+    const activePool = getRequestDbPool(req);
     const result = await activePool.query(query, params);
     res.json({ success: true, bases: result.rows });
   } catch (err) {
@@ -3323,7 +3340,7 @@ app.post('/api/bases', requireAdmin, async (req, res) => {
     const basesRoute = await resolveTablePath('bases');
 
     // 基地コードが指定されていない場合は自動採番
-    const activePool = getActiveDbPool();
+  const activePool = getRequestDbPool(req);
     if (!base_code) {
       const maxCodeQuery = `SELECT MAX(CAST(base_code AS INTEGER)) as max_code FROM ${basesRoute.fullPath} WHERE base_code ~ '^[0-9]+$'`;
       const maxCodeResult = await activePool.query(maxCodeQuery);
@@ -3374,7 +3391,7 @@ app.put('/api/bases/:id', requireAdmin, async (req, res) => {
 
   try {
     const basesRoute = await resolveTablePath('bases');
-    const activePool = getActiveDbPool();
+    const activePool = getRequestDbPool(req);
 
     const updateQuery = `
       UPDATE ${basesRoute.fullPath} 
@@ -3413,7 +3430,7 @@ app.delete('/api/bases/:id', requireAdmin, async (req, res) => {
 
   try {
     const basesRoute = await resolveTablePath('bases');
-    const activePool = getActiveDbPool();
+    const activePool = getRequestDbPool(req);
     const deleteQuery = `DELETE FROM ${basesRoute.fullPath} WHERE id = $1 RETURNING base_name`;
     const result = await activePool.query(deleteQuery, [baseId]);
 
@@ -3849,7 +3866,7 @@ app.get('/api/ai/settings', requireAdmin, async (req, res) => {
       WHERE app_id = 'common'
       ORDER BY setting_type
     `;
-    const result = await pool.query(query);
+    const result = await getRequestDbPool(req).query(query);
 
     const settings = {};
     result.rows.forEach(row => {
@@ -5493,7 +5510,7 @@ app.get('/api/inspection-types/:id', requireAdmin, async (req, res) => {
       WHERE ${idColumn}::text = $1
       LIMIT 1
     `;
-    const result = await pool.query(query, [typeId]);
+    const result = await getRequestDbPool(req).query(query, [typeId]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ success: false, message: '検修種別が見つかりません', error: '検修種別が見つかりません' });
@@ -5564,7 +5581,7 @@ app.post('/api/inspection-types', requireAdmin, async (req, res) => {
 
     // 登録前にtype_codeの重複を確認（フロントの二重送信対策の保険として）
     if (columns.has('type_code')) {
-      const duplicateCheck = await pool.query(
+      const duplicateCheck = await getRequestDbPool(req).query(
         `SELECT id FROM ${route.fullPath} WHERE type_code = $1 LIMIT 1`,
         [finalTypeCode]
       );
@@ -5616,7 +5633,7 @@ app.put('/api/inspection-types/:id', requireAdmin, async (req, res) => {
 
     let finalTypeCode = type_code;
     if (!finalTypeCode && columns.has('type_code')) {
-      const existingTypes = await pool.query(`SELECT type_code FROM ${route.fullPath} WHERE ${idColumn}::text = $1 LIMIT 1`, [typeId]);
+      const existingTypes = await getRequestDbPool(req).query(`SELECT type_code FROM ${route.fullPath} WHERE ${idColumn}::text = $1 LIMIT 1`, [typeId]);
       if (existingTypes.rows.length > 0) {
         finalTypeCode = existingTypes.rows[0].type_code;
       }
@@ -5751,7 +5768,7 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
     console.log('[GET /api/inspection-schedules] Resolved tables:', routes);
     console.log('[GET /api/inspection-schedules] SQL:', query);
     console.log('[GET /api/inspection-schedules] PARAMS:', params);
-    const result = await pool.query(query);
+    const result = await getRequestDbPool(req).query(query);
     console.log('[GET /api/inspection-schedules] Success:', result.rows.length);
 
     res.json({ success: true, data: result.rows, message: '検修周期・期間設定一覧を取得しました' });
