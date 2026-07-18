@@ -1,3 +1,24 @@
+function getTenantIdFromLocation() {
+    const pathSegments = window.location.pathname.split('/').filter(Boolean);
+    const firstSegment = String(pathSegments[0] ?? '').trim().toLowerCase();
+    const excludedPaths = new Set(['api', 'assets', 'admin.html', 'index.html', 'login.html']);
+
+    if (!firstSegment || excludedPaths.has(firstSegment) || firstSegment.endsWith('.html')) {
+        return 'demo';
+    }
+
+    return firstSegment;
+}
+
+function getTenantPathFromLocation() {
+    const tenantId = getTenantIdFromLocation();
+    return tenantId === 'demo' ? '/' : `/${tenantId}`;
+}
+
+function buildIndexPathForTenant(tenantPath) {
+    return tenantPath === '/' ? '/index.html' : `${tenantPath}/index.html`;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const loginForm = document.getElementById('login-form');
     const usernameInput = document.getElementById('username');
@@ -48,10 +69,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const tenantId = window.TenantContext && typeof window.TenantContext.getTenantId === 'function'
             ? window.TenantContext.getTenantId()
-            : 'demo';
+            : getTenantIdFromLocation();
         const tenantPath = window.TenantContext && typeof window.TenantContext.getTenantPath === 'function'
             ? window.TenantContext.getTenantPath()
-            : (tenantId === 'demo' ? '/' : `/${tenantId}`);
+            : getTenantPathFromLocation();
         const loginTenantContext = window.TenantContext && typeof window.TenantContext.persistLoginTenant === 'function'
             ? window.TenantContext.persistLoginTenant({ tenant_id: tenantId, tenant_path: tenantPath })
             : { tenant_id: tenantId, tenant_path: tenantPath };
@@ -100,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
                     const dashboardPath = window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
                         ? window.TenantContext.buildPathForTenant('/index.html', confirmedTenantContext.tenant_path)
-                        : '/index.html';
+                        : buildIndexPathForTenant(confirmedTenantContext.tenant_path);
                     window.location.href = dashboardPath;
                 }, 800);
             } else {

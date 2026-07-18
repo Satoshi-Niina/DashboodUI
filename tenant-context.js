@@ -124,6 +124,60 @@
         return normalized;
     }
 
+    function clearTenantAuthState() {
+        localStorage.removeItem('user_token');
+        localStorage.removeItem('user_info');
+        localStorage.removeItem(STORAGE_KEY);
+        localStorage.removeItem(LOGIN_STORAGE_KEY);
+    }
+
+    function getStoredUserTenantId() {
+        try {
+            const rawValue = localStorage.getItem('user_info');
+            if (!rawValue) {
+                return '';
+            }
+
+            const userInfo = JSON.parse(rawValue);
+            return normalizeTenantId(userInfo && (userInfo.tenant_id || userInfo.tenantId || userInfo.companyId));
+        } catch (_) {
+            return '';
+        }
+    }
+
+    function getCurrentUrlTenantContext() {
+        const tenantId = tenantIdFromPath(window.location.pathname);
+        return {
+            tenantId,
+            tenantPath: tenantId === 'demo' ? '/' : `/${tenantId}`
+        };
+    }
+
+    function shouldClearStoredTenantState(currentTenantId) {
+        const storedTenantIds = [];
+
+        const loginTenantContext = getLoginTenantContext();
+        if (loginTenantContext && loginTenantContext.tenant_id) {
+            storedTenantIds.push(normalizeTenantId(loginTenantContext.tenant_id));
+        }
+
+        const storedTenantContext = normalizeTenantContext(readJsonStorage(STORAGE_KEY));
+        if (storedTenantContext && storedTenantContext.tenant_id) {
+            storedTenantIds.push(normalizeTenantId(storedTenantContext.tenant_id));
+        }
+
+        const storedUserTenantId = getStoredUserTenantId();
+        if (storedUserTenantId) {
+            storedTenantIds.push(normalizeTenantId(storedUserTenantId));
+        }
+
+        if (storedTenantIds.length === 0) {
+            return false;
+        }
+
+        return storedTenantIds.some(storedTenantId => storedTenantId !== currentTenantId);
+    }
+
     function buildPathForTenant(targetPath, rawTenantPath) {
         const raw = String(targetPath || '/');
         const normalized = raw.startsWith('/') ? raw : `/${raw}`;
@@ -212,6 +266,12 @@
 
         const fullUrl = getCurrentFullUrl();
         const resolved = resolveTenant(fullUrl);
+        const currentUrlTenant = getCurrentUrlTenantContext();
+
+        if (shouldClearStoredTenantState(currentUrlTenant.tenantId)) {
+            clearTenantAuthState();
+        }
+
         const routeRow = await fetchTenantRoutes();
         const routeTenantId = routeRow ? String(routeRow.company_id || '').trim().toLowerCase() : '';
         const companyId = routeRow ? (routeRow.company_id || resolved.tenantId) : resolved.tenantId;
@@ -219,8 +279,12 @@
         const matchedTenantPath = routeRow ? (routeRow.tenant_path || '') : '';
         const dbName = routeRow ? (routeRow.db_name || '') : '';
         const storageBucketName = routeRow ? (routeRow.storage_bucket_name || '') : '';
-        const resolvedTenantPath = matchedTenantPath ? normalizePath(matchedTenantPath) : resolved.tenantPath;
-        const effectiveTenantId = routeTenantId || resolved.tenantId;
+        const resolvedTenantPath = currentUrlTenant.tenantId === 'demo'
+            ? (matchedTenantPath ? normalizePath(matchedTenantPath) : resolved.tenantPath)
+            : currentUrlTenant.tenantPath;
+        const effectiveTenantId = currentUrlTenant.tenantId === 'demo'
+            ? (routeTenantId || resolved.tenantId)
+            : currentUrlTenant.tenantId;
         const isDemoTenant = effectiveTenantId === 'demo' || effectiveTenantId === 'demo_env';
 
         tenantContext = {
@@ -298,14 +362,14 @@
                 return tenantContext.tenantId;
             }
             // フォールバック: 現在のURLパスから動的に取得
-            return tenantIdFromPath(window.location.pathname);
+            return getCurrentUrlTenantContext().tenantId;
         },
         getTenantPath: () => {
             if (tenantContext) {
                 return tenantContext.tenantPath;
             }
             // フォールバック: 現在のURLパスから動的に取得
-            const tenantId = tenantIdFromPath(window.location.pathname);
+            const tenantId = getCurrentUrlTenantContext().tenantId;
             return tenantId === 'demo' ? '/' : `/${tenantId}`;
         },
         getCompanyName: () => (tenantContext ? (tenantContext.companyName || '') : ''),
