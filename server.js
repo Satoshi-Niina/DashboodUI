@@ -3937,7 +3937,7 @@ app.get('/api/ai/knowledge', requireAdmin, async (req, res) => {
       WHERE is_active = true
       ORDER BY uploaded_at DESC
     `;
-    const result = await pool.query(query);
+    const result = await getRequestDbPool(req).query(query);
 
     // ファイル名の自動デコード処理
     const processedData = result.rows.map(row => {
@@ -4397,7 +4397,7 @@ app.get('/api/ai/storage-stats', requireAdmin, async (req, res) => {
         COUNT(CASE WHEN upload_source = 'gcs' THEN 1 END) as gcs_imports
       FROM master_data.ai_knowledge_data
     `;
-    const result = await pool.query(query);
+    const result = await getRequestDbPool(req).query(query);
 
     const stats = result.rows[0];
     stats.total_size_mb = (parseFloat(stats.total_size_bytes || 0) / (1024 * 1024)).toFixed(2);
@@ -4486,7 +4486,7 @@ app.get('/api/ai/diagnose-gcs', requireAdmin, async (req, res) => {
       FROM master_data.ai_knowledge_data
       WHERE is_active = true
     `;
-    const result = await pool.query(query);
+    const result = await getRequestDbPool(req).query(query);
     const stats = result.rows[0];
 
     const totalSizeMB = (parseFloat(stats.total_size_bytes || 0) / (1024 * 1024)).toFixed(2);
@@ -4800,7 +4800,7 @@ app.get('/api/machine-types', requireAdmin, async (req, res) => {
       ORDER BY mt.id
     `;
     console.log(`[GET /api/machine-types] Executing: ${query}`);
-    const result = await pool.query(query);
+    const result = await getRequestDbPool(req).query(query);
     console.log(`[GET /api/machine-types] Success, Rows: ${result.rows.length}`);
     res.json({ success: true, data: result.rows });
   } catch (err) {
@@ -5210,7 +5210,7 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
       ORDER BY ${orderByExpr}
     `;
     console.log(`[GET /api/machines] Executing SQL...`);
-    const result = await pool.query(query);
+    const result = await getRequestDbPool(req).query(query);
     console.log(`[GET /api/machines] Success, result count: ${result.rows.length}`);
     res.json({ success: true, data: result.rows });
   } catch (err) {
@@ -5470,7 +5470,7 @@ app.get('/api/inspection-types', requireAdmin, async (req, res) => {
       FROM ${route.fullPath}
       ORDER BY ${displayOrderColumn || idColumn}, ${idColumn}
     `;
-    const result = await pool.query(query);
+    const result = await getRequestDbPool(req).query(query);
     console.log('[GET /api/inspection-types] Success:', result.rows.length);
     res.json({ success: true, data: result.rows, message: '検修種別一覧を取得しました' });
   } catch (err) {
