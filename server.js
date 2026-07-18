@@ -1199,17 +1199,29 @@ const routingColumnCache = new Map(); // { dbName: { columns: Set<string>, times
 const physicalTableColumnCache = new Map(); // { cacheKey: { columns: Set<string>, timestamp: number } }
 
 // NOTE:
-// common_db.public.app_resource_routing はテナント管理専用テーブルとして扱う。
-// dashboard-ui のテーブル解決は固定マッピングを優先し、将来の拡張用に resolveTablePath() は維持する。
+// dashboard-ui の主要マスタ5リソースは、対象テナントDB内の public.app_resource_routing で厳密に解決する。
+// users/bases など今回対象外の既存リソース向けに、固定マッピングと resolveTablePath() は維持する。
 const DASHBOARD_TABLE_MAP = {
   users: { schema: 'public', table: 'users' },
-  offices: { schema: 'public', table: 'management_offices' },
-  management_offices: { schema: 'public', table: 'management_offices' },
   bases: { schema: 'public', table: 'bases' },
-  maintenance_bases: { schema: 'public', table: 'bases' },
-  machines: { schema: 'public', table: 'machines' },
-  machine_types: { schema: 'public', table: 'machine_types' }
+  maintenance_bases: { schema: 'public', table: 'bases' }
 };
+
+const STRICT_ROUTED_RESOURCES = new Set([
+  'machines',
+  'machine_types',
+  'management_offices',
+  'inspection_types',
+  'inspection_schedules'
+]);
+
+function quoteIdentifier(identifier) {
+  const value = String(identifier || '').trim();
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(value)) {
+    throw new Error(`Invalid SQL identifier: ${value || '(empty)'}`);
+  }
+  return `"${value.replace(/"/g, '""')}"`;
+}
 
 async function getRoutingTableColumns() {
   const runtime = getActiveTenantRuntime();
@@ -1291,12 +1303,108 @@ function filterDataByColumns(data, columnSet) {
   return Object.fromEntries(entries);
 }
 
+// UUID/SERIALいずれのID列でも安全に扱うため、数値変換せず文字列のまま正規化する。
+// 空文字・undefined・nullのみnullへ変換し、それ以外は文字列として保持する。
+function normalizeOptionalId(value) {
+  const normalized = String(value ?? '').trim();
+  return normalized === '' ? null : normalized;
+}
+
+function assertRouteWritable(route, operation) {
+  if (route?.isReadonly) {
+    throw new Error(`[DynamicDB] ${operation} rejected: routed resource is readonly (${route.logicalName || route.table} -> ${route.fullPath})`);
+  }
+}
+
+async function resolveStrictRoutedTablePath(logicalName, options = {}) {
+  const normalizedLogicalName = String(logicalName || '').trim();
+  if (!STRICT_ROUTED_RESOURCES.has(normalizedLogicalName)) {
+    throw new Error(`Strict routing is not enabled for logical resource: ${normalizedLogicalName}`);
+  }
+
+  const runtime = getActiveTenantRuntime();
+  const dbName = runtime?.dbName || getDefaultDbName();
+  const tenantCacheKey = String(
+    runtime?.resolvedTenantId || runtime?.requestedTenantId || dbName || 'unknown'
+  ).trim().toLowerCase();
+  const cacheKey = `${tenantCacheKey}:${dbName}:strict:${APP_ID}:${normalizedLogicalName}`;
+  const cached = routingCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+    if (options.forWrite && cached.isReadonly) {
+      throw new Error(`Resource is readonly: ${normalizedLogicalName} -> ${cached.fullPath}`);
+    }
+    console.log(`[Gateway] Strict cache hit: ${normalizedLogicalName} → ${cached.fullPath}`);
+    return cached;
+  }
+
+  const activePool = getActiveDbPool();
+  const routingQuery = `
+    SELECT physical_schema, physical_table, is_readonly, is_active
+    FROM public.app_resource_routing
+    WHERE app_id = $1
+      AND logical_resource_name = $2
+      AND is_active = true
+    LIMIT 2
+  `;
+  const routingResult = await activePool.query(routingQuery, [APP_ID, normalizedLogicalName]);
+
+  if (routingResult.rows.length === 0) {
+    throw new Error(`app_resource_routing is not configured or inactive: app_id=${APP_ID}, logical_resource_name=${normalizedLogicalName}, db=${dbName}`);
+  }
+  if (routingResult.rows.length > 1) {
+    throw new Error(`Multiple active app_resource_routing rows found: app_id=${APP_ID}, logical_resource_name=${normalizedLogicalName}, db=${dbName}`);
+  }
+
+  const row = routingResult.rows[0];
+  const physicalSchema = String(row.physical_schema || '').trim();
+  const physicalTable = String(row.physical_table || '').trim();
+  const isReadonly = row.is_readonly === true;
+
+  if (!physicalSchema || !physicalTable) {
+    throw new Error(`Invalid app_resource_routing physical target: logical_resource_name=${normalizedLogicalName}, db=${dbName}`);
+  }
+  if (options.forWrite && isReadonly) {
+    throw new Error(`Resource is readonly: ${normalizedLogicalName} -> ${physicalSchema}.${physicalTable}`);
+  }
+
+  const existsQuery = `
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_schema = $1
+        AND table_name = $2
+    ) AS exists
+  `;
+  const existsResult = await activePool.query(existsQuery, [physicalSchema, physicalTable]);
+  if (!existsResult.rows[0]?.exists) {
+    throw new Error(`Routed physical table does not exist: ${physicalSchema}.${physicalTable} / logical_resource_name=${normalizedLogicalName} / db=${dbName}`);
+  }
+
+  const resolved = {
+    fullPath: `${quoteIdentifier(physicalSchema)}.${quoteIdentifier(physicalTable)}`,
+    schema: physicalSchema,
+    table: physicalTable,
+    appId: APP_ID,
+    logicalName: normalizedLogicalName,
+    isReadonly,
+    source: 'app-resource-routing-strict',
+    timestamp: Date.now()
+  };
+  routingCache.set(cacheKey, resolved);
+  console.log(`[Gateway] Strict route resolved: ${normalizedLogicalName} → ${resolved.fullPath} (readonly=${isReadonly})`);
+  return resolved;
+}
+
 /**
  * 論理テーブル名から物理パスを解決
  * @param {string} logicalName - 論理テーブル名（例: 'users', 'offices'）
  * @returns {Promise<{fullPath: string, schema: string, table: string}>}
  */
 async function resolveTablePath(logicalName) {
+  if (STRICT_ROUTED_RESOURCES.has(String(logicalName || '').trim())) {
+    return resolveStrictRoutedTablePath(logicalName);
+  }
+
   const runtime = getActiveTenantRuntime();
   const routingTenantIdRaw = String(
     (runtime && (runtime.resolvedTenantId || runtime.requestedTenantId)) || 'demo'
@@ -1406,6 +1514,7 @@ async function dynamicInsert(logicalTableName, data, returning = true) {
   let values = Object.values(data);
   try {
     route = await resolveTablePath(logicalTableName);
+    assertRouteWritable(route, 'INSERT');
     const columnSet = await getPhysicalTableColumns(route);
     const filteredData = filterDataByColumns(data, columnSet);
     keys = Object.keys(filteredData);
@@ -1458,6 +1567,7 @@ async function dynamicUpdate(logicalTableName, data, conditions, returning = tru
   let conditionValues = Object.values(conditions);
   try {
     route = await resolveTablePath(logicalTableName);
+    assertRouteWritable(route, 'UPDATE');
     const columnSet = await getPhysicalTableColumns(route);
 
     const filteredSetData = filterDataByColumns(data, columnSet);
@@ -1520,6 +1630,7 @@ async function dynamicDelete(logicalTableName, conditions, returning = false) {
   const conditionValues = Object.values(conditions);
   try {
     route = await resolveTablePath(logicalTableName);
+    assertRouteWritable(route, 'DELETE');
 
     const whereClause = conditionKeys.map((key, i) => `${key} = $${i + 1}`).join(' AND ');
 
@@ -2983,7 +3094,7 @@ app.get('/api/offices', authenticateToken, async (req, res) => {
   let query = '';
   let params = [];
   try {
-    const route = await resolveTablePath('management_offices');
+    const route = await resolveStrictRoutedTablePath('management_offices');
     query = `
       SELECT 
         id as office_id,
@@ -3036,7 +3147,7 @@ app.post('/api/offices', requireAdmin, async (req, res) => {
   try {
     // 事業所コードが指定されていない場合は自動採番
     if (!office_code) {
-      const route = await resolveTablePath('management_offices');
+      const route = await resolveStrictRoutedTablePath('management_offices');
       const activePool = getActiveDbPool();
       const maxCodeQuery = `SELECT MAX(CAST(office_code AS INTEGER)) as max_code FROM ${route.fullPath} WHERE office_code ~ '^[0-9]+$'`;
       const maxCodeResult = await activePool.query(maxCodeQuery);
@@ -3131,12 +3242,8 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
       { schema: 'public', table: 'maintenance_bases', source: 'legacy-fallback' },
       { schema: 'master_data', table: 'bases', source: 'legacy-fallback' }
     ], ['id', 'base_code', 'base_name', 'location', 'office_id', 'created_at', 'updated_at']);
-    const officesCompatible = await resolveCompatibleTablePath('management_offices', [
-      { schema: 'public', table: 'management_offices' },
-      { schema: 'master_data', table: 'managements_offices', source: 'legacy-fallback' }
-    ], ['id', 'office_name']);
     basesRoute = basesCompatible.route;
-    officesRoute = officesCompatible.route;
+    officesRoute = await resolveStrictRoutedTablePath('management_offices');
 
     query = `
       SELECT 
@@ -3151,7 +3258,7 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
         b.updated_at,
         o.office_name 
       FROM ${basesRoute.fullPath} b
-      LEFT JOIN ${officesRoute.fullPath} o ON b.office_id = o.id
+      LEFT JOIN ${officesRoute.fullPath} o ON b.office_id::text = o.id::text
       ORDER BY b.id DESC
     `;
     console.log('[GET /api/bases] Resolved tables:', { bases: basesRoute.fullPath, offices: officesRoute.fullPath });
@@ -4609,7 +4716,7 @@ app.post('/debug/add-postal-code', async (req, res) => {
 // 機種マスタ一覧取得
 app.get('/api/machine-types', requireAdmin, async (req, res) => {
   try {
-    const route = await resolveTablePath('machine_types');
+    const route = await resolveStrictRoutedTablePath('machine_types');
     const typeColumns = await getPhysicalTableColumns(route);
     console.log(`[GET /api/machine-types] Resolved Route: ${route.fullPath}`);
 
@@ -4695,7 +4802,7 @@ app.post('/api/machine-types', requireAdmin, async (req, res) => {
 
     if (!final_type_name) return res.status(400).json({ success: false, message: 'メーカー型式は必須です' });
 
-    const route = await resolveTablePath('machine_types');
+    const route = await resolveStrictRoutedTablePath('machine_types');
     const typeColumns = await getPhysicalTableColumns(route);
     const nameColumns = ['type_name', 'model_name', 'machine_type_name', 'name'].filter((columnName) => typeColumns.has(columnName));
     const manufacturerColumn = ['manufacturer', 'maker'].find((columnName) => typeColumns.has(columnName)) || null;
@@ -4815,7 +4922,7 @@ app.put('/api/machine-types/:id', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: 'メーカー型式は必須です' });
     }
 
-    const route = await resolveTablePath('machine_types');
+    const route = await resolveStrictRoutedTablePath('machine_types');
     const typeColumns = await getPhysicalTableColumns(route);
     const manufacturerColumn = ['manufacturer', 'maker'].find((columnName) => typeColumns.has(columnName)) || null;
     const categoryColumn = ['category', 'machine_category'].find((columnName) => typeColumns.has(columnName)) || null;
@@ -4854,8 +4961,8 @@ app.put('/api/machine-types/:id', requireAdmin, async (req, res) => {
 app.delete('/api/machine-types/:id', requireAdmin, async (req, res) => {
   try {
     const machineTypeId = req.params.id;
-    const typesRoute = await resolveTablePath('machine_types');
-    const machinesRoute = await resolveTablePath('machines');
+    const typesRoute = await resolveStrictRoutedTablePath('machine_types');
+    const machinesRoute = await resolveStrictRoutedTablePath('machines');
     const typeColumns = await getPhysicalTableColumns(typesRoute);
     const machineColumns = await getPhysicalTableColumns(machinesRoute);
     const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -4903,8 +5010,8 @@ app.delete('/api/machine-types/:id', requireAdmin, async (req, res) => {
     if (err.code === '23503') {
       try {
         const machineTypeId = req.params.id;
-        const typesRoute = await resolveTablePath('machine_types');
-        const machinesRoute = await resolveTablePath('machines');
+        const typesRoute = await resolveStrictRoutedTablePath('machine_types');
+        const machinesRoute = await resolveStrictRoutedTablePath('machines');
         const typeColumns = await getPhysicalTableColumns(typesRoute);
         const machineColumns = await getPhysicalTableColumns(machinesRoute);
         const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -4991,9 +5098,9 @@ app.delete('/api/machine-types/:id', requireAdmin, async (req, res) => {
 // 機械番号マスタ一覧取得（機種情報も含む統合ビュー）
 app.get('/api/machines', requireAdmin, async (req, res) => {
   try {
-    const machinesRoute = await resolveTablePath('machines');
-    const machineTypesRoute = await resolveTablePath('machine_types');
-    const officesRoute = await resolveTablePath('management_offices');
+    const machinesRoute = await resolveStrictRoutedTablePath('machines');
+    const machineTypesRoute = await resolveStrictRoutedTablePath('machine_types');
+    const officesRoute = await resolveStrictRoutedTablePath('management_offices');
     const machineColumns = await getPhysicalTableColumns(machinesRoute);
     const machineTypeColumns = await getPhysicalTableColumns(machineTypesRoute);
     const officeColumns = await getPhysicalTableColumns(officesRoute);
@@ -5039,7 +5146,7 @@ app.get('/api/machines', requireAdmin, async (req, res) => {
       : '1 = 0';
 
     const officeJoinCondition = machineColumns.has('office_id') && officeColumns.has('id')
-      ? 'm.office_id = mo.id'
+      ? 'm.office_id::text = mo.id::text'
       : '1 = 0';
 
     const orderByExpr = machineColumns.has('machine_number')
@@ -5113,8 +5220,21 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
     }
 
     // 実テーブル型に合わせてIDを採番/正規化
-    const route = await resolveTablePath('machines');
+    const route = await resolveStrictRoutedTablePath('machines');
     const machineColumns = await getPhysicalTableColumns(route);
+
+    // 接続先テーブルに必須列が存在しない場合、無言で保存を続行せず明確なエラーを返す
+    const requiredMachineColumns = ['machine_number', 'machine_type_id', 'office_id'];
+    const missingMachineColumns = requiredMachineColumns.filter((columnName) => !machineColumns.has(columnName));
+    if (missingMachineColumns.length > 0) {
+      console.error(`[POST /api/machines] Missing required columns on ${route.fullPath}:`, missingMachineColumns);
+      return res.status(500).json({
+        success: false,
+        message: '保守用車テーブルの列定義が不足しています',
+        detail: `不足列: ${missingMachineColumns.join(', ')} / 接続先: ${route.fullPath}`
+      });
+    }
+
     const idTypeResult = await pool.query(
       `
         SELECT data_type
@@ -5166,7 +5286,7 @@ app.post('/api/machines', requireAdmin, async (req, res) => {
 
     let normalizedMachineTypeId = machine_type_id;
     if (isMachineTypeIdUuid && normalizedMachineTypeId && !uuidPattern.test(String(normalizedMachineTypeId))) {
-      const machineTypeRoute = await resolveTablePath('machine_types');
+      const machineTypeRoute = await resolveStrictRoutedTablePath('machine_types');
       const mtColumns = await getPhysicalTableColumns(machineTypeRoute);
       if (mtColumns.has('type_code')) {
         const mtResult = await pool.query(
@@ -5296,7 +5416,7 @@ app.delete('/api/machines/:id', requireAdmin, async (req, res) => {
 app.get('/api/inspection-types', requireAdmin, async (req, res) => {
   try {
     console.log('[GET /api/inspection-types] Fetching inspection types...');
-    const route = await resolveTablePath('inspection_types');
+    const route = await resolveStrictRoutedTablePath('inspection_types');
     const columns = await getPhysicalTableColumns(route);
     const idColumn = columns.has('id') ? 'id' : (columns.has('type_id') ? 'type_id' : null);
     const typeCodeColumn = columns.has('type_code') ? 'type_code' : null;
@@ -5335,7 +5455,7 @@ app.get('/api/inspection-types', requireAdmin, async (req, res) => {
 app.get('/api/inspection-types/:id', requireAdmin, async (req, res) => {
   try {
     const typeId = req.params.id;
-    const route = await resolveTablePath('inspection_types');
+    const route = await resolveStrictRoutedTablePath('inspection_types');
     const columns = await getPhysicalTableColumns(route);
     const idColumn = columns.has('id') ? 'id' : (columns.has('type_id') ? 'type_id' : null);
     const typeCodeColumn = columns.has('type_code') ? 'type_code' : null;
@@ -5426,8 +5546,20 @@ app.post('/api/inspection-types', requireAdmin, async (req, res) => {
       }
     }
 
-    const route = await resolveTablePath('inspection_types');
+    const route = await resolveStrictRoutedTablePath('inspection_types');
     const columns = await getPhysicalTableColumns(route);
+
+    // 登録前にtype_codeの重複を確認（フロントの二重送信対策の保険として）
+    if (columns.has('type_code')) {
+      const duplicateCheck = await pool.query(
+        `SELECT id FROM ${route.fullPath} WHERE type_code = $1 LIMIT 1`,
+        [finalTypeCode]
+      );
+      if (duplicateCheck.rows.length > 0) {
+        return res.status(400).json({ success: false, message: 'この種別コードは既に登録されています', error: 'この種別コードは既に登録されています' });
+      }
+    }
+
     const insertData = {};
     if (columns.has('type_code')) insertData.type_code = finalTypeCode;
     if (columns.has('type_name')) insertData.type_name = type_name;
@@ -5462,7 +5594,7 @@ app.put('/api/inspection-types/:id', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: '種別名は必須です', error: '種別名は必須です' });
     }
 
-    const route = await resolveTablePath('inspection_types');
+    const route = await resolveStrictRoutedTablePath('inspection_types');
     const columns = await getPhysicalTableColumns(route);
     const idColumn = columns.has('id') ? 'id' : (columns.has('type_id') ? 'type_id' : null);
     if (!idColumn) {
@@ -5509,7 +5641,7 @@ app.put('/api/inspection-types/:id', requireAdmin, async (req, res) => {
 app.delete('/api/inspection-types/:id', requireAdmin, async (req, res) => {
   try {
     const typeId = req.params.id;
-    const route = await resolveTablePath('inspection_types');
+    const route = await resolveStrictRoutedTablePath('inspection_types');
     const columns = await getPhysicalTableColumns(route);
     const idColumn = columns.has('id') ? 'id' : (columns.has('type_id') ? 'type_id' : null);
     if (!idColumn) {
@@ -5540,35 +5672,15 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
   try {
     console.log('[GET /api/inspection-schedules] Fetching inspection schedules...');
 
-    const machinesCompatible = await resolveCompatibleTablePath('machines', [
-      { schema: 'public', table: 'machines' },
-      { schema: 'master_data', table: 'machines', source: 'legacy-fallback' }
-    ], ['id', 'machine_type_id']);
-    const machineTypesCompatible = await resolveCompatibleTablePath('machine_types', [
-      { schema: 'public', table: 'machine_types' },
-      { schema: 'master_data', table: 'machine_types', source: 'legacy-fallback' }
-    ], ['id']);
-    const officesCompatible = await resolveCompatibleTablePath('management_offices', [
-      { schema: 'public', table: 'management_offices' },
-      { schema: 'master_data', table: 'managements_offices', source: 'legacy-fallback' }
-    ], ['id', 'office_name']);
-    const inspectionTypesCompatible = await resolveCompatibleTablePath('inspection_types', [
-      { schema: 'public', table: 'inspection_types' },
-      { schema: 'master_data', table: 'inspection_types', source: 'legacy-fallback' }
-    ], ['id', 'type_name', 'type_code']);
-    const inspectionSchedulesCompatible = await resolveCompatibleTablePath('inspection_schedules', [
-      { schema: 'public', table: 'inspection_schedules' },
-      { schema: 'master_data', table: 'inspection_schedules', source: 'legacy-fallback' }
-    ], ['id', 'machine_id', 'inspection_type_id', 'cycle_months', 'duration_days']);
-    const machinesRoute = machinesCompatible.route;
-    const machineTypesRoute = machineTypesCompatible.route;
-    const machineTypeColumns = machineTypesCompatible.columns;
-    const officesRoute = officesCompatible.route;
-    const inspectionTypesRoute = inspectionTypesCompatible.route;
-    const inspectionTypeColumns = inspectionTypesCompatible.columns;
-    const inspectionSchedulesRoute = inspectionSchedulesCompatible.route;
+    const machinesRoute = await resolveStrictRoutedTablePath('machines');
+    const machineTypesRoute = await resolveStrictRoutedTablePath('machine_types');
+    const officesRoute = await resolveStrictRoutedTablePath('management_offices');
+    const inspectionTypesRoute = await resolveStrictRoutedTablePath('inspection_types');
+    const inspectionSchedulesRoute = await resolveStrictRoutedTablePath('inspection_schedules');
+    const machineTypeColumns = await getPhysicalTableColumns(machineTypesRoute);
+    const inspectionTypeColumns = await getPhysicalTableColumns(inspectionTypesRoute);
     const scheduleColumns = await getPhysicalTableColumns(inspectionSchedulesRoute);
-    const machineColumns = machinesCompatible.columns;
+    const machineColumns = await getPhysicalTableColumns(machinesRoute);
     const hasTargetCategory = scheduleColumns.has('target_category');
     const machineNumberExpr = machineColumns.has('machine_number') ? 'm.machine_number' : 'NULL::text';
     const machineOfficeIdExpr = machineColumns.has('office_id') ? 'm.office_id::text' : 'NULL::text';
@@ -5590,7 +5702,7 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
       ? 'm.machine_type_id::text = mt.id::text'
       : '1=0';
 
-    const query = `
+    query = `
       SELECT 
         s.id,
         s.machine_id::text AS machine_id,
@@ -5611,7 +5723,7 @@ app.get('/api/inspection-schedules', requireAdmin, async (req, res) => {
       LEFT JOIN ${machinesRoute.fullPath} m ON s.machine_id::text = m.id::text
       LEFT JOIN ${machineTypesRoute.fullPath} mt ON ${machineTypeJoinCondition}
       LEFT JOIN ${officesRoute.fullPath} o ON ${machineOfficeIdExpr} = o.id::text
-      LEFT JOIN ${inspectionTypesRoute.fullPath} it ON s.inspection_type_id = it.id
+      LEFT JOIN ${inspectionTypesRoute.fullPath} it ON s.inspection_type_id::text = it.id::text
       ORDER BY ${hasTargetCategory ? 's.target_category,' : ''} o.office_name, model_name, machine_number, ${displayOrderExpr}
     `;
 
@@ -5664,20 +5776,21 @@ app.get('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
 app.post('/api/inspection-schedules', requireAdmin, async (req, res) => {
   try {
     const { machine_id, target_category, inspection_type_id, cycle_months, duration_days, remarks, is_active } = req.body;
-    const inspectionSchedulesRoute = await resolveTablePath('inspection_schedules');
+    const inspectionSchedulesRoute = await resolveStrictRoutedTablePath('inspection_schedules');
     const scheduleColumns = await getPhysicalTableColumns(inspectionSchedulesRoute);
-    const normalizedMachineId = machine_id !== undefined && machine_id !== null && machine_id !== ''
-      ? Number.parseInt(machine_id, 10)
+    const normalizedMachineId = normalizeOptionalId(machine_id);
+    const normalizedTargetCategory = scheduleColumns.has('target_category')
+      ? normalizeOptionalId(target_category)
       : null;
-    const normalizedTargetCategory = scheduleColumns.has('target_category') && target_category
-      ? String(target_category).trim()
-      : null;
-    const normalizedInspectionTypeId = Number.parseInt(inspection_type_id, 10);
+    const normalizedInspectionTypeId = normalizeOptionalId(inspection_type_id);
     const normalizedCycleMonths = Number.parseInt(cycle_months, 10);
     const normalizedDurationDays = Number.parseInt(duration_days, 10);
 
-    // machine_id または target_category のどちらかは必須
-    if ((normalizedMachineId === null && !normalizedTargetCategory) || !Number.isInteger(normalizedInspectionTypeId) || !Number.isInteger(normalizedCycleMonths) || !Number.isInteger(normalizedDurationDays)) {
+    // machine_id (個別設定) と target_category (カテゴリー設定) はどちらか一方のみ必須。
+    if (normalizedMachineId && normalizedTargetCategory) {
+      return res.status(400).json({ success: false, message: '保守用車（個別設定）とカテゴリーは同時に指定できません', error: '保守用車（個別設定）とカテゴリーは同時に指定できません' });
+    }
+    if ((!normalizedMachineId && !normalizedTargetCategory) || !normalizedInspectionTypeId || !Number.isInteger(normalizedCycleMonths) || !Number.isInteger(normalizedDurationDays)) {
       return res.status(400).json({ success: false, message: '必須項目が入力されていません', error: '必須項目が入力されていません' });
     }
     const duplicateParams = [];
@@ -5685,14 +5798,14 @@ app.post('/api/inspection-schedules', requireAdmin, async (req, res) => {
 
     if (normalizedMachineId !== null) {
       duplicateParams.push(normalizedMachineId);
-      duplicateConditions.push(`machine_id = $${duplicateParams.length}`);
+      duplicateConditions.push(`machine_id::text = $${duplicateParams.length}`);
     } else if (normalizedTargetCategory) {
       duplicateParams.push(normalizedTargetCategory);
       duplicateConditions.push(`target_category = $${duplicateParams.length}`);
     }
 
     duplicateParams.push(normalizedInspectionTypeId);
-    duplicateConditions.push(`inspection_type_id = $${duplicateParams.length}`);
+    duplicateConditions.push(`inspection_type_id::text = $${duplicateParams.length}`);
 
     const duplicateCheck = await pool.query(
       `SELECT id FROM ${inspectionSchedulesRoute.fullPath} WHERE ${duplicateConditions.join(' AND ')} LIMIT 1`,
@@ -5737,19 +5850,20 @@ app.put('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
   try {
     const scheduleId = req.params.id;
     const { machine_id, target_category, inspection_type_id, cycle_months, duration_days, remarks, is_active } = req.body;
-    const inspectionSchedulesRoute = await resolveTablePath('inspection_schedules');
+    const inspectionSchedulesRoute = await resolveStrictRoutedTablePath('inspection_schedules');
     const scheduleColumns = await getPhysicalTableColumns(inspectionSchedulesRoute);
-    const normalizedMachineId = machine_id !== undefined && machine_id !== null && machine_id !== ''
-      ? Number.parseInt(machine_id, 10)
+    const normalizedMachineId = normalizeOptionalId(machine_id);
+    const normalizedTargetCategory = scheduleColumns.has('target_category')
+      ? normalizeOptionalId(target_category)
       : null;
-    const normalizedTargetCategory = scheduleColumns.has('target_category') && target_category
-      ? String(target_category).trim()
-      : null;
-    const normalizedInspectionTypeId = Number.parseInt(inspection_type_id, 10);
+    const normalizedInspectionTypeId = normalizeOptionalId(inspection_type_id);
     const normalizedCycleMonths = Number.parseInt(cycle_months, 10);
     const normalizedDurationDays = Number.parseInt(duration_days, 10);
 
-    if ((normalizedMachineId === null && !normalizedTargetCategory) || !Number.isInteger(normalizedInspectionTypeId) || !Number.isInteger(normalizedCycleMonths) || !Number.isInteger(normalizedDurationDays)) {
+    if (normalizedMachineId && normalizedTargetCategory) {
+      return res.status(400).json({ success: false, message: '保守用車（個別設定）とカテゴリーは同時に指定できません', error: '保守用車（個別設定）とカテゴリーは同時に指定できません' });
+    }
+    if ((!normalizedMachineId && !normalizedTargetCategory) || !normalizedInspectionTypeId || !Number.isInteger(normalizedCycleMonths) || !Number.isInteger(normalizedDurationDays)) {
       return res.status(400).json({ success: false, message: '必須項目が入力されていません', error: '必須項目が入力されていません' });
     }
     const duplicateParams = [];
@@ -5757,14 +5871,14 @@ app.put('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
 
     if (normalizedMachineId !== null) {
       duplicateParams.push(normalizedMachineId);
-      duplicateConditions.push(`machine_id = $${duplicateParams.length}`);
+      duplicateConditions.push(`machine_id::text = $${duplicateParams.length}`);
     } else if (normalizedTargetCategory) {
       duplicateParams.push(normalizedTargetCategory);
       duplicateConditions.push(`target_category = $${duplicateParams.length}`);
     }
 
     duplicateParams.push(normalizedInspectionTypeId);
-    duplicateConditions.push(`inspection_type_id = $${duplicateParams.length}`);
+    duplicateConditions.push(`inspection_type_id::text = $${duplicateParams.length}`);
     duplicateParams.push(scheduleId);
     duplicateConditions.push(`id::text <> $${duplicateParams.length}`);
 
