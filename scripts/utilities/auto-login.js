@@ -24,8 +24,8 @@
      */
     function getTokenFromUrl() {
         const urlParams = new URLSearchParams(window.location.search);
-        // 'auth_token' または 'token' パラメータを確認
-        return urlParams.get('auth_token') || urlParams.get('token');
+        // 'auth_token' / 'token' / 'external_token' パラメータを確認
+        return urlParams.get('auth_token') || urlParams.get('token') || urlParams.get('external_token');
     }
 
     function getAuthContextFromUrl() {
@@ -114,6 +114,14 @@
         const url = new URL(window.location.href);
         url.searchParams.delete('auth_token');
         url.searchParams.delete('token');
+        url.searchParams.delete('external_token');
+        url.searchParams.delete('tenant_id');
+        url.searchParams.delete('tenantId');
+        url.searchParams.delete('tenant');
+        url.searchParams.delete('company_id');
+        url.searchParams.delete('tenant_path');
+        url.searchParams.delete('role');
+        url.searchParams.delete('external_role');
         window.history.replaceState({}, document.title, url.toString());
     }
 
