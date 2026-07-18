@@ -48,10 +48,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const tenantId = window.TenantContext && typeof window.TenantContext.getTenantId === 'function'
             ? window.TenantContext.getTenantId()
-            : 'demo_env';
+            : 'demo';
         const tenantPath = window.TenantContext && typeof window.TenantContext.getTenantPath === 'function'
             ? window.TenantContext.getTenantPath()
-            : '/';
+            : (tenantId === 'demo' ? '/' : `/${tenantId}`);
+        const loginTenantContext = window.TenantContext && typeof window.TenantContext.persistLoginTenant === 'function'
+            ? window.TenantContext.persistLoginTenant({ tenant_id: tenantId, tenant_path: tenantPath })
+            : { tenant_id: tenantId, tenant_path: tenantPath };
 
         try {
             // APIリクエスト送信に実コンテキストのテナントIDを明示的にのせる
@@ -65,7 +68,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             const data = await response.json();
-            console.log('[Login] Response data:', data);
+            console.log('[Login] Response:', {
+                success: !!data.success,
+                hasToken: !!data.token,
+                tenant_id: data.tenant_id || (data.user && data.user.tenant_id),
+                tenant_path: data.tenant_path || (data.user && data.user.tenant_path),
+                role: data.role || (data.user && data.user.role)
+            });
 
             if (data.success) {
                 // 認証成功
@@ -74,16 +83,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 localStorage.setItem('user_token', data.token);
                 localStorage.setItem('user_info', JSON.stringify(data.user));
+                const confirmedTenantContext = window.TenantContext && typeof window.TenantContext.persistLoginTenant === 'function'
+                    ? window.TenantContext.persistLoginTenant({
+                        tenant_id: data.tenant_id || (data.user && data.user.tenant_id) || loginTenantContext.tenant_id,
+                        tenant_path: data.tenant_path || (data.user && data.user.tenant_path) || loginTenantContext.tenant_path,
+                        role: data.role || (data.user && data.user.role)
+                    })
+                    : loginTenantContext;
                 
                 console.log('[Login] Saved to localStorage');
                 console.log('[Login] Token check:', localStorage.getItem('user_token') ? 'OK' : 'FAILED');
-                console.log('[Login] User info check:', localStorage.getItem('user_info'));
+                console.log('[Login] User info check:', localStorage.getItem('user_info') ? 'OK' : 'FAILED');
 
                 // 成功アニメーションを表示してから遷移
                 btnText.textContent = 'リダイレクト中...';
                 setTimeout(() => {
-                    const dashboardPath = window.TenantContext && typeof window.TenantContext.buildPath === 'function'
-                        ? window.TenantContext.buildPath('/index.html')
+                    const dashboardPath = window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
+                        ? window.TenantContext.buildPathForTenant('/index.html', confirmedTenantContext.tenant_path)
                         : '/index.html';
                     window.location.href = dashboardPath;
                 }, 800);

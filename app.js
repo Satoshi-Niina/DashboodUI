@@ -270,7 +270,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             external_token: authContext.token,
             tenantId: authContext.tenantId,
             tenant: authContext.tenantId,
-            company_id: authContext.tenantId
+            company_id: authContext.tenantId,
+            tenant_id: authContext.tenantId,
+            tenant_path: authContext.tenantPath,
+            role: authContext.role,
+            external_role: authContext.externalRole
         };
 
         const payloadToken = {
@@ -279,7 +283,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             external_token: authContext.token,
             tenantId: authContext.tenantId,
             tenant: authContext.tenantId,
-            company_id: authContext.tenantId
+            company_id: authContext.tenantId,
+            tenant_id: authContext.tenantId,
+            tenant_path: authContext.tenantPath,
+            role: authContext.role,
+            external_role: authContext.externalRole
         };
 
         let attempts = 0;
@@ -308,6 +316,57 @@ document.addEventListener('DOMContentLoaded', async () => {
             return 'demo';
         }
         return normalized;
+    }
+
+    function readStoredUserInfo() {
+        try {
+            const rawUserInfo = localStorage.getItem('user_info');
+            return rawUserInfo ? JSON.parse(rawUserInfo) : null;
+        } catch (error) {
+            console.warn('[App] Failed to parse stored user info:', error);
+            return null;
+        }
+    }
+
+    function getConfirmedTenantContext() {
+        const userInfo = readStoredUserInfo() || {};
+        const loginContext = window.TenantContext && typeof window.TenantContext.getLoginTenantContext === 'function'
+            ? window.TenantContext.getLoginTenantContext()
+            : null;
+        const currentContext = window.TenantContext && typeof window.TenantContext.getContext === 'function'
+            ? window.TenantContext.getContext()
+            : null;
+
+        let tenantId = userInfo.tenant_id || userInfo.tenantId
+            || (loginContext && (loginContext.tenant_id || loginContext.tenantId))
+            || (currentContext && currentContext.tenantId)
+            || 'demo';
+        tenantId = normalizeExternalTenantId(tenantId);
+
+        const storedTenantPath = userInfo.tenant_path || userInfo.tenantPath
+            || (loginContext && (loginContext.tenant_path || loginContext.tenantPath))
+            || (currentContext && currentContext.tenantPath)
+            || '/';
+        const dashboardTenantPath = tenantId === 'demo'
+            ? '/'
+            : (storedTenantPath && storedTenantPath !== '/' ? storedTenantPath : `/${tenantId}`);
+        const tenantPath = tenantId === 'demo' ? '/demo' : dashboardTenantPath;
+        const role = userInfo.role || (loginContext && loginContext.role) || '';
+        const externalRole = userInfo.externalRole || userInfo.external_role || role;
+
+        return { tenantId, tenantPath, dashboardTenantPath, role, externalRole };
+    }
+
+    function applyTenantPathToExternalUrl(urlObj, tenantContext) {
+        const tenantId = normalizeExternalTenantId(tenantContext.tenantId);
+        const rawSegments = urlObj.pathname.split('/').filter(Boolean);
+        const firstSegment = String(rawSegments[0] || '').trim().toLowerCase();
+        const knownTenantSegments = new Set(['demo', 'demo_env', 'kosei', 'daitetsu', tenantId]);
+        const suffixSegments = knownTenantSegments.has(firstSegment)
+            ? rawSegments.slice(1)
+            : rawSegments;
+        const effectiveSuffixSegments = suffixSegments.length > 0 ? suffixSegments : ['daily-info'];
+        urlObj.pathname = `/${[tenantId, ...effectiveSuffixSegments].join('/')}`;
     }
 
     launchBtn.addEventListener('click', () => {
@@ -351,23 +410,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 ? AppConfig.tokenParamAliases
                 : [];
             
-            // テナントIDとパスを動的に取得（現在のURLパスから判定）
-            let tenantId = 'demo_env';
-            let tenantPath = '/';
-            
-            if (window.TenantContext && typeof window.TenantContext.getTenantId === 'function') {
-                tenantId = window.TenantContext.getTenantId();
-                tenantPath = window.TenantContext.getTenantPath();
-            } else {
-                // TenantContextが初期化されていない場合、URLパスから直接取得
-                const pathSegments = window.location.pathname.split('/').filter(Boolean);
-                if (pathSegments.length > 0 && pathSegments[0] !== 'api' && pathSegments[0] !== 'assets') {
-                    tenantId = pathSegments[0];
-                    tenantPath = `/${pathSegments[0]}`;
-                }
-            }
+            const confirmedTenantContext = getConfirmedTenantContext();
+            const externalTenantId = normalizeExternalTenantId(confirmedTenantContext.tenantId);
 
-            const externalTenantId = normalizeExternalTenantId(tenantId);
+            if (shouldUseExternalAuthBridge) {
+                applyTenantPathToExternalUrl(urlObj, confirmedTenantContext);
+            }
 
             urlObj.searchParams.set(tokenParam, token);
             tokenAliases.forEach(alias => {
@@ -375,15 +423,23 @@ document.addEventListener('DOMContentLoaded', async () => {
                     urlObj.searchParams.set(alias, token);
                 }
             });
-            urlObj.searchParams.set('tenant_id', tenantId);
-            urlObj.searchParams.set('tenant_path', tenantPath);
+            urlObj.searchParams.set('tenant_id', externalTenantId);
+            urlObj.searchParams.set('tenant_path', confirmedTenantContext.tenantPath);
+            urlObj.searchParams.set('role', confirmedTenantContext.role);
 
             if (shouldUseExternalAuthBridge) {
                 urlObj.searchParams.set('external_token', token);
                 urlObj.searchParams.set('tenantId', externalTenantId);
                 urlObj.searchParams.set('tenant', externalTenantId);
                 urlObj.searchParams.set('company_id', externalTenantId);
-                authContext = { token, tenantId: externalTenantId };
+                urlObj.searchParams.set('external_role', confirmedTenantContext.externalRole);
+                authContext = {
+                    token,
+                    tenantId: externalTenantId,
+                    tenantPath: confirmedTenantContext.tenantPath,
+                    role: confirmedTenantContext.role,
+                    externalRole: confirmedTenantContext.externalRole
+                };
             }
 
             popupOrigin = urlObj.origin;
@@ -414,8 +470,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 localStorage.removeItem('user_info');
                 // ログインフォームをクリアするフラグを設定
                 sessionStorage.setItem('clearLoginForm', 'true');
-                const loginPath = window.TenantContext && typeof window.TenantContext.buildPath === 'function'
-                    ? window.TenantContext.buildPath('/login.html')
+                const confirmedTenantContext = getConfirmedTenantContext();
+                const loginPath = window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
+                    ? window.TenantContext.buildPathForTenant('/login.html', confirmedTenantContext.dashboardTenantPath)
                     : '/login.html';
                 window.location.href = loginPath;
             }

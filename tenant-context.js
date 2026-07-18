@@ -2,6 +2,7 @@
     'use strict';
 
     const STORAGE_KEY = 'tenant_context';
+    const LOGIN_STORAGE_KEY = 'login_tenant_context';
     const nativeFetch = window.fetch.bind(window);
     let initPromise = null;
     let tenantContext = null;
@@ -68,6 +69,69 @@
         return tenantId === 'demo' ? '/' : `/${tenantId}`;
     }
 
+    function normalizeTenantId(rawTenantId) {
+        const normalized = String(rawTenantId || '').trim().toLowerCase();
+        if (!normalized || normalized === 'demo_env') {
+            return 'demo';
+        }
+        return normalized;
+    }
+
+    function tenantPathFromTenantId(rawTenantId) {
+        const tenantId = normalizeTenantId(rawTenantId);
+        return tenantId === 'demo' ? '/' : `/${tenantId}`;
+    }
+
+    function normalizeTenantContext(rawContext) {
+        if (!rawContext) {
+            return null;
+        }
+
+        const tenantId = normalizeTenantId(rawContext.tenant_id || rawContext.tenantId || rawContext.companyId);
+        const rawTenantPath = rawContext.tenant_path || rawContext.tenantPath || tenantPathFromTenantId(tenantId);
+        const tenantPath = normalizePath(rawTenantPath || tenantPathFromTenantId(tenantId));
+
+        return {
+            tenantId,
+            tenant_id: tenantId,
+            tenantPath,
+            tenant_path: tenantPath,
+            role: rawContext.role || '',
+            savedAt: new Date().toISOString()
+        };
+    }
+
+    function readJsonStorage(key) {
+        try {
+            const rawValue = localStorage.getItem(key);
+            return rawValue ? JSON.parse(rawValue) : null;
+        } catch (_) {
+            return null;
+        }
+    }
+
+    function getLoginTenantContext() {
+        return normalizeTenantContext(readJsonStorage(LOGIN_STORAGE_KEY))
+            || normalizeTenantContext(readJsonStorage(STORAGE_KEY));
+    }
+
+    function persistLoginTenant(rawContext) {
+        const normalized = normalizeTenantContext(rawContext);
+        if (!normalized) {
+            return null;
+        }
+        localStorage.setItem(LOGIN_STORAGE_KEY, JSON.stringify(normalized));
+        return normalized;
+    }
+
+    function buildPathForTenant(targetPath, rawTenantPath) {
+        const raw = String(targetPath || '/');
+        const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+        const tenantPath = normalizePath(rawTenantPath || '/');
+        if (!tenantPath || tenantPath === '/') return normalized;
+        return `${tenantPath}${normalized}`.replace(/\/\/+/g, '/');
+    }
+
     function getBasePath() {
         if (!tenantContext || !tenantContext.tenantPath || tenantContext.tenantPath === '/') {
             return '';
@@ -76,11 +140,8 @@
     }
 
     function buildPath(targetPath) {
-        const raw = String(targetPath || '/');
-        const normalized = raw.startsWith('/') ? raw : `/${raw}`;
         const base = getBasePath();
-        if (!base) return normalized;
-        return `${base}${normalized}`.replace(/\/\/+/, '/');
+        return buildPathForTenant(targetPath, base || '/');
     }
 
     function toAbsoluteUrl(targetPath) {
@@ -253,6 +314,9 @@
         getTenantLabel: () => toTenantLabel(tenantContext),
         getCurrentFullUrl,
         buildPath,
+        buildPathForTenant,
+        persistLoginTenant,
+        getLoginTenantContext,
         toAbsoluteUrl
     };
 

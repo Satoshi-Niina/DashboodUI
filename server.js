@@ -2178,7 +2178,7 @@ function normalizeRoleForApp(role) {
     return 'operation_admin';
   }
 
-  return 'user';
+  return 'operator';
 }
 
 function getDepartmentByRole(role) {
@@ -2263,8 +2263,6 @@ app.post('/api/login', async (req, res) => {
       } else if (user.password) {
         // 平文パスワード（後方互換性のため）
         console.log('[Login] Using plaintext comparison');
-        console.log('[Login] DB password value:', user.password);
-        console.log('[Login] Submitted password value:', password);
         match = (password === user.password);
       } else {
         // パスワードが NULL
@@ -2294,16 +2292,23 @@ app.post('/api/login', async (req, res) => {
 
         // 認証成功 - 旧ロールを3種類へ正規化して扱う
         const normalizedRole = normalizeRoleForApp(user.role);
+        const externalRole = mapRoleForExternal(normalizedRole);
         const department = getDepartmentByRole(normalizedRole);
+        const effectiveTenantId = runtime.companyId || runtime.resolvedTenantId || runtime.tenantId || tenantId || 'demo';
+        const effectiveTenantPath = normalizeTenantPathForResponse(runtime.tenantPath || '', effectiveTenantId);
 
         const payload = {
           id: user.id,
           userId: user.id,  // 外部アプリ連携用
           username: user.username,
           displayName: user.display_name,  // Emergency-Assistanceで必要
-          role: mapRoleForExternal(normalizedRole), // 外部システムが期待するロールにマッピング
+          role: normalizedRole,
+          externalRole,
           department: department,  // Emergency-Assistanceで必要
-          tenantId: runtime.tenantId,  // テナント ID（マルチテナント制御用）
+          tenantId: effectiveTenantId,  // テナント ID（マルチテナント制御用）
+          tenant_id: effectiveTenantId,
+          tenantPath: effectiveTenantPath,
+          tenant_path: effectiveTenantPath,
           dbName: runtime.dbName,  // DB 名（データベース接続用）
           iat: Math.floor(Date.now() / 1000)  // 発行時刻を明示
         };
@@ -2317,7 +2322,9 @@ app.post('/api/login', async (req, res) => {
         console.log('[Login] 🎫 JWT Token generated:', {
           userId: user.id,
           username: user.username,
-          tenantId: runtime.tenantId,
+          tenantId: effectiveTenantId,
+          tenantPath: effectiveTenantPath,
+          role: normalizedRole,
           dbName: runtime.dbName,
           tokenLength: token.length,
           issuer: 'emergency-assistance-app',
@@ -2329,11 +2336,17 @@ app.post('/api/login', async (req, res) => {
         res.json({
           success: true,
           token,
+          tenant_id: effectiveTenantId,
+          tenant_path: effectiveTenantPath,
+          role: normalizedRole,
           user: {
+            id: user.id,
             username: user.username,
             displayName: user.display_name,
             role: normalizedRole,
-            externalRole: mapRoleForExternal(normalizedRole)
+            externalRole,
+            tenant_id: effectiveTenantId,
+            tenant_path: effectiveTenantPath
           }
         });
       } else {
