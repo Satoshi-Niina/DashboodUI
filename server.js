@@ -501,6 +501,19 @@ function buildPoolConfigForDb(dbName) {
   return config;
 }
 
+function applyTenantSearchPath(poolInstance, dbName) {
+  if (!poolInstance || typeof poolInstance.on !== 'function') {
+    return;
+  }
+
+  const searchPathSql = 'SET search_path TO public, operations, inspection_mgmt, emergency, ai';
+  poolInstance.on('connect', (client) => {
+    client.query(searchPathSql).catch((err) => {
+      console.error(`[TenantDB] Failed to set search_path for ${dbName}:`, err.message);
+    });
+  });
+}
+
 function getOrCreateTenantPool(dbName) {
   if (!dbName) return getControlPlanePool();
 
@@ -512,6 +525,7 @@ function getOrCreateTenantPool(dbName) {
 
   const tenantPoolConfig = buildPoolConfigForDb(dbName);
   const tenantPool = new Pool(tenantPoolConfig);
+  applyTenantSearchPath(tenantPool, dbName);
   tenantPool.on('error', (err) => {
     console.error(`[TenantDB] Unexpected error on tenant pool ${dbName}:`, err.message);
   });
