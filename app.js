@@ -418,21 +418,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             urlObj.searchParams.set(tokenParam, token);
+            urlObj.searchParams.set('external_token', token);
             tokenAliases.forEach(alias => {
                 if (alias && alias !== tokenParam) {
                     urlObj.searchParams.set(alias, token);
                 }
             });
             urlObj.searchParams.set('tenant_id', externalTenantId);
+            urlObj.searchParams.set('tenantId', externalTenantId);
+            urlObj.searchParams.set('tenant', externalTenantId);
+            urlObj.searchParams.set('company_id', externalTenantId);
             urlObj.searchParams.set('tenant_path', confirmedTenantContext.tenantPath);
             urlObj.searchParams.set('role', confirmedTenantContext.role);
+            urlObj.searchParams.set('external_role', confirmedTenantContext.externalRole);
 
             if (shouldUseExternalAuthBridge) {
-                urlObj.searchParams.set('external_token', token);
-                urlObj.searchParams.set('tenantId', externalTenantId);
-                urlObj.searchParams.set('tenant', externalTenantId);
-                urlObj.searchParams.set('company_id', externalTenantId);
-                urlObj.searchParams.set('external_role', confirmedTenantContext.externalRole);
                 authContext = {
                     token,
                     tenantId: externalTenantId,

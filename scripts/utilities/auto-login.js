@@ -28,6 +28,24 @@
         return urlParams.get('auth_token') || urlParams.get('token');
     }
 
+    function getAuthContextFromUrl() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tenantId = urlParams.get('tenant_id') || urlParams.get('tenantId') || urlParams.get('tenant') || urlParams.get('company_id') || '';
+        const tenantPath = urlParams.get('tenant_path') || '';
+        const role = urlParams.get('role') || '';
+        const externalRole = urlParams.get('external_role') || role;
+
+        return {
+            tenant_id: tenantId,
+            tenantId,
+            tenant_path: tenantPath,
+            tenantPath,
+            role,
+            external_role: externalRole,
+            externalRole
+        };
+    }
+
     /**
      * トークンを検証してユーザー情報を取得
      */
@@ -68,10 +86,25 @@
     /**
      * ローカルストレージにユーザー情報を保存
      */
-    function saveUserSession(token, userInfo) {
+    function saveUserSession(token, userInfo, authContext = {}) {
+        const mergedUserInfo = {
+            ...userInfo,
+            ...authContext,
+            tenant_id: authContext.tenant_id || authContext.tenantId || userInfo.tenant_id || userInfo.tenantId || '',
+            tenant_path: authContext.tenant_path || authContext.tenantPath || userInfo.tenant_path || userInfo.tenantPath || '',
+            role: authContext.role || userInfo.role || '',
+            external_role: authContext.external_role || authContext.externalRole || userInfo.external_role || userInfo.externalRole || userInfo.role || ''
+        };
         localStorage.setItem('user_token', token);
-        localStorage.setItem('user_info', JSON.stringify(userInfo));
-        console.log('✅ セッション情報を保存しました:', userInfo);
+        localStorage.setItem('user_info', JSON.stringify(mergedUserInfo));
+        localStorage.setItem('login_tenant_context', JSON.stringify({
+            tenant_id: mergedUserInfo.tenant_id,
+            tenant_path: mergedUserInfo.tenant_path,
+            role: mergedUserInfo.role,
+            external_role: mergedUserInfo.external_role,
+            savedAt: new Date().toISOString()
+        }));
+        console.log('✅ セッション情報を保存しました:', mergedUserInfo);
     }
 
     /**
@@ -127,7 +160,8 @@
 
         if (result && result.valid && result.user) {
             // 検証成功
-            saveUserSession(token, result.user);
+            const authContext = getAuthContextFromUrl();
+            saveUserSession(token, result.user, authContext);
             removeTokenFromUrl();
 
             if (cfg.showConsoleLog) {

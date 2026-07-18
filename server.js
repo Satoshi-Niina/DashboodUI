@@ -2397,35 +2397,48 @@ app.post('/api/verify-token', async (req, res) => {
       audience: 'emergency-assistance-app'
     });
 
-    // ゲートウェイ方式でユーザー情報を取得（departmentカラムは取得しない）
-    const users = await dynamicSelect('users',
-      { id: decoded.id },
-      ['id', 'username', 'display_name', 'role'],
-      1
-    );
+    const runtime = await resolveTenantRuntime(decoded.tenantId || 'demo_env');
 
-    if (users.length === 0) {
-      return res.status(404).json({
-        valid: false,
-        success: false,
-        message: 'ユーザーが見つかりません'
-      });
-    }
+    return requestTenantContextStorage.run(runtime, async () => {
+      req.tenantContext = runtime;
+      req.tenantId = runtime.resolvedTenantId || decoded.tenantId || 'demo_env';
+      req.db = runtime.pool || getControlPlanePool();
 
-    const user = users[0];
-    const normalizedRole = normalizeRoleForApp(user.role);
-    const department = getDepartmentByRole(normalizedRole);
+      // ゲートウェイ方式でユーザー情報を取得（departmentカラムは取得しない）
+      const users = await dynamicSelect('users',
+        { id: decoded.id },
+        ['id', 'username', 'display_name', 'role'],
+        1
+      );
 
-    res.json({
-      valid: true,
-      success: true,
-      user: {
-        id: user.id,
-        username: user.username,
-        displayName: user.display_name,
-        role: mapRoleForExternal(normalizedRole), // 外部システムが期待するロールにマッピング
-        department: department
+      if (users.length === 0) {
+        return res.status(404).json({
+          valid: false,
+          success: false,
+          message: 'ユーザーが見つかりません'
+        });
       }
+
+      const user = users[0];
+      const normalizedRole = normalizeRoleForApp(user.role);
+      const department = getDepartmentByRole(normalizedRole);
+
+      res.json({
+        valid: true,
+        success: true,
+        tenant_id: runtime.resolvedTenantId || decoded.tenantId || 'demo_env',
+        tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || decoded.tenantId || 'demo_env'),
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: user.display_name,
+          role: mapRoleForExternal(normalizedRole),
+          externalRole: mapRoleForExternal(normalizedRole),
+          department: department,
+          tenant_id: runtime.resolvedTenantId || decoded.tenantId || 'demo_env',
+          tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || decoded.tenantId || 'demo_env')
+        }
+      });
     });
   } catch (err) {
     console.error('Token verification error:', err);
@@ -2764,7 +2777,7 @@ app.get('/api/users', requireAdmin, async (req, res) => {
     ], ['id', 'username', 'display_name', 'role', 'created_at']);
     route = compatible.route;
     query = `SELECT id, username, display_name, role, created_at FROM ${route.fullPath} ORDER BY id ASC`;
-    const result = await getActiveDbPool().query(query);
+    const result = await getRequestDbPool(req).query(query);
     const normalizedUsers = result.rows.map((row) => ({
       ...row,
       role: normalizeRoleForApp(row.role)
@@ -2788,7 +2801,6 @@ app.get('/api/users', requireAdmin, async (req, res) => {
   }
 });
 
-// ユーザー詳細取得エンドポイント
 app.get('/api/users/:id', requireAdmin, async (req, res) => {
   const userId = req.params.id;
 
