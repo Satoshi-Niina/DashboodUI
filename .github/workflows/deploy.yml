@@ -113,17 +113,24 @@ jobs:
       - name: Build and Deploy to Cloud Run (Clean Build)
         id: deploy
         run: |
-          # タイムスタンプでイメージタグを生成（キャッシュ無効化）
+          # タイムスタンプでイメージタグを生成
           TIMESTAMP=$(date +%s)
           SHORT_SHA="${GITHUB_SHA:0:7}"
           IMAGE_TAG="gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${TIMESTAMP}-${SHORT_SHA}"
           REVISION_SUFFIX="${TIMESTAMP}-${SHORT_SHA}"
-          
-          echo "🔨 Building Docker image with timestamp: $TIMESTAMP"
-          echo "🚫 Cache disabled: --no-cache"
-          echo "📦 Image tag: $IMAGE_TAG"
-          echo "📌 Short SHA: $SHORT_SHA"
-          echo "🆕 Revision suffix: $REVISION_SUFFIX"
+
+          echo "🚀 Building image with no-cache: $IMAGE_TAG"
+
+          # 1. キャッシュを完全に無効化してビルド＆Push（cloudbuild.yamlを使わず直接実行）
+          gcloud builds submit --tag $IMAGE_TAG --no-cache .
+
+          echo "🚀 Deploying to Cloud Run..."
+
+          # 2. Cloud Runへのデプロイ（既存のコマンドがあればそれに合わせてください）
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image $IMAGE_TAG \
+            --region asia-northeast2 \
+            --revision-suffix=$REVISION_SUFFIX
           
           # Dockerイメージをビルド（完全にキャッシュ無効化）
           docker build \
