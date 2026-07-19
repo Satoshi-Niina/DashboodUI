@@ -119,36 +119,12 @@ jobs:
           IMAGE_TAG="gcr.io/${{ env.PROJECT_ID }}/${{ env.SERVICE_NAME }}:${TIMESTAMP}-${SHORT_SHA}"
           REVISION_SUFFIX="${TIMESTAMP}-${SHORT_SHA}"
 
-          echo "🚀 Building image with no-cache: $IMAGE_TAG"
+          echo "🚀 Building image with Cloud Build: $IMAGE_TAG"
 
-          # 1. キャッシュを完全に無効化してビルド＆Push（cloudbuild.yamlを使わず直接実行）
-          gcloud builds submit --tag $IMAGE_TAG --no-cache .
+          # 1. Cloud Build でリモートビルド（エラー原因だった --no-cache を削除）
+          gcloud builds submit --tag $IMAGE_TAG .
 
-          echo "🚀 Deploying to Cloud Run..."
-
-          # 2. Cloud Runへのデプロイ（既存のコマンドがあればそれに合わせてください）
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image $IMAGE_TAG \
-            --region asia-northeast2 \
-            --revision-suffix=$REVISION_SUFFIX
-          
-          # Dockerイメージをビルド（完全にキャッシュ無効化）
-          docker build \
-            --no-cache \
-            --pull \
-            --build-arg CACHEBUST=$TIMESTAMP \
-            --build-arg BUILDTIME=$(date -Iseconds) \
-            -t $IMAGE_TAG .
-          
           echo "✅ Build completed"
-          
-          # GCRにプッシュ
-          echo "📤 Pushing to GCR..."
-          docker push $IMAGE_TAG
-          echo "✅ Push completed"
-          
-          # Cloud Runにデプロイ
-          # 注意: --tagオプションは使用しない（サービス名+タグで46文字制限あり）
           echo "🚀 Deploying to Cloud Run..."
 
           # 特殊文字やカンマを含む値でも安全に渡せるよう env file を使用
@@ -176,6 +152,7 @@ jobs:
           BUILD_TIMESTAMP: "$TIMESTAMP"
           EOF
 
+          # 2. Cloud Runへのデプロイ
           gcloud run deploy ${{ env.SERVICE_NAME }} \
             --image=$IMAGE_TAG \
             --project=${{ env.PROJECT_ID }} \
