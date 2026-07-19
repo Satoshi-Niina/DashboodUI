@@ -540,13 +540,6 @@ function getOrCreateTenantPool(dbName) {
   return tenantPool;
 }
 
-function getTenantRoutingPool() {
-  // app_resource_routing テーブル（テーブル案内板）は common_db（司令塔DB）に一元化されているため、
-  // すべてのテナント解決において、この案内板クエリ（resolveTablePathでのSELECT）は
-  // 常に getControlPlanePool() ＝ common_db に対しておこなうのが正しい挙動です。
-  return getControlPlanePool();
-}
-
 function getCompanyRoutingPool() {
   const routingDbName = getCompanyRoutingDbName();
   const defaultDbName = getDefaultDbName();
@@ -1219,27 +1212,20 @@ setImmediate(async () => {
 // ========================================
 
 const APP_ID = process.env.APP_ID || 'dashboard-ui';
-const routingCache = new Map(); // { key: { fullPath, schema, table, timestamp } }
-const CACHE_TTL = 60 * 1000; // 1分（本番での即座な反映を重視）
-const routingColumnCache = new Map(); // { dbName: { columns: Set<string>, timestamp: number } }
-const physicalTableColumnCache = new Map(); // { cacheKey: { columns: Set<string>, timestamp: number } }
 
 // NOTE:
-// dashboard-ui の主要マスタ5リソースは、対象テナントDB内の public.app_resource_routing で厳密に解決する。
-// users/bases など今回対象外の既存リソース向けに、固定マッピングと resolveTablePath() は維持する。
+// dashboard-ui の主要マスタは、対象テナントDB内の public スキーマへ固定マッピングする。
+// ルーティングテーブルは参照せず、現在の req.tenantContext が指す接続先DBに対して直接解決する。
 const DASHBOARD_TABLE_MAP = {
   users: { schema: 'public', table: 'users' },
   bases: { schema: 'public', table: 'bases' },
-  maintenance_bases: { schema: 'public', table: 'bases' }
+  maintenance_bases: { schema: 'public', table: 'bases' },
+  management_offices: { schema: 'public', table: 'management_offices' },
+  machines: { schema: 'public', table: 'machines' },
+  machine_types: { schema: 'public', table: 'machine_types' },
+  inspection_types: { schema: 'public', table: 'inspection_types' },
+  inspection_schedules: { schema: 'public', table: 'inspection_schedules' }
 };
-
-const STRICT_ROUTED_RESOURCES = new Set([
-  'machines',
-  'machine_types',
-  'management_offices',
-  'inspection_types',
-  'inspection_schedules'
-]);
 
 function quoteIdentifier(identifier) {
   const value = String(identifier || '').trim();
@@ -1249,37 +1235,7 @@ function quoteIdentifier(identifier) {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
-async function getRoutingTableColumns() {
-  const runtime = getActiveTenantRuntime();
-  const dbName = runtime?.dbName || getDefaultDbName();
-  const now = Date.now();
-  const cached = routingColumnCache.get(dbName);
-  if (cached && (now - cached.timestamp) < CACHE_TTL) {
-    return cached.columns;
-  }
-
-  const columnsQuery = `
-    SELECT column_name
-    FROM information_schema.columns
-    WHERE table_schema = 'public'
-      AND table_name = 'app_resource_routing'
-  `;
-  const result = await getTenantRoutingPool().query(columnsQuery);
-  const columns = new Set(result.rows.map((row) => String(row.column_name || '').trim().toLowerCase()));
-  routingColumnCache.set(dbName, { columns, timestamp: now });
-  return columns;
-}
-
 async function getPhysicalTableColumns(route) {
-  const runtime = getActiveTenantRuntime();
-  const dbName = runtime?.dbName || getDefaultDbName();
-  const cacheKey = `${dbName}:${route.schema}:${route.table}`;
-  const now = Date.now();
-  const cached = physicalTableColumnCache.get(cacheKey);
-  if (cached && (now - cached.timestamp) < CACHE_TTL) {
-    return cached.columns;
-  }
-
   const query = `
     SELECT column_name
     FROM information_schema.columns
@@ -1288,40 +1244,25 @@ async function getPhysicalTableColumns(route) {
   `;
   const result = await pool.query(query, [route.schema, route.table]);
   const columns = new Set(result.rows.map((row) => String(row.column_name || '').trim().toLowerCase()));
-  physicalTableColumnCache.set(cacheKey, { columns, timestamp: now });
   return columns;
 }
 
-async function resolveCompatibleTablePath(logicalName, candidates, requiredColumns) {
-  for (const candidate of candidates) {
-    const route = {
-      fullPath: `${candidate.schema}."${candidate.table}"`,
-      schema: candidate.schema,
-      table: candidate.table,
-      appId: APP_ID,
-      source: candidate.source || 'schema-compatible',
-      timestamp: Date.now()
-    };
-    const columns = await getPhysicalTableColumns(route);
-    const missingColumns = requiredColumns.filter((columnName) => !columns.has(columnName));
-    if (columns.size > 0 && missingColumns.length === 0) {
-      console.log(`[Gateway] Compatible map resolved: ${logicalName} -> ${route.fullPath}`);
-      return { route, columns };
-    }
-    console.warn(`[Gateway] Incomplete table skipped: ${route.fullPath}`, { missingColumns });
+async function resolveCompatibleTablePath(logicalName, candidates) {
+  const firstCandidate = candidates[0];
+  if (!firstCandidate) {
+    throw new Error(`No table candidates provided for logical resource: ${logicalName}`);
   }
 
-  const firstCandidate = candidates[0];
-  const fallback = {
-    fullPath: `${firstCandidate.schema}."${firstCandidate.table}"`,
+  const route = {
+    fullPath: `${quoteIdentifier(firstCandidate.schema)}.${quoteIdentifier(firstCandidate.table)}`,
     schema: firstCandidate.schema,
     table: firstCandidate.table,
     appId: APP_ID,
-    source: 'schema-incomplete',
+    source: firstCandidate.source || 'schema-compatible',
     timestamp: Date.now()
   };
-  console.warn(`[Gateway] No complete table found for ${logicalName}; using ${fallback.fullPath}`);
-  return { route: fallback, columns: await getPhysicalTableColumns(fallback) };
+  console.log(`[Gateway] Compatible map resolved: ${logicalName} -> ${route.fullPath}`);
+  return { route, columns: await getPhysicalTableColumns(route) };
 }
 
 function filterDataByColumns(data, columnSet) {
@@ -1342,83 +1283,8 @@ function assertRouteWritable(route, operation) {
   }
 }
 
-async function resolveStrictRoutedTablePath(logicalName, options = {}) {
-  const normalizedLogicalName = String(logicalName || '').trim();
-  if (!STRICT_ROUTED_RESOURCES.has(normalizedLogicalName)) {
-    throw new Error(`Strict routing is not enabled for logical resource: ${normalizedLogicalName}`);
-  }
-
-  const runtime = getActiveTenantRuntime();
-  const dbName = runtime?.dbName || getDefaultDbName();
-  const tenantCacheKey = String(
-    runtime?.resolvedTenantId || runtime?.requestedTenantId || dbName || 'unknown'
-  ).trim().toLowerCase();
-  const cacheKey = `${tenantCacheKey}:${dbName}:strict:${APP_ID}:${normalizedLogicalName}`;
-  const cached = routingCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
-    if (options.forWrite && cached.isReadonly) {
-      throw new Error(`Resource is readonly: ${normalizedLogicalName} -> ${cached.fullPath}`);
-    }
-    console.log(`[Gateway] Strict cache hit: ${normalizedLogicalName} → ${cached.fullPath}`);
-    return cached;
-  }
-
-  const activePool = getActiveDbPool();
-  const routingQuery = `
-    SELECT physical_schema, physical_table, is_readonly, is_active
-    FROM public.app_resource_routing
-    WHERE app_id = $1
-      AND logical_resource_name = $2
-      AND is_active = true
-    LIMIT 2
-  `;
-  const routingResult = await activePool.query(routingQuery, [APP_ID, normalizedLogicalName]);
-
-  if (routingResult.rows.length === 0) {
-    throw new Error(`app_resource_routing is not configured or inactive: app_id=${APP_ID}, logical_resource_name=${normalizedLogicalName}, db=${dbName}`);
-  }
-  if (routingResult.rows.length > 1) {
-    throw new Error(`Multiple active app_resource_routing rows found: app_id=${APP_ID}, logical_resource_name=${normalizedLogicalName}, db=${dbName}`);
-  }
-
-  const row = routingResult.rows[0];
-  const physicalSchema = String(row.physical_schema || '').trim();
-  const physicalTable = String(row.physical_table || '').trim();
-  const isReadonly = row.is_readonly === true;
-
-  if (!physicalSchema || !physicalTable) {
-    throw new Error(`Invalid app_resource_routing physical target: logical_resource_name=${normalizedLogicalName}, db=${dbName}`);
-  }
-  if (options.forWrite && isReadonly) {
-    throw new Error(`Resource is readonly: ${normalizedLogicalName} -> ${physicalSchema}.${physicalTable}`);
-  }
-
-  const existsQuery = `
-    SELECT EXISTS (
-      SELECT 1
-      FROM information_schema.tables
-      WHERE table_schema = $1
-        AND table_name = $2
-    ) AS exists
-  `;
-  const existsResult = await activePool.query(existsQuery, [physicalSchema, physicalTable]);
-  if (!existsResult.rows[0]?.exists) {
-    throw new Error(`Routed physical table does not exist: ${physicalSchema}.${physicalTable} / logical_resource_name=${normalizedLogicalName} / db=${dbName}`);
-  }
-
-  const resolved = {
-    fullPath: `${quoteIdentifier(physicalSchema)}.${quoteIdentifier(physicalTable)}`,
-    schema: physicalSchema,
-    table: physicalTable,
-    appId: APP_ID,
-    logicalName: normalizedLogicalName,
-    isReadonly,
-    source: 'app-resource-routing-strict',
-    timestamp: Date.now()
-  };
-  routingCache.set(cacheKey, resolved);
-  console.log(`[Gateway] Strict route resolved: ${normalizedLogicalName} → ${resolved.fullPath} (readonly=${isReadonly})`);
-  return resolved;
+async function resolveStrictRoutedTablePath(logicalName) {
+  return resolveTablePath(logicalName);
 }
 
 /**
@@ -1427,24 +1293,6 @@ async function resolveStrictRoutedTablePath(logicalName, options = {}) {
  * @returns {Promise<{fullPath: string, schema: string, table: string}>}
  */
 async function resolveTablePath(logicalName) {
-  if (STRICT_ROUTED_RESOURCES.has(String(logicalName || '').trim())) {
-    return resolveStrictRoutedTablePath(logicalName);
-  }
-
-  const runtime = getActiveTenantRuntime();
-  const routingTenantIdRaw = String(
-    (runtime && (runtime.resolvedTenantId || runtime.requestedTenantId)) || 'demo'
-  ).trim().toLowerCase();
-  const routingTenantId = routingTenantIdRaw === 'demo_env' ? 'demo' : routingTenantIdRaw;
-  const cacheKey = `${routingTenantId}:${APP_ID}:${logicalName}`;
-
-  // キャッシュチェック
-  const cached = routingCache.get(cacheKey);
-  if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
-    console.log(`[Gateway] Cache hit: ${logicalName} → ${cached.fullPath}`);
-    return cached;
-  }
-
   const mapped = DASHBOARD_TABLE_MAP[logicalName];
 
   if (mapped) {
@@ -1456,7 +1304,6 @@ async function resolveTablePath(logicalName) {
       source: 'fixed-map',
       timestamp: Date.now()
     };
-    routingCache.set(cacheKey, resolved);
     console.log(`[Gateway] ✅ Fixed map resolved: ${logicalName} → ${resolved.fullPath}`);
     return resolved;
   }
@@ -1471,7 +1318,6 @@ async function resolveTablePath(logicalName) {
     source: 'public-fallback',
     timestamp: Date.now()
   };
-  routingCache.set(cacheKey, fallback);
   console.log(`[Gateway] ⚠️ Fixed map not found. Fallback: ${logicalName} → ${fallback.fullPath}`);
   return fallback;
 }
@@ -1686,465 +1532,11 @@ async function dynamicDelete(logicalTableName, conditions, returning = false) {
   }
 }
 
-/**
- * ルーティングキャッシュをクリア
- * @param {string} logicalName - 論理テーブル名 (省略時は全クリア)
- */
-function clearRoutingCache(logicalName = null) {
-  if (logicalName) {
-    const suffix = `:${APP_ID}:${logicalName}`;
-    for (const key of routingCache.keys()) {
-      if (key.endsWith(suffix)) {
-        routingCache.delete(key);
-      }
-    }
-    console.log(`[Gateway] Cache cleared for: ${logicalName}`);
-  } else {
-    routingCache.clear();
-    routingColumnCache.clear();
-    physicalTableColumnCache.clear();
-    console.log('[Gateway] All cache cleared');
-  }
-}
-
 // ========================================
 // ゲートウェイ機能ここまで
 // ========================================
 
-// ========================================
-// デバッグ用エンドポイント
-// 注意：接続確認優先のため、一時的に認証なしで公開
-// 本番環境で接続確認が完了したら認証を強化すること
-// ========================================
-
-// ルーティング情報確認エンドポイント（認証なし）
-app.get('/api/debug/routing', async (req, res) => {
-  try {
-    console.log('[DEBUG] Fetching routing table...');
-    const runtime = req.tenantContext || getActiveTenantRuntime();
-    const routingTenantIdRaw = String(
-      (runtime && (runtime.resolvedTenantId || runtime.requestedTenantId))
-      || req.requestedTenantId
-      || req.query.tenant_id
-      || 'demo'
-    ).trim().toLowerCase();
-    const routingTenantId = routingTenantIdRaw === 'demo_env' ? 'demo' : routingTenantIdRaw;
-    const columns = await getRoutingTableColumns();
-    const params = [];
-    const conditions = ['is_active = true'];
-    if (columns.has('tenant_id')) {
-      params.push(routingTenantId);
-      conditions.push(`tenant_id = $${params.length}`);
-    }
-    if (columns.has('app_id')) {
-      params.push(APP_ID);
-      conditions.push(`app_id = $${params.length}`);
-    }
-    const orderBy = columns.has('logical_resource_name')
-      ? ' ORDER BY logical_resource_name'
-      : '';
-    const query = `
-      SELECT *
-      FROM public.app_resource_routing
-      WHERE ${conditions.join(' AND ')}${orderBy}
-    `;
-    const result = await getTenantRoutingPool().query(query, params);
-
-    res.json({
-      success: true,
-      count: result.rows.length,
-      routing: result.rows,
-      cache_size: routingCache.size
-    });
-  } catch (err) {
-    console.error('[DEBUG] Routing fetch error:', err);
-    res.status(500).json({
-      success: false,
-      message: 'ルーティング情報の取得に失敗しました',
-      error: err.message
-    });
-  }
-});
-
 // スキーマ存在チェックエンドポイント（認証なし）
-app.get('/api/debug/schema-check', async (req, res) => {
-  const { table, schema = 'public' } = req.query;
-
-  if (!table) {
-    return res.status(400).json({
-      success: false,
-      message: 'tableパラメータが必要です'
-    });
-  }
-
-  try {
-    console.log(`[DEBUG] Checking table: ${schema}.${table}`);
-
-    // to_regclassを使用してテーブル存在確認
-    const existsQuery = `SELECT to_regclass($1) IS NOT NULL as exists`;
-    const existsResult = await pool.query(existsQuery, [`${schema}.${table}`]);
-    const exists = existsResult.rows[0].exists;
-
-    if (!exists) {
-      return res.json({
-        success: true,
-        exists: false,
-        message: `テーブル ${schema}.${table} は存在しません`
-      });
-    }
-
-    // カラム情報を取得
-    const columnsQuery = `
-      SELECT 
-        column_name,
-        data_type,
-        is_nullable,
-        column_default
-      FROM information_schema.columns
-      WHERE table_schema = $1 AND table_name = $2
-      ORDER BY ordinal_position
-    `;
-    const columnsResult = await pool.query(columnsQuery, [schema, table]);
-
-    // レコード数を取得
-    const countQuery = `SELECT COUNT(*) as count FROM ${schema}."${table}"`;
-    const countResult = await pool.query(countQuery);
-
-    res.json({
-      success: true,
-      exists: true,
-      schema: schema,
-      table: table,
-      columns: columnsResult.rows,
-      record_count: parseInt(countResult.rows[0].count)
-    });
-  } catch (err) {
-    console.error('[DEBUG] Schema check error:', err);
-    res.status(500).json({
-      success: false,
-      message: 'スキーマチェックに失敗しました',
-      error: err.message,
-      code: err.code
-    });
-  }
-});
-
-// 環境変数確認エンドポイント（認証なし - 接続確認優先）
-app.get('/api/debug/env', async (req, res) => {
-  res.json({
-    success: true,
-    environment: {
-      NODE_ENV: process.env.NODE_ENV || 'development',
-      PORT: process.env.PORT || '3000',
-      CLOUD_SQL_INSTANCE: process.env.CLOUD_SQL_INSTANCE || 'NOT SET',
-      DB_NAME: process.env.DB_NAME || 'NOT SET',
-      DB_USER: process.env.DB_USER || 'NOT SET',
-      DATABASE_URL: process.env.DATABASE_URL ? 'SET' : 'NOT SET',
-      JWT_SECRET: process.env.JWT_SECRET ? 'SET' : 'NOT SET',
-      CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
-      APP_ID: process.env.APP_ID || 'dashboard-ui'
-    }
-  });
-});
-
-// ルーティング状態確認エンドポイント（ブラウザ確認用）
-app.get('/debug/routing-status', async (req, res) => {
-  try {
-    console.log('[DEBUG] Fetching routing status...');
-    
-    // ルーティングテーブルからすべてのマッピングを取得
-    const query = `
-      SELECT 
-        tenant_id,
-        app_id,
-        logical_resource_name,
-        physical_schema,
-        physical_table,
-        is_active,
-        description,
-        created_at,
-        updated_at
-      FROM public.app_resource_routing
-      WHERE app_id = $1
-      ORDER BY 
-        is_active DESC,
-        logical_resource_name ASC
-    `;
-    
-    const result = await pool.query(query, [APP_ID]);
-    
-    // HTML形式でブラウザ表示用に整形
-    let html = `
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ルーティング状態 - ${APP_ID}</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background: #f5f5f5;
-        }
-        h1 {
-            color: #333;
-            border-bottom: 3px solid #4CAF50;
-            padding-bottom: 10px;
-        }
-        .stats {
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            margin-bottom: 20px;
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-        }
-        .stat-item {
-            padding: 15px;
-            background: #f9f9f9;
-            border-left: 4px solid #4CAF50;
-            border-radius: 4px;
-        }
-        .stat-label {
-            font-size: 12px;
-            color: #666;
-            text-transform: uppercase;
-        }
-        .stat-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #333;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            background: white;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            border-radius: 8px;
-            overflow: hidden;
-        }
-        th {
-            background: #4CAF50;
-            color: white;
-            padding: 12px;
-            text-align: left;
-            font-weight: 600;
-        }
-        td {
-            padding: 12px;
-            border-bottom: 1px solid #eee;
-        }
-        tr:hover {
-            background: #f5f5f5;
-        }
-        .active {
-            color: #4CAF50;
-            font-weight: bold;
-        }
-        .inactive {
-            color: #999;
-        }
-        .badge {
-            display: inline-block;
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        .badge-active {
-            background: #4CAF50;
-            color: white;
-        }
-        .badge-inactive {
-            background: #ccc;
-            color: #666;
-        }
-        .timestamp {
-            font-size: 11px;
-            color: #999;
-        }
-        .refresh-btn {
-            background: #4CAF50;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            margin-bottom: 20px;
-        }
-        .refresh-btn:hover {
-            background: #45a049;
-        }
-    </style>
-</head>
-<body>
-    <h1>🔀 ルーティング状態</h1>
-    
-    <button class="refresh-btn" onclick="location.reload()">🔄 更新</button>
-    
-    <div class="stats">
-        <div class="stats-grid">
-            <div class="stat-item">
-                <div class="stat-label">アプリID</div>
-                <div class="stat-value">${APP_ID}</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-label">総ルート数</div>
-                <div class="stat-value">${result.rows.length}</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-label">有効ルート</div>
-                <div class="stat-value">${result.rows.filter(r => r.is_active).length}</div>
-            </div>
-            <div class="stat-item">
-                <div class="stat-label">キャッシュサイズ</div>
-                <div class="stat-value">${routingCache.size}</div>
-            </div>
-        </div>
-    </div>
-    
-    <table>
-        <thead>
-            <tr>
-                <th>論理リソース名</th>
-                <th>物理パス</th>
-                <th>状態</th>
-                <th>説明</th>
-                <th>更新日時</th>
-            </tr>
-        </thead>
-        <tbody>
-`;
-    
-    if (result.rows.length === 0) {
-      html += `
-            <tr>
-                <td colspan="5" style="text-align: center; padding: 40px; color: #999;">
-                    ⚠️ ルーティングデータが登録されていません<br>
-                    <small style="margin-top: 10px; display: block;">
-                    init-dashboard-routing.sql を実行してください
-                    </small>
-                </td>
-            </tr>
-      `;
-    } else {
-      result.rows.forEach(row => {
-        const statusBadge = row.is_active 
-          ? '<span class="badge badge-active">有効</span>'
-          : '<span class="badge badge-inactive">無効</span>';
-        const physicalPath = `${row.physical_schema}.${row.physical_table}`;
-        const updatedAt = new Date(row.updated_at).toLocaleString('ja-JP');
-        
-        html += `
-            <tr>
-                <td><strong>${row.logical_resource_name}</strong></td>
-                <td><code>${physicalPath}</code></td>
-                <td>${statusBadge}</td>
-                <td>${row.description || '-'}</td>
-                <td class="timestamp">${updatedAt}</td>
-            </tr>
-        `;
-      });
-    }
-    
-    html += `
-        </tbody>
-    </table>
-    
-    <div style="margin-top: 30px; padding: 20px; background: white; border-radius: 8px;">
-        <h3>📋 使い方</h3>
-        <ul>
-            <li><strong>論理リソース名</strong>: アプリケーションコードで使用する名前</li>
-            <li><strong>物理パス</strong>: 実際のデータベーステーブルの場所</li>
-            <li><strong>状態</strong>: 有効なルートのみが使用されます</li>
-        </ul>
-        
-        <h3>🔧 新しいテーブルの追加</h3>
-        <pre style="background: #f5f5f5; padding: 15px; border-radius: 4px; overflow-x: auto;">
-INSERT INTO public.app_resource_routing (
-    tenant_id, app_id, logical_resource_name, 
-    physical_schema, physical_table, physical_table_name,
-    is_active, description
-) VALUES (
-    'demo', '${APP_ID}', 'new_table', 
-    'public', 'new_table', 'new_table',
-    true, '新しいテーブルの説明'
-)
-ON CONFLICT (tenant_id, app_id, logical_resource_name) 
-DO UPDATE SET 
-    physical_schema = EXCLUDED.physical_schema,
-    physical_table = EXCLUDED.physical_table,
-    updated_at = CURRENT_TIMESTAMP;
-        </pre>
-        
-        <h3>📖 関連エンドポイント</h3>
-        <ul>
-            <li><a href="/api/debug/routing">/api/debug/routing</a> - JSON形式のルーティング情報</li>
-            <li><a href="/api/debug/env">/api/debug/env</a> - 環境変数の確認</li>
-        </ul>
-    </div>
-    
-    <div style="margin-top: 20px; text-align: center; color: #999; font-size: 12px;">
-        最終確認: ${new Date().toLocaleString('ja-JP')}
-    </div>
-</body>
-</html>
-    `;
-    
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.send(html);
-    
-  } catch (err) {
-    console.error('[DEBUG] Routing status error:', err);
-    res.status(500).send(`
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <title>エラー - ルーティング状態</title>
-    <style>
-        body {
-            font-family: sans-serif;
-            max-width: 800px;
-            margin: 50px auto;
-            padding: 20px;
-        }
-        .error {
-            background: #ffebee;
-            border: 1px solid #f44336;
-            color: #c62828;
-            padding: 20px;
-            border-radius: 8px;
-        }
-    </style>
-</head>
-<body>
-    <div class="error">
-        <h2>❌ エラー</h2>
-        <p><strong>メッセージ:</strong> ${err.message}</p>
-        <p><strong>コード:</strong> ${err.code || 'N/A'}</p>
-        <hr>
-        <p>app_resource_routingテーブルが存在しない可能性があります。</p>
-        <p>init-dashboard-routing.sql を実行してください。</p>
-    </div>
-</body>
-</html>
-    `);
-  }
-});
-
-// ========================================
-// デバッグ用エンドポイントここまで
-// ========================================
-
 // Test DB Connection (非同期で実行、サーバー起動をブロックしない)
 async function testDatabaseConnection() {
   console.log('🔍 Testing database connection...');
@@ -3297,25 +2689,49 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
       { schema: 'public', table: 'bases' },
       { schema: 'public', table: 'maintenance_bases', source: 'legacy-fallback' },
       { schema: 'master_data', table: 'bases', source: 'legacy-fallback' }
-    ], ['id', 'base_code', 'base_name', 'location', 'office_id', 'created_at', 'updated_at']);
+    ], ['base_name']);
     basesRoute = basesCompatible.route;
+    const basesColumns = basesCompatible.columns;
     officesRoute = await resolveStrictRoutedTablePath('management_offices');
+    const officeColumns = await getPhysicalTableColumns(officesRoute);
+
+    const baseColumnExpr = (candidateColumns, aliasName, castType = null) => {
+      for (const columnName of candidateColumns) {
+        if (basesColumns.has(columnName)) {
+          return `b.${columnName} AS ${aliasName}`;
+        }
+      }
+
+      return castType ? `NULL::${castType} AS ${aliasName}` : `NULL AS ${aliasName}`;
+    };
+
+    const officeJoinCondition = basesColumns.has('office_id') && officeColumns.has('id')
+      ? 'b.office_id::text = o.id::text'
+      : (basesColumns.has('management_office_id') && officeColumns.has('id')
+        ? 'b.management_office_id::text = o.id::text'
+        : '1 = 0');
+
+    const orderByExpr = basesColumns.has('id')
+      ? 'b.id DESC'
+      : (basesColumns.has('created_at')
+        ? 'b.created_at DESC'
+        : (basesColumns.has('base_code') ? 'b.base_code ASC' : '1'));
 
     query = `
       SELECT 
-        b.id as base_id,
-        b.base_code,
-        b.base_name,
-        b.location,
-        b.office_id,
-        NULL as capacity,
-        NULL as manager_name,
-        b.created_at,
-        b.updated_at,
-        o.office_name 
+        ${baseColumnExpr(['id'], 'base_id', 'text')},
+        ${baseColumnExpr(['base_code', 'code'], 'base_code', 'text')},
+        ${baseColumnExpr(['base_name', 'name'], 'base_name', 'text')},
+        ${baseColumnExpr(['location', 'address'], 'location', 'text')},
+        ${baseColumnExpr(['office_id', 'management_office_id'], 'office_id', 'text')},
+        ${baseColumnExpr(['capacity', 'capacity_count'], 'capacity', 'text')},
+        ${baseColumnExpr(['manager_name', 'manager'], 'manager_name', 'text')},
+        ${baseColumnExpr(['created_at', 'created_on'], 'created_at')},
+        ${baseColumnExpr(['updated_at', 'modified_at'], 'updated_at')},
+        COALESCE(o.office_name, '配置未設定') AS office_name 
       FROM ${basesRoute.fullPath} b
-      LEFT JOIN ${officesRoute.fullPath} o ON b.office_id::text = o.id::text
-      ORDER BY b.id DESC
+      LEFT JOIN ${officesRoute.fullPath} o ON ${officeJoinCondition}
+      ORDER BY ${orderByExpr}
     `;
     console.log('[GET /api/bases] Resolved tables:', { bases: basesRoute.fullPath, offices: officesRoute.fullPath });
     console.log('[GET /api/bases] SQL:', query);
@@ -3324,7 +2740,7 @@ app.get('/api/bases', authenticateToken, async (req, res) => {
     const result = await activePool.query(query, params);
     res.json({ success: true, bases: result.rows });
   } catch (err) {
-    console.error('OFFICES API ERROR', err);
+    console.error('BASES API ERROR', err);
     console.error('SQL:', query);
     console.error('PARAMS:', params);
     console.error('err.message:', err.message);
@@ -4700,40 +4116,6 @@ app.get('/debug/tables', async (req, res) => {
           error: err.message
         };
       }
-    }
-
-    // ルーティングテーブルの確認
-    try {
-      const runtime = req.tenantContext || getActiveTenantRuntime();
-      const routingTenantIdRaw = String(
-        (runtime && (runtime.resolvedTenantId || runtime.requestedTenantId))
-        || req.requestedTenantId
-        || req.query.tenant_id
-        || 'demo'
-      ).trim().toLowerCase();
-      const routingTenantId = routingTenantIdRaw === 'demo_env' ? 'demo' : routingTenantIdRaw;
-      const columns = await getRoutingTableColumns();
-      const params = [];
-      const conditions = [];
-      if (columns.has('tenant_id')) {
-        params.push(routingTenantId);
-        conditions.push(`tenant_id = $${params.length}`);
-      }
-      if (columns.has('app_id')) {
-        params.push(APP_ID);
-        conditions.push(`app_id = $${params.length}`);
-      }
-      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-      const routingQuery = `
-        SELECT *
-        FROM public.app_resource_routing
-        ${whereClause}
-        ORDER BY logical_resource_name
-      `;
-      const routingResult = await getTenantRoutingPool().query(routingQuery, params);
-      results._routing = routingResult.rows;
-    } catch (err) {
-      results._routing = { error: err.message };
     }
 
     res.json({ success: true, tables: results });
