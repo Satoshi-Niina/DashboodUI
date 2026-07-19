@@ -64,6 +64,24 @@
         return first;
     }
 
+    function getTenantKeyFromSearchParams(search) {
+        try {
+            const params = new URLSearchParams(search || window.location.search || '');
+            const rawTenantId = params.get('tenant_id')
+                || params.get('tenantId')
+                || params.get('tenant')
+                || params.get('company_id')
+                || '';
+            const normalized = normalizeTenantId(rawTenantId);
+            if (!normalized || normalized === 'demo_env') {
+                return 'demo';
+            }
+            return normalized;
+        } catch (_) {
+            return 'demo';
+        }
+    }
+
     function tenantIdFromPath(pathname) {
         return getTenantKeyFromPath(pathname);
     }
@@ -223,10 +241,23 @@
     }
 
     function getCurrentUrlTenantContext() {
-        const tenantId = tenantIdFromPath(window.location.pathname);
+        const tenantIdFromParams = getTenantKeyFromSearchParams(window.location.search);
+        const tenantId = tenantIdFromParams !== 'demo'
+            ? tenantIdFromParams
+            : tenantIdFromPath(window.location.pathname);
+
+        const tenantPathParam = (() => {
+            try {
+                const params = new URLSearchParams(window.location.search || '');
+                return normalizePath(params.get('tenant_path') || '');
+            } catch (_) {
+                return '/';
+            }
+        })();
+
         return {
             tenantId,
-            tenantPath: tenantId === 'demo' ? '/' : `/${tenantId}`
+            tenantPath: tenantPathParam && tenantPathParam !== '/' ? tenantPathParam : (tenantId === 'demo' ? '/' : `/${tenantId}`)
         };
     }
 
@@ -308,8 +339,9 @@
 
     async function fetchTenantRoutes() {
         try {
-            const currentTenantId = tenantIdFromPath(window.location.pathname);
-            const currentTenantPath = tenantPathFromUrl(window.location.href);
+            const currentUrlContext = getCurrentUrlTenantContext();
+            const currentTenantId = currentUrlContext.tenantId;
+            const currentTenantPath = currentUrlContext.tenantPath;
             const cacheBuster = Date.now();
             const response = await nativeFetch(`/api/tenant-context?tenant_id=${encodeURIComponent(currentTenantId)}&tenant_path=${encodeURIComponent(currentTenantPath)}&full_url=${encodeURIComponent(window.location.href)}&_ts=${cacheBuster}`, {
                 method: 'GET',

@@ -386,6 +386,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
     }
 
+    function appendTenantLaunchParams(urlObj, tenantContext) {
+        const tenantId = normalizeExternalTenantId(tenantContext.tenantId);
+        const tenantPath = tenantContext.tenantPath || (tenantId === 'demo' ? '/' : `/${tenantId}`);
+
+        // 受け側の実装差を吸収するため、canonical な tenant_id を先頭に置きつつ互換キーも併送する。
+        urlObj.searchParams.set('tenant_id', tenantId);
+        urlObj.searchParams.set('tenantId', tenantId);
+        urlObj.searchParams.set('company_id', tenantId);
+        urlObj.searchParams.set('tenant', tenantId);
+        urlObj.searchParams.set('tenant_path', tenantPath);
+    }
+
     function applyTenantPathToExternalUrl(urlObj, tenantContext) {
         const tenantId = normalizeExternalTenantId(tenantContext.tenantId);
         const rawSegments = urlObj.pathname.split('/').filter(Boolean);
@@ -461,11 +473,10 @@ document.addEventListener('DOMContentLoaded', async () => {
                     urlObj.searchParams.set(alias, token);
                 }
             });
-            urlObj.searchParams.set('tenant_id', externalTenantId);
-            urlObj.searchParams.set('tenantId', externalTenantId);
-            urlObj.searchParams.set('tenant', externalTenantId);
-            urlObj.searchParams.set('company_id', externalTenantId);
-            urlObj.searchParams.set('tenant_path', confirmedTenantContext.tenantPath);
+            appendTenantLaunchParams(urlObj, {
+                tenantId: externalTenantId,
+                tenantPath: confirmedTenantContext.tenantPath
+            });
             urlObj.searchParams.set('role', confirmedTenantContext.role);
             urlObj.searchParams.set('external_role', confirmedTenantContext.externalRole);
 
