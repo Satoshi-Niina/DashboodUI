@@ -49,6 +49,7 @@
             'assets',
             'admin.html',
             'index.html',
+            'login',
             'login.html'
         ]);
 

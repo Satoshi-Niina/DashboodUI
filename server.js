@@ -920,6 +920,10 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'login.html'));
 });
 
+app.get('/login', (req, res) => {
+  res.sendFile(path.join(__dirname, 'login.html'));
+});
+
 // 静的ファイル配信（JSとCSSはキャッシュ無効化）
 app.use(express.static(path.join(__dirname), {
   etag: false,

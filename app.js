@@ -83,11 +83,24 @@ async function loadDynamicConfig() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 設定をサーバーから読み込む
-    await loadDynamicConfig();
     if (window.TenantContext && typeof window.TenantContext.init === 'function') {
         await window.TenantContext.init();
     }
+
+    const token = localStorage.getItem('user_token');
+    if (!token) {
+        sessionStorage.setItem('clearLoginForm', 'true');
+        const redirectTarget = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        const loginTarget = `/login?redirect=${encodeURIComponent(redirectTarget)}`;
+        const loginPath = window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
+            ? window.TenantContext.buildPathForTenant(loginTarget, window.TenantContext.getTenantPath ? window.TenantContext.getTenantPath() : '/')
+            : loginTarget;
+        window.location.replace(loginPath);
+        return;
+    }
+
+    // 設定をサーバーから読み込む
+    await loadDynamicConfig();
 
     const tenantEnvironmentLabel = document.getElementById('tenant-environment-label');
     if (tenantEnvironmentLabel) {

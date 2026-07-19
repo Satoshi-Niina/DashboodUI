@@ -1,7 +1,7 @@
 function getTenantIdFromLocation() {
     const pathSegments = window.location.pathname.split('/').filter(Boolean);
     const firstSegment = String(pathSegments[0] ?? '').trim().toLowerCase();
-    const excludedPaths = new Set(['api', 'assets', 'admin.html', 'index.html', 'login.html']);
+    const excludedPaths = new Set(['api', 'assets', 'admin.html', 'index.html', 'login', 'login.html']);
 
     if (!firstSegment || excludedPaths.has(firstSegment) || firstSegment.endsWith('.html')) {
         return 'demo';
@@ -13,6 +13,40 @@ function getTenantIdFromLocation() {
 function getTenantPathFromLocation() {
     const tenantId = getTenantIdFromLocation();
     return tenantId === 'demo' ? '/' : `/${tenantId}`;
+}
+
+function getRedirectTargetFromLocation() {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const redirectTarget = params.get('redirect') || '';
+        return redirectTarget.trim();
+    } catch (_) {
+        return '';
+    }
+}
+
+function getTenantInfoFromRedirectTarget(redirectTarget) {
+    if (!redirectTarget) {
+        return null;
+    }
+
+    try {
+        const url = new URL(redirectTarget, window.location.origin);
+        const pathSegments = url.pathname.split('/').filter(Boolean);
+        const firstSegment = String(pathSegments[0] ?? '').trim().toLowerCase();
+        const excludedPaths = new Set(['api', 'assets', 'admin.html', 'index.html', 'login', 'login.html']);
+
+        if (!firstSegment || excludedPaths.has(firstSegment) || firstSegment.endsWith('.html')) {
+            return null;
+        }
+
+        return {
+            tenantId: firstSegment,
+            tenantPath: `/${firstSegment}`
+        };
+    } catch (_) {
+        return null;
+    }
 }
 
 function buildIndexPathForTenant(tenantPath) {
@@ -27,6 +61,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnText = loginBtn.querySelector('.btn-text');
     const btnLoader = loginBtn.querySelector('.btn-loader');
     const errorMessage = document.getElementById('error-message');
+    const redirectTarget = getRedirectTargetFromLocation();
+    const redirectTenantInfo = getTenantInfoFromRedirectTarget(redirectTarget);
 
     // ページ読み込み時にフォームを強制クリア
     usernameInput.value = '';
@@ -68,10 +104,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const password = passwordInput.value;
 
         const tenantId = window.TenantContext && typeof window.TenantContext.getTenantId === 'function'
-            ? window.TenantContext.getTenantId()
+            ? (redirectTenantInfo && redirectTenantInfo.tenantId) || window.TenantContext.getTenantId()
             : getTenantIdFromLocation();
         const tenantPath = window.TenantContext && typeof window.TenantContext.getTenantPath === 'function'
-            ? window.TenantContext.getTenantPath()
+            ? (redirectTenantInfo && redirectTenantInfo.tenantPath) || window.TenantContext.getTenantPath()
             : getTenantPathFromLocation();
         const loginTenantContext = window.TenantContext && typeof window.TenantContext.persistLoginTenant === 'function'
             ? window.TenantContext.persistLoginTenant({ tenant_id: tenantId, tenant_path: tenantPath })
@@ -119,10 +155,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 成功アニメーションを表示してから遷移
                 btnText.textContent = 'リダイレクト中...';
                 setTimeout(() => {
-                    const dashboardPath = window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
+                    const targetPath = redirectTarget || (window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
                         ? window.TenantContext.buildPathForTenant('/index.html', confirmedTenantContext.tenant_path)
-                        : buildIndexPathForTenant(confirmedTenantContext.tenant_path);
-                    window.location.href = dashboardPath;
+                        : buildIndexPathForTenant(confirmedTenantContext.tenant_path));
+                    window.location.href = targetPath;
                 }, 800);
             } else {
                 // 認証失敗
