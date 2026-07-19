@@ -6,6 +6,9 @@
     const nativeFetch = window.fetch.bind(window);
     let initPromise = null;
     let tenantContext = null;
+    const axiosClient = window.axios && typeof window.axios.create === 'function'
+        ? window.axios.create({ withCredentials: true })
+        : null;
 
     function getCurrentFullUrl() {
         return window.location.href;
@@ -100,6 +103,79 @@
             role: rawContext.role || '',
             savedAt: new Date().toISOString()
         };
+    }
+
+    function getRequestTenantContext() {
+        const currentUrlContext = getCurrentUrlTenantContext();
+        const storedContext = getLoginTenantContext();
+        const activeTenantId = normalizeTenantId(
+            (tenantContext && tenantContext.tenantId)
+            || (storedContext && storedContext.tenant_id)
+            || currentUrlContext.tenantId
+        );
+        const activeTenantPath = normalizePath(
+            (tenantContext && tenantContext.tenantPath)
+            || (storedContext && storedContext.tenant_path)
+            || currentUrlContext.tenantPath
+        );
+
+        return {
+            tenantId: activeTenantId,
+            tenantPath: activeTenantPath,
+            fullUrl: getCurrentFullUrl()
+        };
+    }
+
+    function buildRequestHeaders(existingHeaders) {
+        const headers = new Headers(existingHeaders || {});
+        const requestTenantContext = getRequestTenantContext();
+        const token = localStorage.getItem('user_token');
+
+        if (token) {
+            headers.set('Authorization', `Bearer ${token}`);
+        }
+
+        headers.set('X-Tenant-ID', requestTenantContext.tenantId);
+        headers.set('X-Tenant-Path', requestTenantContext.tenantPath);
+        headers.set('X-Tenant-Full-Url', requestTenantContext.fullUrl);
+
+        return headers;
+    }
+
+    function headersToPlainObject(headers) {
+        const plainObject = {};
+        const normalizedHeaders = headers instanceof Headers ? headers : new Headers(headers || {});
+        normalizedHeaders.forEach((value, key) => {
+            plainObject[key] = value;
+        });
+        return plainObject;
+    }
+
+    function responseFromAxios(axiosResponse) {
+        const responseHeaders = new Headers();
+        Object.entries(axiosResponse.headers || {}).forEach(([key, value]) => {
+            if (typeof value !== 'undefined' && value !== null) {
+                responseHeaders.set(key, Array.isArray(value) ? value.join(', ') : String(value));
+            }
+        });
+
+        let responseBody = axiosResponse.data;
+        if (responseBody == null) {
+            responseBody = '';
+        } else if (typeof responseBody === 'object' && !(responseBody instanceof Blob) && !(responseBody instanceof ArrayBuffer) && !(responseBody instanceof FormData)) {
+            responseBody = JSON.stringify(responseBody);
+            if (!responseHeaders.has('content-type')) {
+                responseHeaders.set('content-type', 'application/json; charset=utf-8');
+            }
+        } else if (typeof responseBody !== 'string') {
+            responseBody = String(responseBody);
+        }
+
+        return new Response(responseBody, {
+            status: axiosResponse.status,
+            statusText: axiosResponse.statusText || '',
+            headers: responseHeaders
+        });
     }
 
     function readJsonStorage(key) {
@@ -336,6 +412,18 @@
         }
     }
 
+    if (axiosClient) {
+        axiosClient.interceptors.request.use((config) => {
+            const requestUrl = new URL(config.url || '', window.location.href);
+            if (requestUrl.origin !== window.location.origin || !requestUrl.pathname.startsWith('/api') || isTenantBootstrapApi(requestUrl.toString())) {
+                return config;
+            }
+
+            config.headers = headersToPlainObject(buildRequestHeaders(config.headers));
+            return config;
+        });
+    }
+
     window.fetch = async function (input, init) {
         const requestUrl = typeof input === 'string' ? input : (input && input.url ? input.url : '');
 
@@ -343,16 +431,32 @@
             return nativeFetch(input, init);
         }
 
-        const ctx = await ensureInitialized();
         const requestInit = init ? { ...init } : {};
-        const headers = new Headers(requestInit.headers || (input instanceof Request ? input.headers : {}));
-
-        headers.set('X-Tenant-Id', ctx.tenantId);
-        headers.set('X-Tenant-Path', ctx.tenantPath);
-        headers.set('X-Tenant-Full-Url', ctx.fullUrl);
+        const headers = buildRequestHeaders(requestInit.headers || (input instanceof Request ? input.headers : {}));
 
         requestInit.headers = headers;
-        return nativeFetch(input, requestInit);
+
+        if (!axiosClient) {
+            return nativeFetch(input, requestInit);
+        }
+
+        const axiosRequestConfig = {
+            url: requestUrl,
+            method: String(requestInit.method || (input instanceof Request ? input.method : 'GET')).toLowerCase(),
+            headers: headersToPlainObject(headers),
+            data: requestInit.body,
+            validateStatus: () => true
+        };
+
+        try {
+            const axiosResponse = await axiosClient.request(axiosRequestConfig);
+            return responseFromAxios(axiosResponse);
+        } catch (error) {
+            if (error && error.response) {
+                return responseFromAxios(error.response);
+            }
+            throw error;
+        }
     };
 
     window.TenantContext = {
