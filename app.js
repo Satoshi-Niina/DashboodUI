@@ -370,6 +370,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         return { tenantId, tenantPath, dashboardTenantPath, role, externalRole };
     }
 
+    function buildExternalAuthPayload() {
+        const token = localStorage.getItem('user_token') || '';
+        const tenantContext = getConfirmedTenantContext();
+        const userInfo = readStoredUserInfo() || {};
+
+        return {
+            token,
+            jwt: token,
+            tenantId: tenantContext.tenantId,
+            tenantPath: tenantContext.tenantPath,
+            role: tenantContext.role || userInfo.role || '',
+            externalRole: tenantContext.externalRole || userInfo.externalRole || userInfo.external_role || tenantContext.role || userInfo.role || '',
+            userInfo
+        };
+    }
+
     function applyTenantPathToExternalUrl(urlObj, tenantContext) {
         const tenantId = normalizeExternalTenantId(tenantContext.tenantId);
         const rawSegments = urlObj.pathname.split('/').filter(Boolean);
@@ -408,8 +424,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        // ローカルストレージからトークンを取得
-        const token = localStorage.getItem('user_token');
+        // ローカルストレージから認証情報を取得
+        const authPayload = buildExternalAuthPayload();
+        const token = authPayload.token;
         const shouldUseExternalAuthBridge = currentAppId === 'equipment';
         let popupOrigin = '';
         let authContext = null;
@@ -422,14 +439,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             const tokenAliases = Array.isArray(AppConfig.tokenParamAliases)
                 ? AppConfig.tokenParamAliases
                 : [];
-            
-            const confirmedTenantContext = getConfirmedTenantContext();
+            const confirmedTenantContext = {
+                tenantId: authPayload.tenantId,
+                tenantPath: authPayload.tenantPath,
+                role: authPayload.role,
+                externalRole: authPayload.externalRole
+            };
             const externalTenantId = normalizeExternalTenantId(confirmedTenantContext.tenantId);
 
             if (shouldUseExternalAuthBridge) {
                 applyTenantPathToExternalUrl(urlObj, confirmedTenantContext);
             }
 
+            // 受け側が token / jwt / auth_token のどれでも受け取れるように明示的に付与する
+            urlObj.searchParams.set('token', token);
+            urlObj.searchParams.set('jwt', token);
             urlObj.searchParams.set(tokenParam, token);
             urlObj.searchParams.set('external_token', token);
             tokenAliases.forEach(alias => {
@@ -460,7 +484,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // 新しいタブで開く
-        console.log('Opening URL with token:', finalUrl);
+        console.log('[App] Launch auth payload:', {
+            url: finalUrl,
+            tenantId: authPayload.tenantId,
+            tenantPath: authPayload.tenantPath,
+            role: authPayload.role,
+            externalRole: authPayload.externalRole,
+            hasJwt: !!authPayload.token,
+            includesJwtParam: finalUrl.includes('jwt=') || finalUrl.includes('auth_token=') || finalUrl.includes('token=')
+        });
         const openedWindow = window.open(finalUrl, '_blank');
 
         if (shouldUseExternalAuthBridge && openedWindow && authContext && popupOrigin) {
