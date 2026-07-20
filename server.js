@@ -1005,6 +1005,16 @@ app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
 
+// 一時的な本番DB確認用デバッグエンドポイント
+app.get('/api/debug-tenant-routings', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM public.tenant_app_routings');
+    res.json({ success: true, columns: result.fields.map(f => f.name), rows: result.rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, stack: err.stack });
+  }
+});
+
 app.get('/_ah/health', (req, res) => {
   res.status(200).send('OK');
 });
