@@ -300,12 +300,13 @@ async function getAllCompanyRoutingRows() {
       return cached.rows;
     }
 
-    // ★ シンプル設計: tenant_app_routings から tenant_key を取得（database_urlはコード側で生成）
+    // ★ シンプル設計: tenant_app_routings から database_url を直接1発でクエリ
     const query = `
       SELECT DISTINCT ON (tenant_key)
         tenant_key as company_id,
         app_name as company_name,
         tenant_key,
+        database_url,
         ('/' || tenant_key) as tenant_path
       FROM public.tenant_app_routings
       WHERE is_active = true
@@ -318,7 +319,7 @@ async function getAllCompanyRoutingRows() {
         company_id: row.company_id || row.tenant_key,
         company_name: row.company_name || row.tenant_key,
         tenant_key: row.tenant_key,
-        database_url: null, // コード側で生成
+        database_url: row.database_url,
         tenant_path: row.tenant_path || `/${row.tenant_key}`,
         normalizedCompanyId: String(row.company_id || row.tenant_key || '').trim().toLowerCase(),
         normalizedTenantKey: String(row.tenant_key || row.company_id || '').trim().toLowerCase()
@@ -558,15 +559,8 @@ function getOrCreateTenantPool(dbName) {
 }
 
 // ★ シンプル設計: database_url から直接接続プールを作成
-// database_urlがない場合はtenant_keyから生成
-function getOrCreateTenantPoolFromUrl(databaseUrl, tenantKey = '') {
-  if (!databaseUrl && !tenantKey) return getControlPlanePool();
-  
-  // database_urlが空の場合、tenant_keyからDB名を生成して接続設定を作成
-  if (!databaseUrl || databaseUrl === tenantKey) {
-    const dbName = tenantKey.endsWith('_db') ? tenantKey : `${tenantKey}_db`;
-    return getOrCreateTenantPool(dbName);
-  }
+function getOrCreateTenantPoolFromUrl(databaseUrl) {
+  if (!databaseUrl) return getControlPlanePool();
   
   const cacheKey = databaseUrl;
   if (tenantDbPoolCache.has(cacheKey)) {
@@ -639,6 +633,7 @@ async function getCompanyRoutingByCompanyId(companyId) {
       tenant_key as company_id,
       app_name as company_name,
       tenant_key,
+      database_url,
       ('/' || tenant_key) as tenant_path
     FROM public.tenant_app_routings
     WHERE is_active = true
@@ -661,25 +656,23 @@ async function getCompanyRoutingByCompanyId(companyId) {
 
 function buildTenantRuntimeFromRoutingRow(routingRow, requestedTenantId, defaultDbName, defaultBucketName, fallbackTenantKey = '') {
   const resolvedTenantId = routingRow.company_id || fallbackTenantKey || requestedTenantId || 'demo_env';
-  const tenantKey = routingRow.company_id || resolvedTenantId;
   
-  // ★ シンプル設計: database_url を直接使用（なければtenant_keyから生成）
+  // ★ シンプル設計: database_url を直接使用
   const databaseUrl = routingRow.database_url;
-  const tenantPool = getOrCreateTenantPoolFromUrl(databaseUrl, tenantKey);
+  
+  if (!databaseUrl || String(databaseUrl).trim() === '') {
+    throw new Error(`Tenant routing row missing database_url: company_id=${routingRow.company_id}`);
+  }
+  
+  const tenantPool = getOrCreateTenantPoolFromUrl(databaseUrl);
   
   // database_urlからDB名を抽出（ロギング・デバッグ用）
   let dbName = 'unknown';
-  if (databaseUrl && databaseUrl !== tenantKey) {
-    try {
-      const url = new URL(databaseUrl);
-      dbName = url.pathname.replace(/^\//, '') || 'unknown';
-    } catch (e) {
-      // URL形式でない場合
-      dbName = tenantKey.endsWith('_db') ? tenantKey : `${tenantKey}_db`;
-    }
-  } else {
-    // database_urlがない場合
-    dbName = tenantKey.endsWith('_db') ? tenantKey : `${tenantKey}_db`;
+  try {
+    const url = new URL(databaseUrl);
+    dbName = url.pathname.replace(/^\//, '') || 'unknown';
+  } catch (e) {
+    dbName = 'unknown';
   }
 
   return {
@@ -688,8 +681,8 @@ function buildTenantRuntimeFromRoutingRow(routingRow, requestedTenantId, default
     companyId: routingRow.company_id || resolvedTenantId,
     companyName: routingRow.company_name || '',
     dbName: dbName,
-    databaseUrl: databaseUrl || '',
-    storageBucketName: routingRow.storage_bucket_name || defaultBucketName || `${tenantKey}-uploads-bucket`,
+    databaseUrl: databaseUrl,
+    storageBucketName: routingRow.storage_bucket_name || defaultBucketName,
     tenantPath: routingRow.tenant_path || '',
     pool: tenantPool,
     isFallback: false
@@ -1685,10 +1678,45 @@ async function testDatabaseConnection() {
 
 
 
+// リクエストからCookie（優先）またはAuthorizationヘッダー、あるいはクエリパラメータからトークンを抽出する
+function extractTokenFromRequest(req) {
+  // 1. Cookieから取得 (HttpOnly Cookie)
+  if (req.headers.cookie) {
+    const cookies = req.headers.cookie.split(';').reduce((acc, cookie) => {
+      const parts = cookie.split('=');
+      if (parts.length >= 2) {
+        const key = parts[0].trim();
+        const val = parts.slice(1).join('=').trim();
+        acc[key] = val;
+      }
+      return acc;
+    }, {});
+    
+    if (cookies.token) {
+      return cookies.token;
+    }
+  }
+  
+  // 2. Authorizationヘッダーから取得（フォールバック）
+  const authHeader = req.headers['authorization'];
+  if (authHeader) {
+    if (authHeader.startsWith('Bearer ')) {
+      return authHeader.substring(7);
+    }
+    return authHeader.trim();
+  }
+
+  // 3. クエリパラメータから取得（フォールバック）
+  if (req.query && req.query.token) {
+    return req.query.token;
+  }
+
+  return null;
+}
+
 // Middleware: トークン認証
 function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+  const token = extractTokenFromRequest(req);
 
   if (!token) {
     return res.status(401).json({ success: false, message: 'トークンが提供されていません' });
@@ -1877,9 +1905,19 @@ app.post('/api/login', async (req, res) => {
         });
 
         console.log('[Login] Token generated successfully');
+        
+        // 🎫 トークンをセキュアな HttpOnly Cookie に設定
+        res.cookie('token', token, {
+          httpOnly: true,
+          secure: true,
+          sameSite: 'Lax',
+          path: '/',
+          maxAge: 4 * 60 * 60 * 1000 // 4時間
+        });
+
         res.json({
           success: true,
-          token,
+          token: 'session_active', // フロントエンドにはダミーの文字列を渡してセッション存続確認用にするが、JWTトークンそのものは露出させない
           tenant_id: effectiveTenantId,
           tenant_path: effectiveTenantPath,
           role: normalizedRole,
@@ -2105,7 +2143,7 @@ const UserRbacService = {
 
 // 管理者認証ミドルウェア
 async function requireAdmin(req, res, next) {
-  const token = req.headers.authorization?.replace('Bearer ', '');
+  const token = extractTokenFromRequest(req);
 
   if (!token) {
     return res.status(401).json({ success: false, message: '認証が必要です' });
@@ -2179,7 +2217,7 @@ async function requireAdminCore(req, res, next, decoded) {
 
 // システム管理者専用認証ミドルウェア
 async function requireSystemAdmin(req, res, next) {
-  const token = req.headers.authorization?.replace('Bearer ', '');
+  const token = extractTokenFromRequest(req);
 
   if (!token) {
     return res.status(401).json({ success: false, message: '認証が必要です' });
@@ -2419,7 +2457,7 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 
 // ユーザー更新エンドポイント
 app.put('/api/users/:id', requireAdmin, async (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
+  const token = extractTokenFromRequest(req);
   const userId = req.params.id;
 
   if (!token) {
@@ -2517,7 +2555,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 
 // ユーザー削除エンドポイント
 app.delete('/api/users/:id', requireAdmin, async (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
+  const token = extractTokenFromRequest(req);
   const userId = req.params.id;
 
   if (!token) {
