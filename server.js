@@ -300,17 +300,19 @@ async function getAllCompanyRoutingRows() {
       return cached.rows;
     }
 
-    // ★ 新設計: tenant_app_routings の _config レコードからテナント情報を取得
+    // ★ 新設計: tenant_app_routings からテナント情報を取得（_configレコードまたは最初のレコード）
     const query = `
-      SELECT 
+      SELECT DISTINCT ON (tenant_key)
         tenant_key as company_id,
-        app_name as company_name,
-        db_name,
-        storage_bucket_name,
+        COALESCE(app_name, tenant_key) as company_name,
+        (tenant_key || '_db') as db_name,
+        (tenant_key || '-uploads-bucket') as storage_bucket_name,
         ('/' || tenant_key) as tenant_path
       FROM public.tenant_app_routings
-      WHERE app_id = '_config'
-      ORDER BY tenant_key
+      WHERE is_active = true
+      ORDER BY tenant_key, 
+        CASE WHEN app_id = '_config' THEN 0 ELSE 1 END,
+        display_order
     `;
     const result = await queryCompanyRouting(query);
     const rows = result.rows.map(normalizeTenantRoutingRow).filter(Boolean);
@@ -592,15 +594,18 @@ async function getCompanyRoutingByCompanyId(companyId) {
   }
 
   const query = `
-    SELECT 
+    SELECT DISTINCT ON (tenant_key)
       tenant_key as company_id,
-      app_name as company_name,
-      db_name,
-      storage_bucket_name,
+      COALESCE(app_name, tenant_key) as company_name,
+      (tenant_key || '_db') as db_name,
+      (tenant_key || '-uploads-bucket') as storage_bucket_name,
       ('/' || tenant_key) as tenant_path
     FROM public.tenant_app_routings
-    WHERE app_id = '_config' 
+    WHERE is_active = true
       AND LOWER(TRIM(tenant_key)) = $1
+    ORDER BY tenant_key,
+      CASE WHEN app_id = '_config' THEN 0 ELSE 1 END,
+      display_order
     LIMIT 1
   `;
   const result = await queryCompanyRouting(query, [cacheKey]);
