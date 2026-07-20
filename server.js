@@ -1201,6 +1201,62 @@ app.get('/api/tenant-context', async (req, res) => {
   }
 });
 
+// テナントに紐づくアプリケーション一覧を取得
+app.get('/api/tenant-apps', async (req, res) => {
+  try {
+    const runtime = req.tenantContext || getActiveTenantRuntime() || {
+      requestedTenantId: req.requestedTenantId || 'demo_env',
+      resolvedTenantId: 'demo_env',
+      companyId: 'demo_env',
+      isFallback: true
+    };
+
+    const effectiveTenantKey = runtime.companyId || runtime.resolvedTenantId || runtime.requestedTenantId || 'demo';
+    const normalizedTenantKey = effectiveTenantKey === 'demo_env' ? 'demo' : effectiveTenantKey;
+
+    // 新しいテーブル tenant_app_routings から取得
+    const controlPlane = getControlPlanePool();
+    const result = await controlPlane.query(`
+      SELECT 
+        app_id,
+        app_name,
+        app_url,
+        display_order,
+        icon,
+        icon_class,
+        description
+      FROM public.tenant_app_routings
+      WHERE tenant_key = $1 
+        AND is_active = true
+      ORDER BY display_order ASC, app_id ASC
+    `, [normalizedTenantKey]);
+
+    const apps = result.rows.map(row => ({
+      id: row.app_id,
+      name: row.app_name,
+      url: row.app_url,
+      displayOrder: row.display_order || 0,
+      icon: row.icon || '📱',
+      iconClass: row.icon_class || null,
+      description: row.description || ''
+    }));
+
+    return res.json({
+      success: true,
+      tenant_key: normalizedTenantKey,
+      apps: apps
+    });
+  } catch (err) {
+    console.error('[API /api/tenant-apps] Error:', err);
+    applyTenantErrorHeaders(res, err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || String(err),
+      apps: []
+    });
+  }
+});
+
 // データベース初期化（サーバー起動後に非同期で実行）
 setImmediate(async () => {
   try {

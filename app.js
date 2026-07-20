@@ -1,41 +1,146 @@
 /**
  * App Data Definition
- * 後で新しいアプリを追加する場合は、この配列にオブジェクトを追加するだけです。
+ * テナントに紐づくアプリ情報をAPIから動的に取得します。
  */
-const apps = [
-    {
-        id: 'planning',
-        title: '計画・運用管理',
-        description: '保守用車の運用計画作成から運用の実績を管理できます。',
-        image: 'assets/img/Operation Planning to Performance Management.png',
-        url: '#planning',
-        icon: '📅'
-    },
-    {
-        id: 'equipment',
-        title: '保守用車管理',
-        description: '仕業点検簿の表示から実績を記録します。',
-        image: 'assets/img/Inspection Checklist.jpeg',
-        url: '#equipment',
-        icon: '🚛'
-    },
-    {
-        id: 'emergency',
-        title: '応急復旧支援',
-        description: '機械故障等の技術支援します。',
-        image: 'assets/img/recovery.png',
-        url: '#emergency',
-        icon: '🛠️'
-    },
-    {
-        id: 'failure',
-        title: '機械故障管理',
-        description: '機械故障の原因分析と対策策定、発生状況と対応履歴を管理します。',
-        image: 'assets/img/Machinery Failure Management.png',
-        url: '#failure',
-        icon: '⚠️'
+let apps = [];
+
+// アプリ情報をデフォルト画像にマッピング（後方互換性のため）
+const defaultAppImages = {
+    'planning': 'assets/img/Operation Planning to Performance Management.png',
+    'equipment': 'assets/img/Inspection Checklist.jpeg',
+    'emergency': 'assets/img/recovery.png',
+    'failure': 'assets/img/Machinery Failure Management.png'
+};
+
+/**
+ * テナントに紐づくアプリ情報を取得
+ * DB の tenant_app_routings テーブルから動的に取得し、
+ * 取得できない場合はフォールバック（デフォルトアプリ一覧）を使用します。
+ * 
+ * @returns {Promise<boolean>} true: API取得成功、false: フォールバック使用
+ */
+async function loadTenantApps() {
+    try {
+        console.log('[App] Fetching tenant apps from /api/tenant-apps...');
+        const response = await fetch('/api/tenant-apps');
+        
+        if (!response.ok) {
+            console.warn(`[App] API request failed with status ${response.status}, using fallback`);
+            return loadFallbackApps();
+        }
+        
+        const data = await response.json();
+        console.log('[App] API response:', data);
+        
+        // APIレスポンスの検証
+        if (!data) {
+            console.warn('[App] Empty API response, using fallback');
+            return loadFallbackApps();
+        }
+        
+        if (!data.success) {
+            console.warn('[App] API returned success=false, using fallback. Error:', data.error);
+            return loadFallbackApps();
+        }
+        
+        if (!Array.isArray(data.apps)) {
+            console.warn('[App] API response does not contain apps array, using fallback');
+            return loadFallbackApps();
+        }
+        
+        if (data.apps.length === 0) {
+            console.warn('[App] API returned empty apps array (tenant may have no apps configured), using fallback');
+            return loadFallbackApps();
+        }
+        
+        // APIから取得したアプリ情報を内部形式に変換
+        // DBから取得したデータ（id, name, url, icon, iconClass, description）を
+        // フロントエンドの形式（id, title, url, icon, iconClass, description, image）に変換
+        apps = data.apps.map(app => ({
+            id: app.id,
+            title: app.name,
+            description: app.description || '',
+            image: defaultAppImages[app.id] || 'assets/img/default-app.png',
+            url: app.url,
+            icon: app.icon || '📱',
+            iconClass: app.iconClass || null  // Bootstrap Icons等のクラス名（例: 'bi-truck', 'bi-calendar'）
+        }));
+        
+        console.log(`[App] Successfully loaded ${apps.length} apps from API`);
+        
+        // AppConfig.endpointsにも反映（後方互換性のため）
+        data.apps.forEach(app => {
+            AppConfig.endpoints[app.id] = app.url;
+        });
+        
+        return true;
+    } catch (error) {
+        console.error('[App] Error loading tenant apps:', error);
+        console.error('[App] Stack trace:', error.stack);
+        return loadFallbackApps();
     }
-];
+}
+
+/**
+ * フォールバック：デフォルトアプリ一覧
+ * APIからアプリ情報を取得できない場合や、DBにデータが登録されていない場合に使用されます。
+ * 
+ * 使用ケース：
+ * - /api/tenant-apps エンドポイントがエラーを返した
+ * - テナントに紐づくアプリルーティング情報がDBに存在しない
+ * - ネットワークエラーでAPIにアクセスできない
+ * 
+ * @returns {boolean} false（フォールバックを使用したことを示す）
+ */
+function loadFallbackApps() {
+    console.warn('[App] ⚠️  Loading fallback apps (static default list)');
+    console.warn('[App] This usually means:');
+    console.warn('[App]   - tenant_app_routings table is empty or missing');
+    console.warn('[App]   - API endpoint /api/tenant-apps returned an error');
+    console.warn('[App]   - Network error occurred');
+    
+    apps = [
+        {
+            id: 'planning',
+            title: '計画・運用管理',
+            description: '保守用車の運用計画作成から運用の実績を管理できます。',
+            image: 'assets/img/Operation Planning to Performance Management.png',
+            url: '#planning',
+            icon: '📅',
+            iconClass: 'bi-calendar-check'
+        },
+        {
+            id: 'equipment',
+            title: '保守用車管理',
+            description: '仕業点検簿の表示から実績を記録します。',
+            image: 'assets/img/Inspection Checklist.jpeg',
+            url: '#equipment',
+            icon: '🚛',
+            iconClass: 'bi-truck'
+        },
+        {
+            id: 'emergency',
+            title: '応急復旧支援',
+            description: '機械故障等の技術支援します。',
+            image: 'assets/img/recovery.png',
+            url: '#emergency',
+            icon: '🛠️',
+            iconClass: 'bi-tools'
+        },
+        {
+            id: 'failure',
+            title: '機械故障管理',
+            description: '機械故障の原因分析と対策策定、発生状況と対応履歴を管理します。',
+            image: 'assets/img/Machinery Failure Management.png',
+            url: '#failure',
+            icon: '⚠️',
+            iconClass: 'bi-exclamation-triangle'
+        }
+    ];
+    
+    console.log(`[App] Loaded ${apps.length} fallback apps`);
+    return false;
+}
 
 // 動的設定の読み込み
 async function loadDynamicConfig() {
@@ -101,6 +206,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 設定をサーバーから読み込む
     await loadDynamicConfig();
+    
+    // テナントに紐づくアプリ情報を取得
+    await loadTenantApps();
 
     const tenantEnvironmentLabel = document.getElementById('tenant-environment-label');
     if (tenantEnvironmentLabel) {
@@ -215,21 +323,56 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     let currentAppId = '';
 
+    // ========================================
     // アプリカードの動的生成
-    console.log('[App] Starting to generate app cards...');
-    apps.forEach(app => {
+    // ========================================
+    // DBから取得した tenant_app_routings のデータを元に、
+    // 各アプリのカードを動的に生成して画面に表示します。
+    console.log('[App] ========================================');
+    console.log('[App] Generating app cards dynamically...');
+    console.log(`[App] Total apps to render: ${apps.length}`);
+    console.log('[App] ========================================');
+    
+    if (apps.length === 0) {
+        console.warn('[App] ⚠️  No apps to render! Check if tenant_app_routings table has data.');
+        appGrid.innerHTML = `
+            <div style="grid-column: 1 / -1; text-align: center; padding: 2rem;">
+                <p style="font-size: 1.2rem; color: #666;">アプリケーションが登録されていません。</p>
+                <p style="font-size: 0.9rem; color: #999;">システム管理者に連絡してください。</p>
+            </div>
+        `;
+    }
+    
+    apps.forEach((app, index) => {
+        console.log(`[App] [${index + 1}/${apps.length}] Rendering card:`, {
+            id: app.id,
+            title: app.title,
+            icon: app.icon,
+            iconClass: app.iconClass,
+            hasDescription: !!app.description
+        });
+        
         const card = document.createElement('div');
         card.className = 'app-card';
+        
+        // アイコン表示の決定ロジック:
+        // 1. icon_class（Bootstrap Icons等）が指定されている場合 → <i>タグでアイコンフォントを表示
+        // 2. icon_class がない場合 → 絵文字（icon）を表示
+        // これにより、DBでアイコンの種類を柔軟に管理できます
+        const iconDisplay = app.iconClass 
+            ? `<i class="${app.iconClass}" style="font-size: 2.5rem; color: var(--primary-color);"></i>`
+            : `<span style="font-size: 2.5rem;">${app.icon || '📱'}</span>`;
+        
         card.innerHTML = `
             <div class="app-card-header">
                 <h3>${app.title}</h3>
             </div>
             <div class="app-image-container">
-                <img src="${app.image}" alt="${app.title}" class="app-image">
-                <div class="app-icon-floating">${app.icon}</div>
+                <img src="${app.image}" alt="${app.title}" class="app-image" onerror="this.src='assets/img/default-app.png'; this.onerror=null;">
+                <div class="app-icon-floating">${iconDisplay}</div>
             </div>
             <div class="app-card-info">
-                <p class="app-sub-desc">${app.description}</p>
+                <p class="app-sub-desc">${app.description || 'アプリケーションの説明がありません。'}</p>
                 <button class="launch-btn-small">アプリ起動</button>
             </div>
         `;
@@ -239,7 +382,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
 
         appGrid.appendChild(card);
+        console.log(`[App] ✅ Card rendered: ${app.title}`);
     });
+    
+    console.log('[App] ========================================');
+    console.log('[App] All app cards rendered successfully!');
+    console.log('[App] ========================================');
 
     /**
      * 吹き出しを表示する関数
