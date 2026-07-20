@@ -1228,16 +1228,13 @@ app.get('/api/tenant-apps', async (req, res) => {
     const effectiveTenantKey = runtime.companyId || runtime.resolvedTenantId || runtime.requestedTenantId || 'demo';
     const normalizedTenantKey = effectiveTenantKey === 'demo_env' ? 'demo' : effectiveTenantKey;
 
-    // 新しいテーブル tenant_app_routings から取得
+    // 新しいテーブル tenant_app_routings から取得（必須カラムのみ）
     const controlPlane = getControlPlanePool();
     const result = await controlPlane.query(`
       SELECT 
         app_id,
         app_name,
-        app_url,
-        COALESCE(icon, '📱') as icon,
-        COALESCE(icon_class, '') as icon_class,
-        COALESCE(description, '') as description
+        app_url
       FROM public.tenant_app_routings
       WHERE tenant_key = $1 
         AND is_active = true
@@ -1249,9 +1246,9 @@ app.get('/api/tenant-apps', async (req, res) => {
       name: row.app_name,
       url: row.app_url,
       displayOrder: 0,
-      icon: row.icon || '📱',
-      iconClass: row.icon_class || null,
-      description: row.description || ''
+      icon: '📱',
+      iconClass: null,
+      description: ''
     }));
 
     return res.json({
