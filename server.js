@@ -300,10 +300,17 @@ async function getAllCompanyRoutingRows() {
       return cached.rows;
     }
 
+    // ★ 新設計: tenant_app_routings の _config レコードからテナント情報を取得
     const query = `
-      SELECT company_id, company_name, db_name, storage_bucket_name, tenant_path
-      FROM public.company_db_routing
-      ORDER BY company_id
+      SELECT 
+        tenant_key as company_id,
+        app_name as company_name,
+        db_name,
+        storage_bucket_name,
+        ('/' || tenant_key) as tenant_path
+      FROM public.tenant_app_routings
+      WHERE app_id = '_config'
+      ORDER BY tenant_key
     `;
     const result = await queryCompanyRouting(query);
     const rows = result.rows.map(normalizeTenantRoutingRow).filter(Boolean);
@@ -557,7 +564,7 @@ async function queryCompanyRouting(query, params = []) {
     return await routingPool.query(query, params);
   } catch (err) {
     const message = String(err.message || '').toLowerCase();
-    const isMissingRoutingTable = message.includes('company_db_routing') && message.includes('does not exist');
+    const isMissingRoutingTable = message.includes('tenant_app_routings') && message.includes('does not exist');
 
     if (routingPool !== defaultPool && isMissingRoutingTable) {
       return defaultPool.query(query, params);
@@ -585,9 +592,15 @@ async function getCompanyRoutingByCompanyId(companyId) {
   }
 
   const query = `
-    SELECT company_id, company_name, db_name, storage_bucket_name, tenant_path
-    FROM public.company_db_routing
-    WHERE LOWER(TRIM(company_id)) = $1
+    SELECT 
+      tenant_key as company_id,
+      app_name as company_name,
+      db_name,
+      storage_bucket_name,
+      ('/' || tenant_key) as tenant_path
+    FROM public.tenant_app_routings
+    WHERE app_id = '_config' 
+      AND LOWER(TRIM(tenant_key)) = $1
     LIMIT 1
   `;
   const result = await queryCompanyRouting(query, [cacheKey]);
@@ -1099,7 +1112,7 @@ app.use('/api', async (req, res, next) => {
     const requiresIsolation = !(isDemoTenant(normalizedRequestedTenantId) && isDemoTenant(normalizedResolvedTenantId));
 
     if (requiresIsolation && (!normalizedResolvedDbName || normalizedResolvedDbName === normalizedDefaultDbName)) {
-      const isolationError = new Error(`[TenantRouting] Isolation violation: requested=${normalizedRequestedTenantId || 'empty'}, resolved=${normalizedResolvedTenantId || 'empty'}, db=${runtime.dbName || 'empty'}, defaultDb=${defaultDbName}. Check public.company_db_routing.db_name and tenant_path.`);
+      const isolationError = new Error(`[TenantRouting] Isolation violation: requested=${normalizedRequestedTenantId || 'empty'}, resolved=${normalizedResolvedTenantId || 'empty'}, db=${runtime.dbName || 'empty'}, defaultDb=${defaultDbName}. Check public.tenant_app_routings (app_id='_config') for db_name and tenant_path.`);
       applyTenantErrorHeaders(res, isolationError);
       return res.status(503).json({
         success: false,
@@ -6178,12 +6191,12 @@ async function startServer() {
   console.log(`📡 Starting server on port ${PORT}...`);
   console.log(`📡 Binding to 0.0.0.0:${PORT} to accept external connections`);
 
-  // company_db_routing のクリーンアップ
-  try {
-    await cleanupCompanyDbRouting();
-  } catch (err) {
-    console.error('[CompanyDbCleanup] Cleanup error (non-fatal):', err.message);
-  }
+  // ★ 新設計: tenant_app_routings のみ使用するため、company_db_routing のクリーンアップは不要
+  // try {
+  //   await cleanupCompanyDbRouting();
+  // } catch (err) {
+  //   console.error('[CompanyDbCleanup] Cleanup error (non-fatal):', err.message);
+  // }
 
   // スキーマ初期化を実行
   try {
