@@ -5842,11 +5842,22 @@ async function runEmergencyDbFix() {
 async function initializeTenantSchemas() {
   console.log('[Schema] Initializing tenant DB schemas...');
   
-  const tenants = [
-    { id: 'kosei', dbName: 'kosei_db' },
-    { id: 'demo', dbName: 'demo_db' },
-    { id: 'daitetsu', dbName: 'daitetsu_db' }
-  ];
+  // 共通DBの tenant_app_routings からアクティブなテナント情報を動的にクエリして初期化
+  let tenants = [];
+  try {
+    const routingRows = await getAllCompanyRoutingRows();
+    tenants = routingRows.map(row => ({
+      id: row.tenant_key || row.company_id,
+      dbName: row.dbName || 'unknown'
+    })).filter(t => t.id && t.id !== 'demo_env');
+  } catch (err) {
+    console.warn('[Schema] Failed to query dynamic tenants, falling back to static list:', err.message);
+    tenants = [
+      { id: 'kosei', dbName: 'kosei_db' },
+      { id: 'demo', dbName: 'demo_db' },
+      { id: 'daitetsu', dbName: 'daitetsu_db' }
+    ];
+  }
 
   for (const tenant of tenants) {
     try {
@@ -5861,18 +5872,18 @@ async function initializeTenantSchemas() {
         `);
 
         if (checkRes.rows.length === 0) {
-          console.log(`[Schema] Adding password column to ${tenant.dbName}.users...`);
+          console.log(`[Schema] Adding password column to ${tenant.dbName || tenant.id}.users...`);
           await pool.query(`
             ALTER TABLE public.users 
             ADD COLUMN password VARCHAR(255) DEFAULT NULL
           `);
-          console.log(`[Schema] ✅ password column added to ${tenant.dbName}.users`);
+          console.log(`[Schema] ✅ password column added to ${tenant.dbName || tenant.id}.users`);
         } else {
-          console.log(`[Schema] ✅ password column already exists in ${tenant.dbName}.users`);
+          console.log(`[Schema] ✅ password column already exists in ${tenant.dbName || tenant.id}.users`);
         }
       });
     } catch (err) {
-      console.error(`[Schema] ⚠️ Failed to initialize ${tenant.dbName}: ${err.message}`);
+      console.error(`[Schema] ⚠️ Failed to initialize ${tenant.dbName || tenant.id}: ${err.message}`);
     }
   }
 
@@ -6177,35 +6188,62 @@ async function initializeDemoTenantTables() {
  * 全テナントのユーザーデータ初期化（パスワード NULL を修正 + デフォルトユーザー挿入）
  */
 async function initializeAllTenantUsers() {
-  // テナントごとのデフォルトユーザー設定
-  const tenantDefaults = [
-    {
-      id: 'demo', dbName: 'demo_db',
-      users: [
+  // 動的なデータ駆動型: 共通DBのアクティブテナント一覧に基づいて、対応する全DBのデフォルト管理者・ユーザーを初期化
+  let tenantDefaults = [];
+  try {
+    const routingRows = await getAllCompanyRoutingRows();
+    tenantDefaults = routingRows.map(row => {
+      const tid = row.tenant_key || row.company_id;
+      // 共通DBの各テナントキー(demo, kosei, daitetsu等)に応じたクリーンな動的配列を生成
+      return {
+        id: tid,
+        dbName: row.dbName || `${tid}_db`,
+        users: [
+          { username: 'admin', password: `${tid}123`, display_name: '管理者', role: 'admin' },
+          { username: `${tid}_user`, password: `${tid}123`, display_name: `${row.company_name || tid} ユーザー`, role: 'user' }
+        ]
+      };
+    }).filter(t => t.id && t.id !== 'demo_env');
+
+    // デモだけ特別に追加ユーザー情報を補強
+    const demoTenant = tenantDefaults.find(t => t.id === 'demo');
+    if (demoTenant) {
+      demoTenant.users.push(
         { username: 'niina', password: 'demo123', display_name: '新井二郎', role: 'admin' },
-        { username: 'demo_user', password: 'demo123', display_name: 'デモユーザー', role: 'user' },
-        { username: 'admin', password: 'admin123', display_name: '管理者', role: 'admin' }
-      ]
-    },
-    {
-      id: 'kosei', dbName: 'kosei_db',
-      users: [
-        { username: 'admin', password: 'kosei123', display_name: '管理者', role: 'admin' },
-        { username: 'kosei_user', password: 'kosei123', display_name: 'Kosei User', role: 'user' }
-      ]
-    },
-    {
-      id: 'daitetsu', dbName: 'daitetsu_db',
-      users: [
-        { username: 'admin', password: 'daitetsu123', display_name: '管理者', role: 'admin' },
-        { username: 'daitetsu_user', password: 'daitetsu123', display_name: 'Daitetsu User', role: 'user' }
-      ]
+        { username: 'demo_user', password: 'demo123', display_name: 'デモユーザー', role: 'user' }
+      );
     }
-  ];
+  } catch (err) {
+    console.warn('[TenantInit] Failed to query dynamic tenants for user initialization, fallback:', err.message);
+    tenantDefaults = [
+      {
+        id: 'demo', dbName: 'demo_db',
+        users: [
+          { username: 'niina', password: 'demo123', display_name: '新井二郎', role: 'admin' },
+          { username: 'demo_user', password: 'demo123', display_name: 'デモユーザー', role: 'user' },
+          { username: 'admin', password: 'admin123', display_name: '管理者', role: 'admin' }
+        ]
+      },
+      {
+        id: 'kosei', dbName: 'kosei_db',
+        users: [
+          { username: 'admin', password: 'kosei123', display_name: '管理者', role: 'admin' },
+          { username: 'kosei_user', password: 'kosei123', display_name: 'Kosei User', role: 'user' }
+        ]
+      },
+      {
+        id: 'daitetsu', dbName: 'daitetsu_db',
+        users: [
+          { username: 'admin', password: 'daitetsu123', display_name: '管理者', role: 'admin' },
+          { username: 'daitetsu_user', password: 'daitetsu123', display_name: 'Daitetsu User', role: 'user' }
+        ]
+      }
+    ];
+  }
 
   for (const tenant of tenantDefaults) {
     try {
-      console.log(`[TenantInit] Initializing users for ${tenant.dbName}...`);
+      console.log(`[TenantInit] Initializing users for ${tenant.dbName || tenant.id}...`);
       const runtime = await resolveTenantRuntime(tenant.id);
       const tenantPool = runtime.pool || getActiveDbPool();
       
@@ -6224,7 +6262,7 @@ async function initializeAllTenantUsers() {
             ) as exists
           `);
           if (!tableCheck.rows[0].exists) {
-            console.log(`[TenantInit] ⚠️ users table does not exist in ${tenant.dbName}. Creating...`);
+            console.log(`[TenantInit] ⚠️ users table does not exist in ${tenant.dbName || tenant.id}. Creating...`);
             await activePool.query(`
               CREATE TABLE IF NOT EXISTS public.users (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -6235,9 +6273,9 @@ async function initializeAllTenantUsers() {
                 created_at TIMESTAMP DEFAULT now()
               )
             `);
-            console.log(`[TenantInit] ✅ users table created in ${tenant.dbName}`);
+            console.log(`[TenantInit] ✅ users table created in ${tenant.dbName || tenant.id}`);
           } else {
-            console.log(`[TenantInit] ✅ users table exists in ${tenant.dbName}`);
+            console.log(`[TenantInit] ✅ users table exists in ${tenant.dbName || tenant.id}`);
             
             // テーブルのカラル構造を確認
             const colsRes = await activePool.query(`
