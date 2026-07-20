@@ -1775,14 +1775,19 @@ function mapRoleForExternal(role) {
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
 
-  // クエリ、ボディ、ヘッダーからテナントIDとパスを総合的に取得して解決
-  let tenantId = req.query.tenant_id || req.body.tenant_id || req.headers['x-tenant-id'] || req.requestedTenantId || 'demo_env';
-  tenantId = String(tenantId).trim().toLowerCase();
-  
+  // 【修正箇所】URLパス（refererやoriginalUrl）の末尾からテナント名を最優先で抽出するよう修正
   const tenantPath = String(req.body.tenant_path || req.headers['x-tenant-path'] || req.query.tenant_path || '').trim();
   const fullUrl = String(req.headers['x-tenant-full-url'] || req.query.full_url || req.headers.referer || '').trim();
+  
+  // URLパスやRefererからテナントキーを最優先で取得、なければquery/body/headerから補足
+  let tenantId = getTenantKeyFromPath(req.originalUrl) !== 'demo_env' ? getTenantKeyFromPath(req.originalUrl)
+               : getTenantKeyFromPath(fullUrl) !== 'demo_env' ? getTenantKeyFromPath(fullUrl)
+               : getTenantKeyFromPath(tenantPath) !== 'demo_env' ? getTenantKeyFromPath(tenantPath)
+               : req.query.tenant_id || req.body.tenant_id || req.headers['x-tenant-id'] || req.requestedTenantId || 'demo_env';
 
-  console.log(`[Login] Attempting login for username: ${username} (TenantId: ${tenantId})`);
+  tenantId = String(tenantId).trim().toLowerCase();
+  
+  console.log(`[Login] Attempting login for username: ${username} (Resolved TenantId: ${tenantId})`);
 
   try {
     // 解決されたテナントに対して実行プール（runtime）を再構築する
