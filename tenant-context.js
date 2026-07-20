@@ -3,9 +3,12 @@
 
     const STORAGE_KEY = 'tenant_context';
     const LOGIN_STORAGE_KEY = 'login_tenant_context';
+    const AUTO_REFRESH_INTERVAL_MS = 10 * 60 * 1000;
     const nativeFetch = window.fetch.bind(window);
     let initPromise = null;
     let tenantContext = null;
+    let lastTokenRefreshAt = 0;
+    let refreshInFlightPromise = null;
     const axiosClient = window.axios && typeof window.axios.create === 'function'
         ? window.axios.create({ withCredentials: true })
         : null;
@@ -444,6 +447,74 @@
         }
     }
 
+    function isRefreshExcludedApi(urlLike) {
+        try {
+            const parsed = new URL(urlLike, window.location.origin);
+            if (parsed.origin !== window.location.origin) {
+                return true;
+            }
+
+            return parsed.pathname === '/api/login'
+                || parsed.pathname === '/api/logout'
+                || parsed.pathname === '/api/refresh-token'
+                || parsed.pathname === '/api/verify-token';
+        } catch (_) {
+            return true;
+        }
+    }
+
+    function shouldAttemptAutoRefresh() {
+        const hasUserInfo = !!localStorage.getItem('user_info');
+        const hasTokenMarker = !!localStorage.getItem('user_token');
+        if (!hasUserInfo && !hasTokenMarker) {
+            return false;
+        }
+
+        const elapsed = Date.now() - lastTokenRefreshAt;
+        return elapsed >= AUTO_REFRESH_INTERVAL_MS;
+    }
+
+    function scheduleSessionRefresh() {
+        if (!shouldAttemptAutoRefresh()) {
+            return;
+        }
+
+        if (refreshInFlightPromise) {
+            return;
+        }
+
+        refreshInFlightPromise = (async () => {
+            try {
+                const token = localStorage.getItem('user_token');
+                const payload = token && token !== 'session_active' ? { token } : {};
+                const headers = buildRequestHeaders({ 'Content-Type': 'application/json' });
+
+                const response = await nativeFetch('/api/refresh-token', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers,
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    return;
+                }
+
+                const data = await response.json().catch(() => null);
+                if (data && data.success) {
+                    if (typeof data.token === 'string' && data.token.trim()) {
+                        localStorage.setItem('user_token', data.token);
+                    }
+                    lastTokenRefreshAt = Date.now();
+                }
+            } catch (_) {
+                // ユーザー操作の本体リクエストを妨げないため、リフレッシュ失敗は握りつぶす
+            } finally {
+                refreshInFlightPromise = null;
+            }
+        })();
+    }
+
     if (axiosClient) {
         axiosClient.interceptors.request.use((config) => {
             const requestUrl = new URL(config.url || '', window.location.href);
@@ -463,10 +534,17 @@
             return nativeFetch(input, init);
         }
 
+        if (!isRefreshExcludedApi(requestUrl)) {
+            scheduleSessionRefresh();
+        }
+
         const requestInit = init ? { ...init } : {};
         const headers = buildRequestHeaders(requestInit.headers || (input instanceof Request ? input.headers : {}));
 
         requestInit.headers = headers;
+        if (!requestInit.credentials) {
+            requestInit.credentials = 'same-origin';
+        }
 
         if (!axiosClient) {
             return nativeFetch(input, requestInit);

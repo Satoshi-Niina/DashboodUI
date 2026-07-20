@@ -2034,7 +2034,8 @@ app.post('/api/verify-token', async (req, res) => {
 
 // トークンリフレッシュエンドポイント (有効期限を延長)
 app.post('/api/refresh-token', async (req, res) => {
-  const { token } = req.body;
+  const bodyToken = req.body && req.body.token ? String(req.body.token).trim() : '';
+  const token = bodyToken || extractTokenFromRequest(req);
 
   if (!token) {
     return res.status(400).json({ success: false, message: 'トークンが提供されていません' });
@@ -2050,14 +2051,25 @@ app.post('/api/refresh-token', async (req, res) => {
     // 新しいトークンを発行（Emergency-Assistanceと互換性のある形式）
     const normalizedRole = normalizeRoleForApp(decoded.role);
     const department = decoded.department || getDepartmentByRole(normalizedRole);
+    const effectiveTenantId = decoded.tenantId || decoded.tenant_id || 'demo';
+    const effectiveTenantPath = normalizeTenantPathForResponse(
+      decoded.tenantPath || decoded.tenant_path || '',
+      effectiveTenantId
+    );
 
     const payload = {
       id: decoded.id,
       userId: decoded.id,  // 外部アプリ連携用
       username: decoded.username,
       displayName: decoded.displayName,
-      role: mapRoleForExternal(normalizedRole), // 外部システム向けにマッピング
+      role: normalizedRole,
+      externalRole: mapRoleForExternal(normalizedRole),
       department: department,
+      tenantId: effectiveTenantId,
+      tenant_id: effectiveTenantId,
+      tenantPath: effectiveTenantPath,
+      tenant_path: effectiveTenantPath,
+      dbName: decoded.dbName || '',
       iat: Math.floor(Date.now() / 1000)
     };
 
@@ -2068,6 +2080,15 @@ app.post('/api/refresh-token', async (req, res) => {
     });
 
     console.log('[TokenRefresh] 🔄 Token refreshed for user:', decoded.username);
+
+    // ログイン時と同様に HttpOnly Cookie も更新
+    res.cookie('token', newToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'Lax',
+      path: '/',
+      maxAge: 4 * 60 * 60 * 1000
+    });
 
     res.json({ success: true, token: newToken });
   } catch (err) {
