@@ -1005,11 +1005,54 @@ app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
 
-// 一時的な本番DB確認用デバッグエンドポイント
+// 一時的な本番DB確認・自動マイグレーション用デバッグエンドポイント
 app.get('/api/debug-tenant-routings', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM public.tenant_app_routings');
-    res.json({ success: true, columns: result.fields.map(f => f.name), rows: result.rows });
+    // 1. database_url の更新
+    await pool.query(`
+      UPDATE public.tenant_app_routings
+      SET database_url = 'postgresql://postgres:Takabeni@/demo_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project'
+      WHERE tenant_key = 'demo'
+    `);
+    await pool.query(`
+      UPDATE public.tenant_app_routings
+      SET database_url = 'postgresql://postgres:Takabeni@/daitetsu_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project'
+      WHERE tenant_key = 'daitetsu'
+    `);
+    await pool.query(`
+      UPDATE public.tenant_app_routings
+      SET database_url = 'postgresql://postgres:Takabeni@/kosei_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project'
+      WHERE tenant_key = 'kousei'
+    `);
+
+    // 2. demo, daitetsu, kousei 宛への残り3つのアプリレコード（計画・運用、応急支援、故障管理）の追加登録
+    const appsToInsert = [
+      // demo用
+      ['d1b11111-1c72-4bc5-bbd1-71b73653878c', 'demo', 'planning', '計画・運用管理', 'https://operation-management-client-800711608362.asia-northeast2.run.app/demo/planning', 'postgresql://postgres:Takabeni@/demo_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project', 'your-demo-bucket-name', '/', true, '計画・運用管理システム', 'bi-calendar-check'],
+      ['d1b11112-1c72-4bc5-bbd1-71b73653878c', 'demo', 'emergency', '応急復旧支援', 'https://operation-management-client-800711608362.asia-northeast2.run.app/demo/emergency', 'postgresql://postgres:Takabeni@/demo_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project', 'your-demo-bucket-name', '/', true, '機械故障等の技術支援システムです', 'bi-tools'],
+      ['d1b11113-1c72-4bc5-bbd1-71b73653878c', 'demo', 'failure', '機械故障管理', 'https://operation-management-client-800711608362.asia-northeast2.run.app/demo/failure', 'postgresql://postgres:Takabeni@/demo_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project', 'your-demo-bucket-name', '/', true, '機械故障の原因分析と対策管理システム', 'bi-exclamation-triangle'],
+      
+      // daitetsu用
+      ['d1b11114-1c72-4bc5-bbd1-71b73653878c', 'daitetsu', 'planning', '計画・運用管理', 'https://operation-management-client-800711608362.asia-northeast2.run.app/planning', 'postgresql://postgres:Takabeni@/daitetsu_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project', 'your-daitetsu-bucket-name', '/daitetsu', true, '計画・運用管理システム', 'bi-calendar-check'],
+      ['d1b11115-1c72-4bc5-bbd1-71b73653878c', 'daitetsu', 'emergency', '応急復旧支援', 'https://operation-management-client-800711608362.asia-northeast2.run.app/emergency', 'postgresql://postgres:Takabeni@/daitetsu_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project', 'your-daitetsu-bucket-name', '/daitetsu', true, '機械故障等の技術支援システムです', 'bi-tools'],
+      ['d1b11116-1c72-4bc5-bbd1-71b73653878c', 'daitetsu', 'failure', '機械故障管理', 'https://operation-management-client-800711608362.asia-northeast2.run.app/failure', 'postgresql://postgres:Takabeni@/daitetsu_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project', 'your-daitetsu-bucket-name', '/daitetsu', true, '機械故障の原因分析と対策管理システム', 'bi-exclamation-triangle'],
+
+      // kousei用
+      ['d1b11117-1c72-4bc5-bbd1-71b73653878c', 'kousei', 'planning', '計画・運用管理', 'https://operation-management-client-800711608362.asia-northeast2.run.app/kosei/planning', 'postgresql://postgres:Takabeni@/kosei_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project', 'your-kousei-bucket-name', '/kousei', true, '計画・運用管理システム', 'bi-calendar-check'],
+      ['d1b11118-1c72-4bc5-bbd1-71b73653878c', 'kousei', 'emergency', '応急復旧支援', 'https://operation-management-client-800711608362.asia-northeast2.run.app/kosei/emergency', 'postgresql://postgres:Takabeni@/kosei_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project', 'your-kousei-bucket-name', '/kousei', true, '機械故障等の技術支援システムです', 'bi-tools'],
+      ['d1b11119-1c72-4bc5-bbd1-71b73653878c', 'kousei', 'failure', '機械故障管理', 'https://operation-management-client-800711608362.asia-northeast2.run.app/kosei/failure', 'postgresql://postgres:Takabeni@/kosei_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project', 'your-kousei-bucket-name', '/kousei', true, '機械故障の原因分析と対策管理システム', 'bi-exclamation-triangle']
+    ];
+
+    for (const app of appsToInsert) {
+      await pool.query(`
+        INSERT INTO public.tenant_app_routings (id, tenant_key, app_id, app_name, app_url, database_url, storage_bucket_name, storage_prefix, is_active, description, icon_class)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (id) DO NOTHING
+      `, app);
+    }
+
+    const result = await pool.query('SELECT * FROM public.tenant_app_routings ORDER BY tenant_key, app_id');
+    res.json({ success: true, columns: result.fields.map(f => f.name), rows: result.rows, message: 'Migration & update completed successfully!' });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message, stack: err.stack });
   }
@@ -1809,8 +1852,8 @@ app.post('/api/login', async (req, res) => {
     req.tenantId = runtime.resolvedTenantId || tenantId;
     req.db = runtime.pool || getControlPlanePool();
 
-    // テナント DB に接続してユーザー認証（各テナント DB 内で認証）
-    return requestTenantContextStorage.run(runtime, async () => {
+    // テナント DB に接続してユーザー認証（各テナント DB 内で認証）を await して同期的に実行する
+    await requestTenantContextStorage.run(runtime, async () => {
       console.log(`[Login] Querying tenant DB: ${runtime.dbName}`);
 
       // テナント DB から users を検索
