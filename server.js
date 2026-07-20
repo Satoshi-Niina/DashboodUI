@@ -1322,16 +1322,6 @@ app.get('/api/tenant-apps', async (req, res) => {
   }
 });
 
-// データベース初期化（サーバー起動後に非同期で実行）
-setImmediate(async () => {
-  try {
-    await initializeDatabase();
-    await testDatabaseConnection();
-  } catch (err) {
-    console.error('❌ Post-start DB initialization failed:', err.message);
-  }
-});
-
 // ========================================
 // ゲートウェイ方式: テーブルルーティング機能
 // ========================================
@@ -6335,12 +6325,14 @@ async function startServer() {
   console.log(`📡 Starting server on port ${PORT}...`);
   console.log(`📡 Binding to 0.0.0.0:${PORT} to accept external connections`);
 
-  // ★ 新設計: tenant_app_routings のみ使用するため、company_db_routing のクリーンアップは不要
-  // try {
-  //   await cleanupCompanyDbRouting();
-  // } catch (err) {
-  //   console.error('[CompanyDbCleanup] Cleanup error (non-fatal):', err.message);
-  // }
+  // 1. 共通DB接続と緊急自己修復（kosei/kouseiキー正規化や database_url、4アプリのインサートを含む）を最優先で完了
+  try {
+    await initializeDatabase();
+    await testDatabaseConnection();
+  } catch (err) {
+    console.error('❌ Database pre-initialization failed (fatal):', err.message);
+    process.exit(1);
+  }
 
   // スキーマ初期化を実行
   try {
