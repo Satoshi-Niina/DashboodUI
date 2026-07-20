@@ -300,12 +300,12 @@ async function getAllCompanyRoutingRows() {
       return cached.rows;
     }
 
-    // ★ シンプル設計: tenant_app_routings から database_url を直接取得
+    // ★ シンプル設計: tenant_app_routings から tenant_key を取得（database_urlはコード側で生成）
     const query = `
       SELECT DISTINCT ON (tenant_key)
         tenant_key as company_id,
         app_name as company_name,
-        database_url,
+        tenant_key,
         ('/' || tenant_key) as tenant_path
       FROM public.tenant_app_routings
       WHERE is_active = true
@@ -317,7 +317,8 @@ async function getAllCompanyRoutingRows() {
       return {
         company_id: row.company_id || row.tenant_key,
         company_name: row.company_name || row.tenant_key,
-        database_url: row.database_url,
+        tenant_key: row.tenant_key,
+        database_url: null, // コード側で生成
         tenant_path: row.tenant_path || `/${row.tenant_key}`,
         normalizedCompanyId: String(row.company_id || row.tenant_key || '').trim().toLowerCase(),
         normalizedTenantKey: String(row.tenant_key || row.company_id || '').trim().toLowerCase()
@@ -557,8 +558,15 @@ function getOrCreateTenantPool(dbName) {
 }
 
 // ★ シンプル設計: database_url から直接接続プールを作成
-function getOrCreateTenantPoolFromUrl(databaseUrl) {
-  if (!databaseUrl) return getControlPlanePool();
+// database_urlがない場合はtenant_keyから生成
+function getOrCreateTenantPoolFromUrl(databaseUrl, tenantKey = '') {
+  if (!databaseUrl && !tenantKey) return getControlPlanePool();
+  
+  // database_urlが空の場合、tenant_keyからDB名を生成して接続設定を作成
+  if (!databaseUrl || databaseUrl === tenantKey) {
+    const dbName = tenantKey.endsWith('_db') ? tenantKey : `${tenantKey}_db`;
+    return getOrCreateTenantPool(dbName);
+  }
   
   const cacheKey = databaseUrl;
   if (tenantDbPoolCache.has(cacheKey)) {
@@ -630,7 +638,7 @@ async function getCompanyRoutingByCompanyId(companyId) {
     SELECT DISTINCT ON (tenant_key)
       tenant_key as company_id,
       app_name as company_name,
-      database_url,
+      tenant_key,
       ('/' || tenant_key) as tenant_path
     FROM public.tenant_app_routings
     WHERE is_active = true
@@ -653,23 +661,25 @@ async function getCompanyRoutingByCompanyId(companyId) {
 
 function buildTenantRuntimeFromRoutingRow(routingRow, requestedTenantId, defaultDbName, defaultBucketName, fallbackTenantKey = '') {
   const resolvedTenantId = routingRow.company_id || fallbackTenantKey || requestedTenantId || 'demo_env';
+  const tenantKey = routingRow.company_id || resolvedTenantId;
   
-  // ★ シンプル設計: database_url を直接使用
+  // ★ シンプル設計: database_url を直接使用（なければtenant_keyから生成）
   const databaseUrl = routingRow.database_url;
-  
-  if (!databaseUrl || String(databaseUrl).trim() === '') {
-    throw new Error(`Tenant routing row missing database_url: company_id=${routingRow.company_id}`);
-  }
-  
-  const tenantPool = getOrCreateTenantPoolFromUrl(databaseUrl);
+  const tenantPool = getOrCreateTenantPoolFromUrl(databaseUrl, tenantKey);
   
   // database_urlからDB名を抽出（ロギング・デバッグ用）
   let dbName = 'unknown';
-  try {
-    const url = new URL(databaseUrl);
-    dbName = url.pathname.replace(/^\//, '') || 'unknown';
-  } catch (e) {
-    dbName = 'unknown';
+  if (databaseUrl && databaseUrl !== tenantKey) {
+    try {
+      const url = new URL(databaseUrl);
+      dbName = url.pathname.replace(/^\//, '') || 'unknown';
+    } catch (e) {
+      // URL形式でない場合
+      dbName = tenantKey.endsWith('_db') ? tenantKey : `${tenantKey}_db`;
+    }
+  } else {
+    // database_urlがない場合
+    dbName = tenantKey.endsWith('_db') ? tenantKey : `${tenantKey}_db`;
   }
 
   return {
@@ -678,8 +688,8 @@ function buildTenantRuntimeFromRoutingRow(routingRow, requestedTenantId, default
     companyId: routingRow.company_id || resolvedTenantId,
     companyName: routingRow.company_name || '',
     dbName: dbName,
-    databaseUrl: databaseUrl,
-    storageBucketName: routingRow.storage_bucket_name || defaultBucketName,
+    databaseUrl: databaseUrl || '',
+    storageBucketName: routingRow.storage_bucket_name || defaultBucketName || `${tenantKey}-uploads-bucket`,
     tenantPath: routingRow.tenant_path || '',
     pool: tenantPool,
     isFallback: false
