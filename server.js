@@ -300,20 +300,29 @@ async function getAllCompanyRoutingRows() {
       return cached.rows;
     }
 
-    // ★ 新設計: tenant_app_routings からテナント情報を取得
+    // ★ シンプル設計: tenant_app_routings から database_url を直接取得
     const query = `
       SELECT DISTINCT ON (tenant_key)
         tenant_key as company_id,
-        COALESCE(app_name, tenant_key) as company_name,
-        (tenant_key || '_db') as db_name,
-        (tenant_key || '-uploads-bucket') as storage_bucket_name,
+        app_name as company_name,
+        database_url,
         ('/' || tenant_key) as tenant_path
       FROM public.tenant_app_routings
       WHERE is_active = true
       ORDER BY tenant_key, app_id
     `;
     const result = await queryCompanyRouting(query);
-    const rows = result.rows.map(normalizeTenantRoutingRow).filter(Boolean);
+    const rows = result.rows.map(row => {
+      if (!row || !row.tenant_key) return null;
+      return {
+        company_id: row.company_id || row.tenant_key,
+        company_name: row.company_name || row.tenant_key,
+        database_url: row.database_url,
+        tenant_path: row.tenant_path || `/${row.tenant_key}`,
+        normalizedCompanyId: String(row.company_id || row.tenant_key || '').trim().toLowerCase(),
+        normalizedTenantKey: String(row.tenant_key || row.company_id || '').trim().toLowerCase()
+      };
+    }).filter(Boolean);
     tenantRouteListCache.set('all', { rows, timestamp: now });
     return rows;
   } catch (err) {
@@ -547,6 +556,32 @@ function getOrCreateTenantPool(dbName) {
   return tenantPool;
 }
 
+// ★ シンプル設計: database_url から直接接続プールを作成
+function getOrCreateTenantPoolFromUrl(databaseUrl) {
+  if (!databaseUrl) return getControlPlanePool();
+  
+  const cacheKey = databaseUrl;
+  if (tenantDbPoolCache.has(cacheKey)) {
+    const cached = tenantDbPoolCache.get(cacheKey);
+    cached.lastUsedAt = Date.now();
+    return cached.pool;
+  }
+  
+  const tenantPool = new Pool({ connectionString: databaseUrl });
+  tenantPool.on('error', (err) => {
+    console.error(`[TenantDB] Unexpected error on tenant pool:`, err.message);
+  });
+  
+  tenantDbPoolCache.set(cacheKey, {
+    pool: tenantPool,
+    databaseUrl,
+    lastUsedAt: Date.now()
+  });
+  
+  console.log(`[TenantDB] Created pool from database_url: ${databaseUrl}`);
+  return tenantPool;
+}
+
 function getCompanyRoutingPool() {
   const routingDbName = getCompanyRoutingDbName();
   const defaultDbName = getDefaultDbName();
@@ -594,9 +629,8 @@ async function getCompanyRoutingByCompanyId(companyId) {
   const query = `
     SELECT DISTINCT ON (tenant_key)
       tenant_key as company_id,
-      COALESCE(app_name, tenant_key) as company_name,
-      (tenant_key || '_db') as db_name,
-      (tenant_key || '-uploads-bucket') as storage_bucket_name,
+      app_name as company_name,
+      database_url,
       ('/' || tenant_key) as tenant_path
     FROM public.tenant_app_routings
     WHERE is_active = true
@@ -619,23 +653,32 @@ async function getCompanyRoutingByCompanyId(companyId) {
 
 function buildTenantRuntimeFromRoutingRow(routingRow, requestedTenantId, defaultDbName, defaultBucketName, fallbackTenantKey = '') {
   const resolvedTenantId = routingRow.company_id || fallbackTenantKey || requestedTenantId || 'demo_env';
-  const tenantDbName = routingRow.db_name;
   
-  // db_nameが空欄の場合はエラー（common_dbへfallbackしない）
-  if (!tenantDbName || String(tenantDbName).trim() === '') {
-    throw new Error(`Tenant routing row missing db_name: company_id=${routingRow.company_id}`);
+  // ★ シンプル設計: database_url を直接使用
+  const databaseUrl = routingRow.database_url;
+  
+  if (!databaseUrl || String(databaseUrl).trim() === '') {
+    throw new Error(`Tenant routing row missing database_url: company_id=${routingRow.company_id}`);
   }
   
-  const tenantPool = tenantDbName === defaultDbName
-    ? getControlPlanePool()
-    : getOrCreateTenantPool(tenantDbName);
+  const tenantPool = getOrCreateTenantPoolFromUrl(databaseUrl);
+  
+  // database_urlからDB名を抽出（ロギング・デバッグ用）
+  let dbName = 'unknown';
+  try {
+    const url = new URL(databaseUrl);
+    dbName = url.pathname.replace(/^\//, '') || 'unknown';
+  } catch (e) {
+    dbName = 'unknown';
+  }
 
   return {
     requestedTenantId,
     resolvedTenantId,
     companyId: routingRow.company_id || resolvedTenantId,
     companyName: routingRow.company_name || '',
-    dbName: tenantDbName,
+    dbName: dbName,
+    databaseUrl: databaseUrl,
     storageBucketName: routingRow.storage_bucket_name || defaultBucketName,
     tenantPath: routingRow.tenant_path || '',
     pool: tenantPool,
