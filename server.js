@@ -5825,7 +5825,18 @@ async function runEmergencyDbFix() {
         WHERE id = '061bfbe4-e22f-4e87-a20e-5f231f34fd83'
       `);
 
-      console.log('[Self-Healing] ✅ tenant_app_routings key normalize completed.');
+      // ★ demoの database_url が demo_db になっていて実在しない（demo_db_v2が正解）問題を解決
+      await pool.query(`
+        UPDATE public.tenant_app_routings
+        SET database_url = 'postgresql://postgres:Takabeni@/demo_db_v2?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project'
+        WHERE tenant_key = 'demo' OR tenant_key = 'demo_env'
+      `);
+
+      // キャッシュを完全にクリアして動的なアップデートを強制
+      tenantRouteListCache.clear();
+      tenantRouteCache.clear();
+
+      console.log('[Self-Healing] ✅ tenant_app_routings key normalize and demo_db_v2 correction completed.');
     } catch (normErr) {
       console.warn('[Self-Healing] ⚠️ Schema normalization failed:', normErr.message);
     }
