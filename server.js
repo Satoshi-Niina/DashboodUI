@@ -1800,14 +1800,15 @@ app.post('/api/login', async (req, res) => {
 
     // テナント DB に接続してユーザー認証（各テナント DB 内で認証）を await して同期的に実行する
     await requestTenantContextStorage.run(runtime, async () => {
-      console.log(`[Login] Querying tenant DB: ${runtime.dbName}`);
+      console.log(`[Login] Querying tenant DB directly: ${runtime.dbName}`);
 
-      // テナント DB から users を検索
-      const users = await dynamicSelect('users',
-        { username },
-        ['id', 'username', 'password', 'password_hash', 'display_name', 'role'],
-        1
+      // Proxyの混乱を避けるため、確定したテナントプールから直接クエリを実行
+      const userRoute = await resolveTablePath('users');
+      const userResult = await runtime.pool.query(
+        `SELECT id, username, password, password_hash, display_name, role FROM ${userRoute.fullPath} WHERE username = $1 LIMIT 1`,
+        [username]
       );
+      const users = userResult.rows;
 
       console.log('[Login] Query result:', users.length > 0 ? 'User found' : 'User not found');
 
@@ -1848,10 +1849,10 @@ app.post('/api/login', async (req, res) => {
       if (match && dbPassword && !dbPassword.startsWith('$2')) {
         try {
           const hashedPassword = await bcrypt.hash(password, 10);
-          await dynamicUpdate('users',
-            { password: hashedPassword, password_hash: hashedPassword },
-            { id: user.id },
-            false
+          const userRoute = await resolveTablePath('users');
+          await runtime.pool.query(
+            `UPDATE ${userRoute.fullPath} SET password = $1, password_hash = $2 WHERE id = $3`,
+            [hashedPassword, hashedPassword, user.id]
           );
           console.log(`[Login] Password hashed for user: ${user.username}`);
         } catch (hashErr) {
