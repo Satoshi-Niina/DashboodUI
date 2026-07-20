@@ -9,7 +9,7 @@ steps:
       - '--no-cache'              # キャッシュを使用しない
       - '--pull'                   # 常に最新のベースイメージを取得
       - '-t'
-      - 'gcr.io/$PROJECT_ID/dashboodui:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/dashboodui:$SHORT_SHA'
       - '-t'
       - 'gcr.io/$PROJECT_ID/dashboodui:latest'
       - '.'
@@ -19,7 +19,7 @@ steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'push'
-      - 'gcr.io/$PROJECT_ID/dashboodui:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/dashboodui:$SHORT_SHA'
 
   - name: 'gcr.io/cloud-builders/docker'
     args:
@@ -33,7 +33,7 @@ steps:
       - 'deploy'
       - 'dashboodui'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/dashboodui:$COMMIT_SHA'
+      - 'gcr.io/$PROJECT_ID/dashboodui:$SHORT_SHA'
       - '--region'
       - 'asia-northeast1'
       - '--platform'
@@ -60,5 +60,5 @@ options:
   
 # 使用するイメージ
 images:
-  - 'gcr.io/$PROJECT_ID/dashboodui:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/dashboodui:$SHORT_SHA'
   - 'gcr.io/$PROJECT_ID/dashboodui:latest'
