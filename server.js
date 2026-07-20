@@ -300,7 +300,7 @@ async function getAllCompanyRoutingRows() {
       return cached.rows;
     }
 
-    // ★ 新設計: tenant_app_routings からテナント情報を取得（_configレコードまたは最初のレコード）
+    // ★ 新設計: tenant_app_routings からテナント情報を取得
     const query = `
       SELECT DISTINCT ON (tenant_key)
         tenant_key as company_id,
@@ -310,9 +310,7 @@ async function getAllCompanyRoutingRows() {
         ('/' || tenant_key) as tenant_path
       FROM public.tenant_app_routings
       WHERE is_active = true
-      ORDER BY tenant_key, 
-        CASE WHEN app_id = '_config' THEN 0 ELSE 1 END,
-        display_order
+      ORDER BY tenant_key, app_id
     `;
     const result = await queryCompanyRouting(query);
     const rows = result.rows.map(normalizeTenantRoutingRow).filter(Boolean);
@@ -603,9 +601,7 @@ async function getCompanyRoutingByCompanyId(companyId) {
     FROM public.tenant_app_routings
     WHERE is_active = true
       AND LOWER(TRIM(tenant_key)) = $1
-    ORDER BY tenant_key,
-      CASE WHEN app_id = '_config' THEN 0 ELSE 1 END,
-      display_order
+    ORDER BY tenant_key, app_id
     LIMIT 1
   `;
   const result = await queryCompanyRouting(query, [cacheKey]);
@@ -1239,21 +1235,20 @@ app.get('/api/tenant-apps', async (req, res) => {
         app_id,
         app_name,
         app_url,
-        display_order,
-        icon,
-        icon_class,
-        description
+        COALESCE(icon, '📱') as icon,
+        COALESCE(icon_class, '') as icon_class,
+        COALESCE(description, '') as description
       FROM public.tenant_app_routings
       WHERE tenant_key = $1 
         AND is_active = true
-      ORDER BY display_order ASC, app_id ASC
+      ORDER BY app_id ASC
     `, [normalizedTenantKey]);
 
     const apps = result.rows.map(row => ({
       id: row.app_id,
       name: row.app_name,
       url: row.app_url,
-      displayOrder: row.display_order || 0,
+      displayOrder: 0,
       icon: row.icon || '📱',
       iconClass: row.icon_class || null,
       description: row.description || ''
