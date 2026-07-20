@@ -212,8 +212,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const tenantEnvironmentLabel = document.getElementById('tenant-environment-label');
     if (tenantEnvironmentLabel) {
-        const tenantLabel = window.TenantContext && typeof window.TenantContext.getTenantLabel === 'function'
-            ? window.TenantContext.getTenantLabel()
+        // ★ マッピングバグ修正: 1つ目のアプリ名ではなく、テナント会社のラベルを動的に表示する
+        const tenantLabel = window.TenantContext && typeof window.TenantContext.getCompanyName === 'function' && window.TenantContext.getCompanyName()
+            ? (window.TenantContext.getTenantLabel ? window.TenantContext.getTenantLabel() : `${window.TenantContext.getCompanyName()} 様環境`)
             : 'デモ環境';
         tenantEnvironmentLabel.textContent = tenantLabel;
     }
@@ -590,7 +591,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // ローカルストレージから認証情報を取得
         const authPayload = buildExternalAuthPayload();
         const token = authPayload.token;
-        const shouldUseExternalAuthBridge = currentAppId === 'equipment';
+        const shouldUseExternalAuthBridge = true; // ★ すべてのアプリで共通ブリッジ及びパス組立を行う
         let popupOrigin = '';
         let authContext = null;
 
