@@ -668,11 +668,20 @@ function buildTenantRuntimeFromRoutingRow(routingRow, requestedTenantId, default
   
   // database_urlからDB名を抽出（ロギング・デバッグ用）
   let dbName = 'unknown';
-  try {
-    const url = new URL(databaseUrl);
-    dbName = url.pathname.replace(/^\//, '') || 'unknown';
-  } catch (e) {
-    dbName = 'unknown';
+  if (databaseUrl) {
+    // 接続URLからDB名を正確に抽出するための正規表現（例: /daitetsu_db, @/daitetsu_db, /daitetsu_db? などに対応）
+    const match = databaseUrl.match(/[\/@]([a-zA-Z0-9_]+_db)(?:\?|$)/) || databaseUrl.match(/\/([a-zA-Z0-9_-]+)(?:\?|$)/);
+    if (match) {
+      dbName = match[1];
+    } else {
+      // フォールバック
+      try {
+        const url = new URL(databaseUrl);
+        dbName = url.pathname.replace(/^\//, '') || 'unknown';
+      } catch (e) {
+        dbName = 'unknown';
+      }
+    }
   }
 
   return {
