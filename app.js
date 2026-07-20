@@ -9,7 +9,8 @@ const defaultAppImages = {
     'planning': 'assets/img/Operation Planning to Performance Management.png',
     'equipment': 'assets/img/Inspection Checklist.jpeg',
     'emergency': 'assets/img/recovery.png',
-    'failure': 'assets/img/Machinery Failure Management.png'
+    'failure': 'assets/img/Machinery Failure Management.png',
+    'vehicle': 'assets/img/Inspection Checklist.jpeg' // ★ vehicle（保守用車管理システム）のデフォルト画像をセットしてリンク切れを防ぐ
 };
 
 /**
@@ -548,18 +549,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function applyTenantPathToExternalUrl(urlObj, tenantContext) {
-        // URLパスから既存のテナントセグメントを除去し、クリーンなパスを保持
-        // テナントIDはクエリパラメータとして appendTenantLaunchParams で追加される
+        // urlObjが有効でなければ何もしない
+        if (!urlObj || !urlObj.pathname) return;
+        
         const tenantId = normalizeExternalTenantId(tenantContext.tenantId);
-        const rawSegments = urlObj.pathname.split('/').filter(Boolean);
-        const firstSegment = String(rawSegments[0] || '').trim().toLowerCase();
-        const knownTenantSegments = new Set(['demo', 'demo_env', 'kosei', 'daitetsu', tenantId]);
-        const suffixSegments = knownTenantSegments.has(firstSegment)
-            ? rawSegments.slice(1)
-            : rawSegments;
-        const effectiveSuffixSegments = suffixSegments.length > 0 ? suffixSegments : ['daily-info'];
-        // テナントIDをパスに含めず、クリーンなパスのみを設定
-        urlObj.pathname = `/${effectiveSuffixSegments.join('/')}`;
+        
+        // ★ パスキ違い構成の構築：vehicle (保守用車管理) または equipment の場合は、
+        // 必ず同一ドメイン内の「/テナントID/app_id」へと遷移するようにパスを正確に再構築します。
+        const currentApp = apps.find(a => a.id === currentAppId);
+        const appId = currentAppId || 'vehicle';
+        
+        // パスを「/テナントID/app_id」もしくは「/テナントID/app_idのパス」へとマッピングする
+        urlObj.pathname = `/${tenantId}/${appId}`;
+    }
     }
 
     launchBtn.addEventListener('click', () => {
