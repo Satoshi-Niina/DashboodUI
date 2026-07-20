@@ -1805,7 +1805,7 @@ app.post('/api/login', async (req, res) => {
       // テナント DB から users を検索
       const users = await dynamicSelect('users',
         { username },
-        ['id', 'username', 'password', 'display_name', 'role'],
+        ['id', 'username', 'password', 'password_hash', 'display_name', 'role'],
         1
       );
 
@@ -1818,23 +1818,24 @@ app.post('/api/login', async (req, res) => {
       // テナント コンテキスト に設定（JWT に含める）
 
       const user = users[0];
+      const dbPassword = user.password_hash || user.password;
 
       // パスワード比較
       // DBのパスワードがbcryptハッシュ($2で始まる)かどうかを判定
       let match = false;
 
       console.log('[Login] Password check for user:', user.username);
-      console.log('[Login] DB password status:', user.password ? (user.password.startsWith('$2') ? 'HASHED' : 'PLAINTEXT') : 'NULL');
+      console.log('[Login] DB password status:', dbPassword ? (dbPassword.startsWith('$2') ? 'HASHED' : 'PLAINTEXT') : 'NULL');
       console.log('[Login] Submitted password length:', password ? password.length : 'NULL');
 
-      if (user.password && user.password.startsWith('$2')) {
+      if (dbPassword && dbPassword.startsWith('$2')) {
         // ハッシュ化されたパスワード
         console.log('[Login] Using bcrypt.compare for hashed password');
-        match = await bcrypt.compare(password, user.password);
-      } else if (user.password) {
+        match = await bcrypt.compare(password, dbPassword);
+      } else if (dbPassword) {
         // 平文パスワード（後方互換性のため）
         console.log('[Login] Using plaintext comparison');
-        match = (password === user.password);
+        match = (password === dbPassword);
       } else {
         // パスワードが NULL
         console.log('[Login] ⚠️ Password is NULL in database!');
@@ -1844,11 +1845,11 @@ app.post('/api/login', async (req, res) => {
       console.log('[Login] Password match result:', match);
 
       // セキュリティ向上のため、平文パスワードをハッシュ化して更新（テナント DB に更新）
-      if (match && user.password && !user.password.startsWith('$2')) {
+      if (match && dbPassword && !dbPassword.startsWith('$2')) {
         try {
           const hashedPassword = await bcrypt.hash(password, 10);
           await dynamicUpdate('users',
-            { password: hashedPassword },
+            { password: hashedPassword, password_hash: hashedPassword },
             { id: user.id },
             false
           );
