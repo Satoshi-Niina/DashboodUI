@@ -399,6 +399,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     function applyTenantPathToExternalUrl(urlObj, tenantContext) {
+        // URLパスから既存のテナントセグメントを除去し、クリーンなパスを保持
+        // テナントIDはクエリパラメータとして appendTenantLaunchParams で追加される
         const tenantId = normalizeExternalTenantId(tenantContext.tenantId);
         const rawSegments = urlObj.pathname.split('/').filter(Boolean);
         const firstSegment = String(rawSegments[0] || '').trim().toLowerCase();
@@ -407,7 +409,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             ? rawSegments.slice(1)
             : rawSegments;
         const effectiveSuffixSegments = suffixSegments.length > 0 ? suffixSegments : ['daily-info'];
-        urlObj.pathname = `/${[tenantId, ...effectiveSuffixSegments].join('/')}`;
+        // テナントIDをパスに含めず、クリーンなパスのみを設定
+        urlObj.pathname = `/${effectiveSuffixSegments.join('/')}`;
     }
 
     launchBtn.addEventListener('click', () => {
