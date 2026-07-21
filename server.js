@@ -1825,34 +1825,21 @@ app.post('/api/login', async (req, res) => {
       // テナント コンテキスト に設定（JWT に含める）
 
       const user = users[0];
-      const dbPassword = user.password_hash || user.password;
-
-      // パスワード比較
-      // DBのパスワードがbcryptハッシュ($2で始まる)かどうかを判定
-      let match = false;
+      const targetHash = user.password_hash || user.password;
 
       console.log('[Login] Password check for user:', user.username);
-      console.log('[Login] DB password status:', dbPassword ? (dbPassword.startsWith('$2') ? 'HASHED' : 'PLAINTEXT') : 'NULL');
       console.log('[Login] Submitted password length:', password ? password.length : 'NULL');
 
-      if (dbPassword && dbPassword.startsWith('$2')) {
-        // ハッシュ化されたパスワード
-        console.log('[Login] Using bcrypt.compare for hashed password');
-        match = await bcrypt.compare(password, dbPassword);
-      } else if (dbPassword) {
-        // 平文パスワード（後方互換性のため）
-        console.log('[Login] Using plaintext comparison');
-        match = (password === dbPassword);
-      } else {
-        // パスワードが NULL
-        console.log('[Login] ⚠️ Password is NULL in database!');
-        match = false;
+      if (!targetHash) {
+        console.log('[Login] No password hash found for user:', username);
+        return res.status(401).json({ success: false, message: '認証情報が無効です' });
       }
 
+      const match = await bcrypt.compare(password, targetHash);
       console.log('[Login] Password match result:', match);
 
       // セキュリティ向上のため、平文パスワードをハッシュ化して更新（テナント DB に更新）
-      if (match && dbPassword && !dbPassword.startsWith('$2')) {
+      if (match && !targetHash.startsWith('$2')) {
         try {
           const hashedPassword = await bcrypt.hash(password, 10);
           const userRoute = await resolveTablePath('users');
@@ -1883,6 +1870,7 @@ app.post('/api/login', async (req, res) => {
           tenantKey: tenantKey,
           displayName: user.display_name,  // Emergency-Assistanceで必要
           role: normalizedRole,
+          roles: [normalizedRole],
           externalRole,
           department: department,  // Emergency-Assistanceで必要
           tenantId: effectiveTenantId,  // テナント ID（マルチテナント制御用）
