@@ -570,6 +570,7 @@ function getOrCreateTenantPoolFromUrl(databaseUrl) {
   }
   
   const tenantPool = new Pool({ connectionString: databaseUrl });
+  applyTenantSearchPath(tenantPool, getDatabaseNameFromUrl(databaseUrl) || 'unknown');
   tenantPool.on('error', (err) => {
     console.error(`[TenantDB] Unexpected error on tenant pool:`, err.message);
   });
@@ -580,7 +581,7 @@ function getOrCreateTenantPoolFromUrl(databaseUrl) {
     lastUsedAt: Date.now()
   });
   
-  console.log(`[TenantDB] Created pool from database_url: ${databaseUrl}`);
+  console.log(`[TenantDB] Created pool from database_url: ${maskDatabaseUrl(databaseUrl)}`);
   return tenantPool;
 }
 
@@ -591,6 +592,18 @@ function getCompanyRoutingPool() {
     return getControlPlanePool();
   }
   return getOrCreateTenantPool(routingDbName);
+}
+
+function maskDatabaseUrl(databaseUrl) {
+  try {
+    const parsed = new URL(databaseUrl);
+    if (parsed.password) {
+      parsed.password = '****';
+    }
+    return parsed.toString();
+  } catch (_) {
+    return 'invalid database_url';
+  }
 }
 
 async function queryCompanyRouting(query, params = []) {
@@ -1778,7 +1791,7 @@ app.post('/api/login', async (req, res) => {
   const tenantPath = String(req.body.tenant_path || req.headers['x-tenant-path'] || req.query.tenant_path || '').trim();
   const fullUrl = String(req.headers['x-tenant-full-url'] || req.query.full_url || req.headers.referer || '').trim();
   const bodyTenantKey = String(req.body && req.body.tenantKey || '').trim().toLowerCase();
-  const headerTenantKey = String(req.headers['x-tenant-id'] || '').trim().toLowerCase();
+  const headerTenantKey = String(req.headers['x-tenant-key'] || req.headers['x-tenant-id'] || '').trim().toLowerCase();
   const refererTenantKey = getTenantKeyFromPath(String(req.headers.referer || '').trim());
   const tenantKey = bodyTenantKey
     || headerTenantKey
@@ -1788,9 +1801,22 @@ app.post('/api/login', async (req, res) => {
     return res.status(400).json({ success: false, message: 'tenantKey is required' });
   }
 
-  console.log(`[Login] Attempting login for username: ${username} (Resolved tenantKey: ${tenantKey})`);
+  console.log('[Login] Request received:', {
+    username,
+    tenantKey: bodyTenantKey || headerTenantKey || '',
+    xTenantKey: String(req.headers['x-tenant-key'] || '').trim(),
+    xTenantId: String(req.headers['x-tenant-id'] || '').trim(),
+    resolvedTenantKey: tenantKey
+  });
 
   try {
+    const routingRow = await getCompanyRoutingByTenantRequest({
+      tenantId: tenantKey,
+      tenantPath,
+      fullUrl
+    });
+    console.log('[Login] tenant_app_routings database_url (masked):', maskDatabaseUrl(routingRow?.database_url));
+
     // 解決されたテナントに対して実行プール（runtime）を再構築する
     const runtime = await resolveTenantRuntime(tenantKey, {
       tenantPath,
@@ -1804,19 +1830,32 @@ app.post('/api/login', async (req, res) => {
     }
 
     console.log(`[Login] Tenant resolved: ${tenantKey} → DB: ${runtime.dbName}`);
+    console.log('[Login] Runtime database_url (masked):', maskDatabaseUrl(runtime.databaseUrl));
     req.tenantContext = runtime;
     req.tenantId = runtime.resolvedTenantId || tenantKey;
     req.db = runtime.pool;
 
     // テナント DB に接続してユーザー認証（各テナント DB 内で認証）を await して同期的に実行する
     await requestTenantContextStorage.run(runtime, async () => {
-      console.log(`[Login] Querying tenant DB directly: ${runtime.dbName}`);
+      const databaseResult = await runtime.pool.query('SELECT current_database() AS database_name');
+      const connectedDbName = databaseResult.rows[0]?.database_name || 'unknown';
+      console.log(`[Login] Connected database: ${connectedDbName} (runtime DB: ${runtime.dbName})`);
 
       // Proxyの混乱を避けるため、確定したテナントプールから直接クエリを実行
-      const userResult = await runtime.pool.query('SELECT * FROM users WHERE username = $1', [username]);
+      const userQuery = 'SELECT * FROM public.users WHERE username = $1';
+      console.log('[Login] Executing SQL:', userQuery);
+      const userResult = await runtime.pool.query(userQuery, [username]);
       const users = userResult.rows;
 
-      console.log('[Login] Query result:', users.length > 0 ? 'User found' : 'User not found');
+      console.log('[Login] User lookup result:', users.length > 0
+        ? {
+          found: true,
+          id: users[0].id,
+          username: users[0].username,
+          hasPasswordHash: Boolean(users[0].password_hash),
+          hasPassword: Boolean(users[0].password)
+        }
+        : { found: false });
 
       if (users.length === 0) {
         return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
