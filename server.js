@@ -2429,9 +2429,12 @@ app.post('/api/users', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: 'ユーザー名とパスワードは必須です' });
     }
 
-    if (password.length < 8) {
-      console.log('[POST /api/users] Validation failed: password too short');
-      return res.status(400).json({ success: false, message: 'パスワードは8文字以上で入力してください' });
+    const passwordRegex = /^(?=.*[A-Z])(?=.*[a-z0-9])(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
+    if (!passwordRegex.test(password)) {
+      return res.status(400).json({
+        success: false,
+        message: 'パスワードは英大文字・英小文字または数字・記号をそれぞれ1文字以上含む8文字以上で設定してください'
+      });
     }
 
     // ユーザー名の重複チェック（ゲートウェイ方式）
@@ -2513,9 +2516,12 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
 
     // パスワードが指定されている場合
     if (password) {
-      if (password.length < 8) {
-        console.log('[PUT /api/users/:id] Validation failed: password too short');
-        return res.status(400).json({ success: false, message: 'パスワードは8文字以上で入力してください' });
+      const passwordRegex = /^(?=.*[A-Z])(?=.*[a-z0-9])(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
+      if (!passwordRegex.test(password)) {
+        return res.status(400).json({
+          success: false,
+          message: 'パスワードは英大文字・英小文字または数字・記号をそれぞれ1文字以上含む8文字以上で設定してください'
+        });
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -6216,171 +6222,42 @@ async function initializeDemoTenantTables() {
 }
 
 /**
- * 全テナントのユーザーデータ初期化（パスワード NULL を修正 + デフォルトユーザー挿入）
+ * 全テナントのユーザーデータ初期化
+ * （安全のため、既存DBのユーザーやパスワードを一切上書き・復元しない）
  */
 async function initializeAllTenantUsers() {
-  // 動的なデータ駆動型: 共通DBのアクティブテナント一覧に基づいて、対応する全DBのデフォルト管理者・ユーザーを初期化
+  console.log('[TenantInit] Checking user tables for existing tenants...');
+
   let tenantDefaults = [];
   try {
     const routingRows = await getAllCompanyRoutingRows();
-    tenantDefaults = routingRows.map(row => {
-      const tid = row.tenant_key || row.company_id;
-      // 共通DBの各テナントキー(demo, kosei, daitetsu等)に応じたクリーンな動的配列を生成
-      return {
-        id: tid,
-        dbName: row.dbName || `${tid}_db`,
-        users: [
-          { username: 'admin', password: `${tid}123`, display_name: '管理者', role: 'admin' },
-          { username: `${tid}_user`, password: `${tid}123`, display_name: `${row.company_name || tid} ユーザー`, role: 'user' }
-        ]
-      };
-    }).filter(t => t.id && t.id !== 'demo_env');
-
-    // デモだけ特別に追加ユーザー情報を補強
-    const demoTenant = tenantDefaults.find(t => t.id === 'demo');
-    if (demoTenant) {
-      demoTenant.users.push(
-        { username: 'niina', password: 'demo123', display_name: '新井二郎', role: 'admin' },
-        { username: 'demo_user', password: 'demo123', display_name: 'デモユーザー', role: 'user' }
-      );
-    }
+    tenantDefaults = routingRows.map(row => ({
+      id: row.tenant_key || row.company_id,
+      dbName: row.dbName || `${row.tenant_key || row.company_id}_db`
+    })).filter(t => t.id && t.id !== 'demo_env');
   } catch (err) {
-    console.warn('[TenantInit] Failed to query dynamic tenants for user initialization, fallback:', err.message);
-    tenantDefaults = [
-      {
-        id: 'demo', dbName: 'demo_db',
-        users: [
-          { username: 'niina', password: 'demo123', display_name: '新井二郎', role: 'admin' },
-          { username: 'demo_user', password: 'demo123', display_name: 'デモユーザー', role: 'user' },
-          { username: 'admin', password: 'admin123', display_name: '管理者', role: 'admin' }
-        ]
-      },
-      {
-        id: 'kosei', dbName: 'kosei_db',
-        users: [
-          { username: 'admin', password: 'kosei123', display_name: '管理者', role: 'admin' },
-          { username: 'kosei_user', password: 'kosei123', display_name: 'Kosei User', role: 'user' }
-        ]
-      },
-      {
-        id: 'daitetsu', dbName: 'daitetsu_db',
-        users: [
-          { username: 'admin', password: 'daitetsu123', display_name: '管理者', role: 'admin' },
-          { username: 'daitetsu_user', password: 'daitetsu123', display_name: 'Daitetsu User', role: 'user' }
-        ]
-      }
-    ];
+    console.warn('[TenantInit] Failed to query dynamic tenants:', err.message);
+    return;
   }
 
   for (const tenant of tenantDefaults) {
     try {
-      console.log(`[TenantInit] Initializing users for ${tenant.dbName || tenant.id}...`);
       const runtime = await resolveTenantRuntime(tenant.id);
-      const tenantPool = runtime.pool || getActiveDbPool();
-      
-      console.log(`[TenantInit] Runtime resolved: ${tenant.id} -> ${runtime.dbName}`);
-
       await requestTenantContextStorage.run(runtime, async () => {
         const activePool = getActiveDbPool();
-        
-        // users テーブル存在確認 + カラル構造検出
-        let passwordColumnName = 'password';  // デフォルト
-        try {
-          const tableCheck = await activePool.query(`
-            SELECT EXISTS(
-              SELECT 1 FROM information_schema.tables 
-              WHERE table_schema = 'public' AND table_name = 'users'
-            ) as exists
-          `);
-          if (!tableCheck.rows[0].exists) {
-            console.log(`[TenantInit] ⚠️ users table does not exist in ${tenant.dbName || tenant.id}. Creating...`);
-            await activePool.query(`
-              CREATE TABLE IF NOT EXISTS public.users (
-                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                username VARCHAR(255) UNIQUE NOT NULL,
-                password VARCHAR(255),
-                display_name VARCHAR(255),
-                role VARCHAR(50),
-                created_at TIMESTAMP DEFAULT now()
-              )
-            `);
-            console.log(`[TenantInit] ✅ users table created in ${tenant.dbName || tenant.id}`);
-          } else {
-            console.log(`[TenantInit] ✅ users table exists in ${tenant.dbName || tenant.id}`);
-            
-            // テーブルのカラル構造を確認
-            const colsRes = await activePool.query(`
-              SELECT column_name FROM information_schema.columns
-              WHERE table_schema = 'public' AND table_name = 'users'
-              ORDER BY ordinal_position
-            `);
-            const columns = colsRes.rows.map(r => r.column_name);
-            console.log(`[TenantInit] users columns: ${columns.join(', ')}`);
-            
-            // パスワードカラルを特定
-            if (columns.includes('password_hash')) {
-              passwordColumnName = 'password_hash';
-            } else if (!columns.includes('password')) {
-              console.warn(`[TenantInit] ⚠️ Neither 'password' nor 'password_hash' column found. Will try to use 'password'.`);
-            }
-          }
-        } catch (tableErr) {
-          console.error(`[TenantInit] Failed to check/create users table for ${tenant.dbName}:`, tableErr.message);
-          throw tableErr;
-        }
 
-        // 既存ユーザーのパスワード NULL を修正
-        try {
-          const existing = await activePool.query(
-            `SELECT id, username, ${passwordColumnName} as password FROM public.users WHERE ${passwordColumnName} IS NULL`
-          );
-          console.log(`[TenantInit] Found ${existing.rows.length} users with NULL ${passwordColumnName} in ${tenant.dbName}`);
-          for (const user of existing.rows) {
-            const defaultUser = tenant.users.find(u => u.username === user.username);
-            const defaultPwd = defaultUser ? defaultUser.password : 'changeme123';
-            await activePool.query(
-              `UPDATE public.users SET ${passwordColumnName} = $1 WHERE id = $2`,
-              [defaultPwd, user.id]
-            );
-            console.log(`[TenantInit] ✅ Set ${passwordColumnName} for ${tenant.dbName}.${user.username}`);
-          }
-        } catch (updateErr) {
-          console.warn(`[TenantInit] ⚠️ Failed to update NULL passwords for ${tenant.dbName}: ${updateErr.message}`);
-        }
-
-        // デフォルトユーザーが存在しなければ追加
-        for (const u of tenant.users) {
-          try {
-            const ins = await activePool.query(
-              `INSERT INTO public.users (username, ${passwordColumnName}, display_name, role)
-               VALUES ($1, $2, $3, $4)
-               ON CONFLICT (username) DO NOTHING
-               RETURNING username`,
-              [u.username, u.password, u.display_name, u.role]
-            );
-            if (ins.rows.length > 0) {
-              console.log(`[TenantInit] ✅ Inserted user ${tenant.dbName}.${u.username}`);
-            }
-          } catch (insertErr) {
-            console.warn(`[TenantInit] ⚠️ Failed to insert ${u.username} for ${tenant.dbName}: ${insertErr.message}`);
-          }
-        }
-
-        // 最終状態ログ
-        try {
-          const final = await activePool.query(
-            `SELECT username, ${passwordColumnName} as password FROM public.users ORDER BY id`
-          );
-          final.rows.forEach(u => {
-            const s = u.password ? (u.password.startsWith('$2') ? 'HASHED' : 'PLAINTEXT') : 'NULL';
-            console.log(`  [${tenant.dbName}] ${u.username}: ${s}`);
-          });
-        } catch (finalErr) {
-          console.warn(`[TenantInit] ⚠️ Failed to query final user state: ${finalErr.message}`);
+        // パスワード未設定のユーザーが存在する場合のみログで警告する（上書き・初期化は行わない）
+        const nullUsers = await activePool.query(
+          `SELECT username FROM public.users WHERE password IS NULL AND password_hash IS NULL`
+        );
+        if (nullUsers.rows.length > 0) {
+          console.warn(`[TenantInit] ⚠️ Warning: Found users with NULL passwords in ${tenant.dbName}:`, nullUsers.rows.map(u => u.username));
+        } else {
+          console.log(`[TenantInit] ✅ User authentication data verified for ${tenant.dbName}`);
         }
       });
     } catch (err) {
-      console.error(`[TenantInit] ⚠️ Failed for ${tenant.dbName}: ${err.message}`);
+      console.error(`[TenantInit] ⚠️ Verification skipped for ${tenant.dbName}: ${err.message}`);
     }
   }
 }
