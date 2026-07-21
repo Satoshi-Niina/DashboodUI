@@ -2069,6 +2069,101 @@ app.post('/api/verify-token', async (req, res) => {
   }
 });
 
+// 外部認証エンドポイント (postMessage/Body連携用)
+app.post('/api/auth/external', async (req, res) => {
+  // 1. 各種パラメーター候補からトークンを引き抜く (表記揺れ吸収)
+  let token = req.body?.token || req.body?.external_token || req.body?.externalToken || req.body?.jwt;
+  if (!token && req.query?.token) {
+    token = req.query.token;
+  }
+  if (!token) {
+    const authHeader = req.headers['authorization'];
+    if (authHeader) {
+      if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7);
+      } else {
+        token = authHeader.trim();
+      }
+    }
+  }
+
+  // テナントID候補を引き抜く (表記揺れ吸収)
+  const tenantId = req.body?.tenantId || req.body?.tenant_id || req.body?.tenant || req.query?.tenant_id || req.query?.tenantId || req.query?.tenant;
+
+  console.log('[ExternalAuth] Request parameters:', {
+    hasToken: !!token,
+    tenantId: tenantId || 'not provided',
+    keys: Object.keys(req.body || {})
+  });
+
+  if (!token || !tenantId) {
+    return res.status(400).json({
+      success: false,
+      message: '不適切なリクエストです。トークンおよびテナントIDが必要です。',
+      details: `Missing validation target. hasToken: ${!!token}, tenantId: ${tenantId ? 'specified' : 'missing'}`
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+      issuer: 'emergency-assistance-app',
+      audience: 'emergency-assistance-app'
+    });
+
+    const resolvedTenantId = tenantId || decoded.tenantId || 'demo_env';
+    const runtime = await resolveTenantRuntime(resolvedTenantId);
+
+    return requestTenantContextStorage.run(runtime, async () => {
+      req.tenantContext = runtime;
+      req.tenantId = runtime.resolvedTenantId || resolvedTenantId;
+      req.db = runtime.pool || getControlPlanePool();
+
+      // ゲートウェイ方式でユーザー情報を取得（departmentカラムは取得しない）
+      const users = await dynamicSelect('users',
+        { id: decoded.id },
+        ['id', 'username', 'display_name', 'role'],
+        1
+      );
+
+      if (users.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: 'ユーザーが見つかりません',
+          details: `User ID ${decoded.id} not found in database ${runtime.dbName}`
+        });
+      }
+
+      const user = users[0];
+      const normalizedRole = normalizeRoleForApp(user.role);
+      const department = getDepartmentByRole(normalizedRole);
+
+      res.json({
+        success: true,
+        token: token,
+        tenant_id: runtime.resolvedTenantId || resolvedTenantId,
+        tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || resolvedTenantId),
+        user: {
+          id: user.id,
+          username: user.username,
+          displayName: user.display_name,
+          role: mapRoleForExternal(normalizedRole),
+          externalRole: mapRoleForExternal(normalizedRole),
+          department: department,
+          tenant_id: runtime.resolvedTenantId || resolvedTenantId,
+          tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || resolvedTenantId)
+        }
+      });
+    });
+  } catch (err) {
+    console.error('[ExternalAuth] Token verification failed:', err);
+    res.status(401).json({
+      success: false,
+      message: '検証に失敗したか、トークンの有効期限が切れています。',
+      details: err.message
+    });
+  }
+});
+
 // トークンリフレッシュエンドポイント (有効期限を延長)
 app.post('/api/refresh-token', async (req, res) => {
   const bodyToken = req.body && req.body.token ? String(req.body.token).trim() : '';
