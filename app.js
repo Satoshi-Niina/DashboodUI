@@ -213,9 +213,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const tenantEnvironmentLabel = document.getElementById('tenant-environment-label');
     if (tenantEnvironmentLabel) {
-        const tenantCompanyNames = {
-            daitetsu: '大鉄工業'
-        };
         const applicationNames = new Set([
             '計画・運用管理',
             '保守用車管理',
@@ -233,9 +230,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const contextCompanyName = window.TenantContext && typeof window.TenantContext.getCompanyName === 'function'
             ? String(window.TenantContext.getCompanyName() || '').trim()
             : '';
-        const companyName = tenantCompanyNames[tenantId]
-            || (applicationNames.has(contextCompanyName) ? '' : contextCompanyName)
-            || tenantCompanyNames[normalizeExternalTenantId(userInfo.tenant_id || userInfo.tenantId)];
+        const companyName = applicationNames.has(contextCompanyName) ? '' : contextCompanyName;
         const tenantLabel = companyName
             ? `${companyName} 様環境`
             : (tenantId === 'demo' ? 'デモ環境' : 'テナント専用環境');
