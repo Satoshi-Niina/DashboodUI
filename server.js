@@ -1775,44 +1775,45 @@ function mapRoleForExternal(role) {
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
 
-  // 【修正箇所】URLパス（refererやoriginalUrl）の末尾からテナント名を最優先で抽出するよう修正
   const tenantPath = String(req.body.tenant_path || req.headers['x-tenant-path'] || req.query.tenant_path || '').trim();
   const fullUrl = String(req.headers['x-tenant-full-url'] || req.query.full_url || req.headers.referer || '').trim();
-  
-  // URLパスやRefererからテナントキーを最優先で取得、なければquery/body/headerから補足
-  let tenantId = getTenantKeyFromPath(req.originalUrl) !== 'demo_env' ? getTenantKeyFromPath(req.originalUrl)
-               : getTenantKeyFromPath(fullUrl) !== 'demo_env' ? getTenantKeyFromPath(fullUrl)
-               : getTenantKeyFromPath(tenantPath) !== 'demo_env' ? getTenantKeyFromPath(tenantPath)
-               : req.query.tenant_id || req.body.tenant_id || req.headers['x-tenant-id'] || req.requestedTenantId || 'demo_env';
+  const bodyTenantKey = String(req.body && req.body.tenantKey || '').trim().toLowerCase();
+  const headerTenantKey = String(req.headers['x-tenant-id'] || '').trim().toLowerCase();
+  const refererTenantKey = getTenantKeyFromPath(String(req.headers.referer || '').trim());
+  const tenantKey = bodyTenantKey
+    || headerTenantKey
+    || (refererTenantKey !== 'demo_env' ? refererTenantKey : '');
 
-  tenantId = String(tenantId).trim().toLowerCase();
-  
-  console.log(`[Login] Attempting login for username: ${username} (Resolved TenantId: ${tenantId})`);
+  if (!tenantKey) {
+    return res.status(400).json({ success: false, message: 'tenantKey is required' });
+  }
+
+  console.log(`[Login] Attempting login for username: ${username} (Resolved tenantKey: ${tenantKey})`);
 
   try {
     // 解決されたテナントに対して実行プール（runtime）を再構築する
-    const runtime = await resolveTenantRuntime(tenantId, {
+    const runtime = await resolveTenantRuntime(tenantKey, {
       tenantPath,
       fullUrl,
       referer: String(req.headers.referer || '').trim(),
       originalUrl: String(req.originalUrl || req.url || '').trim()
     });
 
-    console.log(`[Login] Tenant resolved: ${tenantId} → DB: ${runtime.dbName}`);
+    if (!runtime || !runtime.pool) {
+      return res.status(404).json({ success: false, message: `Tenant DB pool not found: ${tenantKey}` });
+    }
+
+    console.log(`[Login] Tenant resolved: ${tenantKey} → DB: ${runtime.dbName}`);
     req.tenantContext = runtime;
-    req.tenantId = runtime.resolvedTenantId || tenantId;
-    req.db = runtime.pool || getControlPlanePool();
+    req.tenantId = runtime.resolvedTenantId || tenantKey;
+    req.db = runtime.pool;
 
     // テナント DB に接続してユーザー認証（各テナント DB 内で認証）を await して同期的に実行する
     await requestTenantContextStorage.run(runtime, async () => {
       console.log(`[Login] Querying tenant DB directly: ${runtime.dbName}`);
 
       // Proxyの混乱を避けるため、確定したテナントプールから直接クエリを実行
-      const userRoute = await resolveTablePath('users');
-      const userResult = await runtime.pool.query(
-        `SELECT id, username, password, password_hash, display_name, role FROM ${userRoute.fullPath} WHERE username = $1 LIMIT 1`,
-        [username]
-      );
+      const userResult = await runtime.pool.query('SELECT * FROM users WHERE username = $1', [username]);
       const users = userResult.rows;
 
       console.log('[Login] Query result:', users.length > 0 ? 'User found' : 'User not found');
@@ -1872,13 +1873,14 @@ app.post('/api/login', async (req, res) => {
         const normalizedRole = normalizeRoleForApp(user.role);
         const externalRole = mapRoleForExternal(normalizedRole);
         const department = getDepartmentByRole(normalizedRole);
-        const effectiveTenantId = runtime.companyId || runtime.resolvedTenantId || runtime.tenantId || tenantId || 'demo';
+        const effectiveTenantId = runtime.companyId || runtime.resolvedTenantId || runtime.tenantId || tenantKey || 'demo';
         const effectiveTenantPath = normalizeTenantPathForResponse(runtime.tenantPath || '', effectiveTenantId);
 
         const payload = {
           id: user.id,
           userId: user.id,  // 外部アプリ連携用
           username: user.username,
+          tenantKey: tenantKey,
           displayName: user.display_name,  // Emergency-Assistanceで必要
           role: normalizedRole,
           externalRole,
@@ -1944,6 +1946,9 @@ app.post('/api/login', async (req, res) => {
       }
     });
   } catch (err) {
+    if (String(err.message || '').toLowerCase().includes('tenant not registered')) {
+      return res.status(404).json({ success: false, message: `Tenant not found: ${tenantKey}` });
+    }
     console.error('[Login] ERROR:', err);
     console.error('[Login] Error stack:', err.stack);
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: err.message });

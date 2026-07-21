@@ -15,6 +15,18 @@ function getTenantPathFromLocation() {
     return tenantId === 'demo' ? '/' : `/${tenantId}`;
 }
 
+function getTenantKeyFromCurrentPath() {
+    const segments = window.location.pathname.split('/').filter(Boolean);
+    const firstSegment = String(segments[0] ?? '').trim().toLowerCase();
+    const excludedPaths = new Set(['api', 'assets', 'admin.html', 'index.html', 'login', 'login.html']);
+
+    if (!firstSegment || excludedPaths.has(firstSegment) || firstSegment.endsWith('.html')) {
+        return '';
+    }
+
+    return firstSegment;
+}
+
 function getRedirectTargetFromLocation() {
     try {
         const params = new URLSearchParams(window.location.search);
@@ -109,6 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const tenantPath = window.TenantContext && typeof window.TenantContext.getTenantPath === 'function'
             ? (redirectTenantInfo && redirectTenantInfo.tenantPath) || window.TenantContext.getTenantPath()
             : getTenantPathFromLocation();
+        const tenantKey = getTenantKeyFromCurrentPath();
         const loginTenantContext = window.TenantContext && typeof window.TenantContext.persistLoginTenant === 'function'
             ? window.TenantContext.persistLoginTenant({ tenant_id: tenantId, tenant_path: tenantPath })
             : { tenant_id: tenantId, tenant_path: tenantPath };
@@ -119,9 +132,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(`/api/login?tenant_id=${encodeURIComponent(tenantId)}`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'X-Tenant-ID': tenantKey
                 },
-                body: JSON.stringify({ username, password, tenant_id: tenantId, tenant_path: tenantPath })
+                body: JSON.stringify({ username, password, tenantKey: tenantKey, tenant_id: tenantId, tenant_path: tenantPath })
             });
 
             const data = await response.json();
