@@ -636,7 +636,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // 外部アプリが必要とする認証情報だけを新たに組み立てる。
         urlObj.search = '';
-        if (token && (AppConfig.authTransferMode || 'url_param') === 'url_param') {
+        if (token) {
             urlObj.searchParams.set('token', token);
         }
         appendTenantLaunchParams(urlObj, { tenantId: externalTenantId });
