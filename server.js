@@ -1952,7 +1952,7 @@ app.post('/api/login', async (req, res) => {
 
         res.json({
           success: true,
-          token: 'session_active', // フロントエンドにはダミーの文字列を渡してセッション存続確認用にするが、JWTトークンそのものは露出させない
+          token,
           tenant_id: effectiveTenantId,
           tenant_path: effectiveTenantPath,
           role: normalizedRole,
