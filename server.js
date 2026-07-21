@@ -2071,8 +2071,37 @@ app.post('/api/verify-token', async (req, res) => {
 
 // 外部認証エンドポイント (postMessage/Body連携用)
 app.post('/api/auth/external', async (req, res) => {
-  // 1. 各種パラメーター候補からトークンを引き抜く (表記揺れ吸収)
-  let token = req.body?.token || req.body?.external_token || req.body?.externalToken || req.body?.jwt;
+  // デバッグ用: リクエストボディとヘッダーのロギング
+  console.log('[ExternalAuth] Incoming Request Headers:', JSON.stringify(req.headers));
+  console.log('[ExternalAuth] Incoming Request Body Type:', typeof req.body);
+  console.log('[ExternalAuth] Incoming Request Body:', JSON.stringify(req.body));
+
+  // 1. req.body が文字列として届いている場合（JSON未パース時）のパース処理
+  let body = req.body || {};
+  if (typeof req.body === 'string') {
+    try {
+      body = JSON.parse(req.body);
+      console.log('[ExternalAuth] Parsed raw string body:', JSON.stringify(body));
+    } catch (e) {
+      console.warn('[ExternalAuth] Failed to parse raw string body, continuing...', e.message);
+    }
+  }
+
+  // 2. 表記揺れを吸収する堅牢なトークン抽出 (全キー曖昧検索含む)
+  let token = body.token || body.external_token || body.externalToken || body.jwt;
+  if (!token) {
+    // ボディオブジェクト内のキーを走査し、部分一致でトークンっぽいやつを探す
+    for (const key of Object.keys(body)) {
+      const lowerKey = key.toLowerCase();
+      if (lowerKey.includes('token') || lowerKey === 'jwt') {
+        token = body[key];
+        console.log(`[ExternalAuth] Fuzzy matched token from body key "${key}":`, token);
+        break;
+      }
+    }
+  }
+
+  // クエリ、ヘッダーからもフォールバック抽出
   if (!token && req.query?.token) {
     token = req.query.token;
   }
@@ -2087,29 +2116,62 @@ app.post('/api/auth/external', async (req, res) => {
     }
   }
 
-  // テナントID候補を引き抜く (表記揺れ吸収)
-  const tenantId = req.body?.tenantId || req.body?.tenant_id || req.body?.tenant || req.query?.tenant_id || req.query?.tenantId || req.query?.tenant;
+  // 3. テナントIDの抽出 (表記揺れ吸収 & 全キー曖昧検索)
+  let tenantId = body.tenantId || body.tenant_id || body.tenant || req.query?.tenant_id || req.query?.tenantId || req.query?.tenant;
+  if (!tenantId) {
+    for (const key of Object.keys(body)) {
+      const lowerKey = key.toLowerCase();
+      if (lowerKey.includes('tenant') || lowerKey.includes('company')) {
+        tenantId = body[key];
+        console.log(`[ExternalAuth] Fuzzy matched tenant ID from body key "${key}":`, tenantId);
+        break;
+      }
+    }
+  }
 
-  console.log('[ExternalAuth] Request parameters:', {
+  // 4. トークンが正しく検証（jwt.verify）された場合のJWTデコードと、テナント情報のフォールバック解決
+  let decoded = null;
+  if (token) {
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET, {
+        issuer: 'emergency-assistance-app',
+        audience: 'emergency-assistance-app'
+      });
+      
+      // JWT内部のテナントIDをフォールバック採用
+      if (!tenantId && decoded) {
+        tenantId = decoded.tenantId || decoded.tenant_id;
+        console.log('[ExternalAuth] Resolved tenant ID fallbacked from decoded JWT:', tenantId);
+      }
+    } catch (err) {
+      console.error('[ExternalAuth] Pre-verification / JWT decode failed:', err.message);
+      return res.status(401).json({
+        success: false,
+        message: '検証に失敗したか、トークンの有効期限が切れています。',
+        details: err.message
+      });
+    }
+  }
+
+  console.log('[ExternalAuth] Final Resolved Parameters:', {
     hasToken: !!token,
     tenantId: tenantId || 'not provided',
-    keys: Object.keys(req.body || {})
+    decodedUserId: decoded ? decoded.id : 'none'
   });
 
   if (!token || !tenantId) {
     return res.status(400).json({
       success: false,
+      error: '不適切なリクエストです。トークンおよびテナントIDが必要です。',
       message: '不適切なリクエストです。トークンおよびテナントIDが必要です。',
-      details: `Missing validation target. hasToken: ${!!token}, tenantId: ${tenantId ? 'specified' : 'missing'}`
+      details: `Parameter missing. hasToken: ${!!token}, tenantId: ${tenantId ? 'specified (' + tenantId + ')' : 'missing'}`,
+      receivedBody: req.body,
+      parsedBody: body,
+      receivedHeaders: req.headers
     });
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
-      issuer: 'emergency-assistance-app',
-      audience: 'emergency-assistance-app'
-    });
-
     const resolvedTenantId = tenantId || decoded.tenantId || 'demo_env';
     const runtime = await resolveTenantRuntime(resolvedTenantId);
 
@@ -2129,7 +2191,8 @@ app.post('/api/auth/external', async (req, res) => {
         return res.status(404).json({
           success: false,
           message: 'ユーザーが見つかりません',
-          details: `User ID ${decoded.id} not found in database ${runtime.dbName}`
+          details: `User ID ${decoded.id} not found in database ${runtime.dbName}`,
+          receivedBody: req.body
         });
       }
 
@@ -2155,7 +2218,7 @@ app.post('/api/auth/external', async (req, res) => {
       });
     });
   } catch (err) {
-    console.error('[ExternalAuth] Token verification failed:', err);
+    console.error('[ExternalAuth] Process execution failed:', err);
     res.status(401).json({
       success: false,
       message: '検証に失敗したか、トークンの有効期限が切れています。',
