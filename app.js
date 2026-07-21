@@ -562,7 +562,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // パスを「/テナントID/app_id」もしくは「/テナントID/app_idのパス」へとマッピングする
         urlObj.pathname = `/${tenantId}/${appId}`;
     }
-    }
+
 
     launchBtn.addEventListener('click', () => {
         console.log('currentAppId:', currentAppId);
