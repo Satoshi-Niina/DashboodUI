@@ -5848,62 +5848,21 @@ async function runEmergencyDbFix() {
       console.warn('[Self-Healing] ⚠️ app_resource_routing update skipped:', routingError.message);
     }
 
-    // 2. [共通DBレコードの正規化・補足マイグレーション]
-    // kosei（kousei）などの各テナントの tenant_key の表記を完璧に 'kosei' で統一し、
-    // 正しい database_url と 4アプリ構造を一発で登録します。
+    // 2. 全テナント共通の旧ホスト名を補正する。テナントやアプリの登録内容はDBで管理する。
     try {
-      console.log('[Self-Healing] 🔧 Normalizing tenant_app_routings keys and database urls...');
-      
-      // 'kousei' キーを 'kosei'（ローマ字ゆれ無しのクリーンキー）にアップデート
+      console.log('[Self-Healing] 🔧 Cleaning up legacy client URLs in tenant_app_routings...');
       await pool.query(`
         UPDATE public.tenant_app_routings
-        SET tenant_key = 'kosei',
-            app_url = REPLACE(app_url, '/kousei', '/kosei'),
-            database_url = 'postgresql://postgres:Takabeni@/kosei_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project'
-        WHERE tenant_key = 'kousei' OR tenant_key = 'kosei'
+        SET app_url = REPLACE(app_url, 'operation-management-client-', 'operation-management-server-')
+        WHERE app_url LIKE '%operation-management-client-%'
       `);
 
-      // kosei テナントの 4つのアプリレコードが存在すること、および正しい database_url を持っていることを確認
-      const koseiApps = [
-        ['d1b11117-1c72-4bc5-bbd1-71b73653878c', 'kosei', 'planning', '計画・運用管理', 'https://operation-management-client-800711608362.asia-northeast2.run.app/kosei/planning', 'postgresql://postgres:Takabeni@/kosei_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project', 'your-kousei-bucket-name', '/kosei', true, '計画・運用管理システム', 'bi-calendar-check'],
-        ['d1b11118-1c72-4bc5-bbd1-71b73653878c', 'kosei', 'emergency', '応急復旧支援', 'https://operation-management-client-800711608362.asia-northeast2.run.app/kosei/emergency', 'postgresql://postgres:Takabeni@/kosei_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project', 'your-kousei-bucket-name', '/kosei', true, '機械故障等の技術支援システムです', 'bi-tools'],
-        ['d1b11119-1c72-4bc5-bbd1-71b73653878c', 'kosei', 'failure', '機械故障管理', 'https://operation-management-client-800711608362.asia-northeast2.run.app/kosei/failure', 'postgresql://postgres:Takabeni@/kosei_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project', 'your-kousei-bucket-name', '/kosei', true, '機械故障の原因分析と対策管理システム', 'bi-exclamation-triangle']
-      ];
-
-      for (const app of koseiApps) {
-        await pool.query(`
-          INSERT INTO public.tenant_app_routings (id, tenant_key, app_id, app_name, app_url, database_url, storage_bucket_name, storage_prefix, is_active, description, icon_class)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-          ON CONFLICT (id) DO UPDATE 
-          SET tenant_key = EXCLUDED.tenant_key,
-              database_url = EXCLUDED.database_url,
-              app_url = EXCLUDED.app_url;
-        `, app);
-      }
-      
-      // kosei_dbの車輌管理システムのエントリもURLを正規化
-      await pool.query(`
-        UPDATE public.tenant_app_routings
-        SET tenant_key = 'kosei',
-            app_url = 'https://operation-management-client-800711608362.asia-northeast2.run.app/kosei',
-            database_url = 'postgresql://postgres:Takabeni@/kosei_db?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project'
-        WHERE id = '061bfbe4-e22f-4e87-a20e-5f231f34fd83'
-      `);
-
-      // ★ demoの database_url が demo_db になっていて実在しない（demo_db_v2が正解）問題を解決
-      await pool.query(`
-        UPDATE public.tenant_app_routings
-        SET database_url = 'postgresql://postgres:Takabeni@/demo_db_v2?host=/cloudsql/maint-vehicle-management:asia-northeast2:free-trial-first-project'
-        WHERE tenant_key = 'demo' OR tenant_key = 'demo_env'
-      `);
-
-      // キャッシュを完全にクリアして動的なアップデートを強制
       tenantRouteListCache.clear();
       tenantRouteCache.clear();
 
-      console.log('[Self-Healing] ✅ tenant_app_routings key normalize and demo_db_v2 correction completed.');
+      console.log('[Self-Healing] ✅ Legacy URL cleanup completed; tenant routes remain DB-driven.');
     } catch (normErr) {
-      console.warn('[Self-Healing] ⚠️ Schema normalization failed:', normErr.message);
+      console.warn('[Self-Healing] ⚠️ Legacy URL cleanup failed:', normErr.message);
     }
     
     console.log('✅ Self-healing completed successfully.');
