@@ -213,10 +213,32 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const tenantEnvironmentLabel = document.getElementById('tenant-environment-label');
     if (tenantEnvironmentLabel) {
-        // ★ マッピングバグ修正: 1つ目のアプリ名ではなく、テナント会社のラベルを動的に表示する
-        const tenantLabel = window.TenantContext && typeof window.TenantContext.getCompanyName === 'function' && window.TenantContext.getCompanyName()
-            ? (window.TenantContext.getTenantLabel ? window.TenantContext.getTenantLabel() : `${window.TenantContext.getCompanyName()} 様環境`)
-            : 'デモ環境';
+        const tenantCompanyNames = {
+            daitetsu: '大鉄工業'
+        };
+        const applicationNames = new Set([
+            '計画・運用管理',
+            '保守用車管理',
+            '応急復旧支援',
+            '機械故障管理'
+        ]);
+        const userInfo = readStoredUserInfo() || {};
+        const pathTenantId = window.location.pathname.split('/').filter(Boolean)[0] || '';
+        const tenantId = normalizeExternalTenantId(
+            pathTenantId || userInfo.tenant_id || userInfo.tenantId
+                || (window.TenantContext && typeof window.TenantContext.getTenantId === 'function'
+                    ? window.TenantContext.getTenantId()
+                    : '')
+        );
+        const contextCompanyName = window.TenantContext && typeof window.TenantContext.getCompanyName === 'function'
+            ? String(window.TenantContext.getCompanyName() || '').trim()
+            : '';
+        const companyName = tenantCompanyNames[tenantId]
+            || (applicationNames.has(contextCompanyName) ? '' : contextCompanyName)
+            || tenantCompanyNames[normalizeExternalTenantId(userInfo.tenant_id || userInfo.tenantId)];
+        const tenantLabel = companyName
+            ? `${companyName} 様環境`
+            : (tenantId === 'demo' ? 'デモ環境' : 'テナント専用環境');
         tenantEnvironmentLabel.textContent = tenantLabel;
     }
     
@@ -323,7 +345,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.warn('[App] No user_info found in localStorage');
     }
 
-    let currentAppId = '';
+    let currentApp = null;
 
     // ========================================
     // アプリカードの動的生成
@@ -395,7 +417,7 @@ document.addEventListener('DOMContentLoaded', async () => {
      * 吹き出しを表示する関数
      */
     function showTooltip(event, app) {
-        currentAppId = app.id;
+        currentApp = app;
         tooltipTitle.textContent = app.title;
         tooltipDesc.textContent = app.description;
 
@@ -538,40 +560,42 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     function appendTenantLaunchParams(urlObj, tenantContext) {
         const tenantId = normalizeExternalTenantId(tenantContext.tenantId);
-        const tenantPath = tenantContext.tenantPath || (tenantId === 'demo' ? '/' : `/${tenantId}`);
 
-        // 受け側の実装差を吸収するため、canonical な tenant_id を先頭に置きつつ互換キーも併送する。
         urlObj.searchParams.set('tenant_id', tenantId);
-        urlObj.searchParams.set('tenantId', tenantId);
-        urlObj.searchParams.set('company_id', tenantId);
-        urlObj.searchParams.set('tenant', tenantId);
-        urlObj.searchParams.set('tenant_path', tenantPath);
     }
 
-    function applyTenantPathToExternalUrl(urlObj, tenantContext) {
+    function getExternalAppPathId(appId) {
+        const normalizedAppId = String(appId || '').trim().toLowerCase();
+        return normalizedAppId === 'equipment' ? 'vehicle' : normalizedAppId;
+    }
+
+    function applyTenantPathToExternalUrl(urlObj, tenantContext, appId) {
         // urlObjが有効でなければ何もしない
         if (!urlObj || !urlObj.pathname) return;
-        
+
         const tenantId = normalizeExternalTenantId(tenantContext.tenantId);
-        
-        // ★ パスキ違い構成の構築：vehicle (保守用車管理) または equipment の場合は、
-        // 必ず同一ドメイン内の「/テナントID/app_id」へと遷移するようにパスを正確に再構築します。
-        const currentApp = apps.find(a => a.id === currentAppId);
-        const appId = currentAppId || 'vehicle';
-        
-        // パスを「/テナントID/app_id」もしくは「/テナントID/app_idのパス」へとマッピングする
-        urlObj.pathname = `/${tenantId}/${appId}`;
+        const externalAppId = getExternalAppPathId(appId);
+
+        if (!externalAppId) return;
+        urlObj.pathname = `/${tenantId}/${externalAppId}`;
     }
 
 
     launchBtn.addEventListener('click', () => {
+        const currentAppId = currentApp && currentApp.id;
+        const externalAppId = getExternalAppPathId(currentAppId);
         console.log('currentAppId:', currentAppId);
         console.log('AppConfig.endpoints:', AppConfig.endpoints);
 
-        const baseUrl = AppConfig.endpoints[currentAppId];
+        const selectedAppUrl = currentApp && currentApp.url && !String(currentApp.url).startsWith('#')
+            ? currentApp.url
+            : '';
+        const baseUrl = selectedAppUrl
+            || AppConfig.endpoints[currentAppId]
+            || AppConfig.endpoints[externalAppId];
         console.log('baseUrl:', baseUrl);
 
-        if (!baseUrl) {
+        if (!baseUrl || !externalAppId) {
             alert('接続先URLが設定されていません。管理者にお問い合わせください。');
             return;
         }
@@ -597,56 +621,38 @@ document.addEventListener('DOMContentLoaded', async () => {
         let popupOrigin = '';
         let authContext = null;
 
-        // URLにトークンをクエリパラメータとして追加（認証連携）
-        let finalUrl = baseUrl;
-        if (token && (AppConfig.authTransferMode || 'url_param') === 'url_param') {
-            const urlObj = new URL(baseUrl, window.location.origin);
-            const tokenParam = AppConfig.tokenParamName || 'auth_token';
-            const tokenAliases = Array.isArray(AppConfig.tokenParamAliases)
-                ? AppConfig.tokenParamAliases
-                : [];
-            const confirmedTenantContext = {
-                tenantId: authPayload.tenantId,
-                tenantPath: authPayload.tenantPath,
-                role: authPayload.role,
-                externalRole: authPayload.externalRole
-            };
-            const externalTenantId = normalizeExternalTenantId(confirmedTenantContext.tenantId);
+        const urlObj = new URL(baseUrl, window.location.origin);
+        const confirmedTenantContext = {
+            tenantId: authPayload.tenantId,
+            tenantPath: authPayload.tenantPath,
+            role: authPayload.role,
+            externalRole: authPayload.externalRole
+        };
+        const externalTenantId = normalizeExternalTenantId(confirmedTenantContext.tenantId);
 
-            if (shouldUseExternalAuthBridge) {
-                applyTenantPathToExternalUrl(urlObj, confirmedTenantContext);
-            }
-
-            // 受け側が token / jwt / auth_token のどれでも受け取れるように明示的に付与する
-            urlObj.searchParams.set('token', token);
-            urlObj.searchParams.set('jwt', token);
-            urlObj.searchParams.set(tokenParam, token);
-            urlObj.searchParams.set('external_token', token);
-            tokenAliases.forEach(alias => {
-                if (alias && alias !== tokenParam) {
-                    urlObj.searchParams.set(alias, token);
-                }
-            });
-            appendTenantLaunchParams(urlObj, {
-                tenantId: externalTenantId,
-                tenantPath: confirmedTenantContext.tenantPath
-            });
-            urlObj.searchParams.set('role', confirmedTenantContext.role);
-            urlObj.searchParams.set('external_role', confirmedTenantContext.externalRole);
-
-            if (shouldUseExternalAuthBridge) {
-                authContext = {
-                    token,
-                    tenantId: externalTenantId,
-                    tenantPath: confirmedTenantContext.tenantPath,
-                    role: confirmedTenantContext.role,
-                    externalRole: confirmedTenantContext.externalRole
-                };
-            }
-
-            popupOrigin = urlObj.origin;
-            finalUrl = urlObj.toString();
+        if (shouldUseExternalAuthBridge) {
+            applyTenantPathToExternalUrl(urlObj, confirmedTenantContext, externalAppId);
         }
+
+        // 外部アプリが必要とする認証情報だけを新たに組み立てる。
+        urlObj.search = '';
+        if (token && (AppConfig.authTransferMode || 'url_param') === 'url_param') {
+            urlObj.searchParams.set('token', token);
+        }
+        appendTenantLaunchParams(urlObj, { tenantId: externalTenantId });
+
+        if (shouldUseExternalAuthBridge && token) {
+            authContext = {
+                token,
+                tenantId: externalTenantId,
+                tenantPath: confirmedTenantContext.tenantPath,
+                role: confirmedTenantContext.role,
+                externalRole: confirmedTenantContext.externalRole
+            };
+        }
+
+        popupOrigin = urlObj.origin;
+        const finalUrl = urlObj.toString();
 
         // 新しいタブで開く
         console.log('[App] Launch auth payload:', {
