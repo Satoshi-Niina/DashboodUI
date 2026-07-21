@@ -286,6 +286,7 @@ function normalizeTenantRoutingRow(row) {
     normalizedCompanyId,
     normalizedCompanyAliasId: normalizeTenantAliasKey(normalizedCompanyId),
     normalizedTenantPath: normalizeUrlForCompare(row.tenant_path || ''),
+    company_name: resolveTenantDisplayName(normalizedCompanyId, row.company_name),
     normalizedTenantPathOnly: normalizePathForCompare(row.tenant_path || ''),
     normalizedTenantKey,
     normalizedTenantAliasKey: normalizeTenantAliasKey(normalizedTenantKey)
@@ -317,7 +318,7 @@ async function getAllCompanyRoutingRows() {
       if (!row || !row.tenant_key) return null;
       return {
         company_id: row.company_id || row.tenant_key,
-        company_name: row.company_name || row.tenant_key,
+        company_name: resolveTenantDisplayName(row.company_id || row.tenant_key, row.company_name),
         tenant_key: row.tenant_key,
         database_url: row.database_url,
         tenant_path: row.tenant_path || `/${row.tenant_key}`,
@@ -1791,9 +1792,31 @@ function mapSsoRoles(role) {
     : ['user'];
 }
 
+const TENANT_DISPLAY_NAME_MAP = {
+  demo: 'デモ環境',
+  demo_env: 'デモ環境',
+  daitetsu: '大鉄工業',
+  kosei: '広成建設',
+  kintetsu: '近鉄'
+};
+
+function resolveTenantDisplayName(tenantId, fallbackName = '') {
+  const normalizedTenantId = String(tenantId || '').trim().toLowerCase();
+  if (TENANT_DISPLAY_NAME_MAP[normalizedTenantId]) {
+    return TENANT_DISPLAY_NAME_MAP[normalizedTenantId];
+  }
+
+  const normalizedFallbackName = String(fallbackName || '').trim();
+  if (normalizedFallbackName) {
+    return normalizedFallbackName;
+  }
+
+  return normalizedTenantId;
+}
+
 function buildSsoClaims({ runtime, normalizedRole, effectiveTenantId, user }) {
   const companyCode = String((runtime && (runtime.companyId || runtime.resolvedTenantId)) || effectiveTenantId || '').trim().toLowerCase();
-  const companyName = String((runtime && runtime.companyName) || '').trim();
+  const companyName = resolveTenantDisplayName(companyCode, runtime && runtime.companyName);
   const roles = mapSsoRoles(normalizedRole);
 
   return {
@@ -1980,6 +2003,7 @@ app.post('/api/login', async (req, res) => {
           token,
           tenant_id: effectiveTenantId,
           tenant_path: effectiveTenantPath,
+          tenant_name: ssoClaims.company_name,
           role: normalizedRole,
           user: {
             id: user.id,
@@ -1991,6 +2015,7 @@ app.post('/api/login', async (req, res) => {
             tenant_path: effectiveTenantPath,
             company_code: ssoClaims.company_code,
             company_name: ssoClaims.company_name,
+            tenant_name: ssoClaims.company_name,
             roles: ssoClaims.roles,
             companyCode: ssoClaims.company_code,
             companyName: ssoClaims.company_name
@@ -2065,6 +2090,7 @@ app.post('/api/verify-token', async (req, res) => {
         tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || decoded.tenantId || 'demo_env'),
         company_code: decoded.company_code || decoded.companyCode || runtime.companyId || runtime.resolvedTenantId || 'demo_env',
         company_name: decoded.company_name || decoded.companyName || runtime.companyName || '',
+        tenant_name: decoded.company_name || decoded.companyName || runtime.companyName || '',
         roles: Array.isArray(decoded.roles) && decoded.roles.length > 0 ? decoded.roles : [mapRoleForExternal(normalizedRole)],
         user: {
           id: user.id,
@@ -2077,6 +2103,7 @@ app.post('/api/verify-token', async (req, res) => {
           tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || decoded.tenantId || 'demo_env'),
           company_code: decoded.company_code || decoded.companyCode || runtime.companyId || runtime.resolvedTenantId || 'demo_env',
           company_name: decoded.company_name || decoded.companyName || runtime.companyName || '',
+          tenant_name: decoded.company_name || decoded.companyName || runtime.companyName || '',
           roles: Array.isArray(decoded.roles) && decoded.roles.length > 0 ? decoded.roles : [mapRoleForExternal(normalizedRole)]
         }
       });

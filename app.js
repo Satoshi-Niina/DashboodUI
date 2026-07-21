@@ -224,9 +224,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         const contextCompanyName = window.TenantContext && typeof window.TenantContext.getCompanyName === 'function'
             ? String(window.TenantContext.getCompanyName() || '').trim()
             : '';
-        const storedCompanyName = String(userInfo.company_name || userInfo.companyName || '').trim();
+        const storedCompanyName = String(userInfo.company_name || userInfo.companyName || userInfo.tenant_name || userInfo.tenantName || '').trim();
         const routeCompanyName = String(userInfo.route_company_name || userInfo.routeCompanyName || '').trim();
-        const companyName = contextCompanyName || storedCompanyName || routeCompanyName;
+        const tenantName = window.TenantContext && typeof window.TenantContext.getTenantName === 'function'
+            ? String(window.TenantContext.getTenantName() || '').trim()
+            : '';
+        const companyName = contextCompanyName || tenantName || storedCompanyName || routeCompanyName;
         const tenantLabel = companyName
             ? `${companyName} 様環境`
             : (tenantId === 'demo' ? 'デモ環境' : 'テナント専用環境');

@@ -115,7 +115,7 @@
         const tenantId = normalizeTenantId(rawContext.tenant_id || rawContext.tenantId || rawContext.companyId);
         const rawTenantPath = rawContext.tenant_path || rawContext.tenantPath || tenantPathFromTenantId(tenantId);
         const tenantPath = normalizePath(rawTenantPath || tenantPathFromTenantId(tenantId));
-        const companyName = String(rawContext.company_name || rawContext.companyName || '').trim();
+        const companyName = String(rawContext.company_name || rawContext.companyName || rawContext.tenant_name || rawContext.tenantName || '').trim();
         const companyCode = String(rawContext.company_code || rawContext.companyCode || tenantId).trim().toLowerCase();
         const roles = Array.isArray(rawContext.roles) ? rawContext.roles : [];
 
@@ -127,6 +127,8 @@
             role: rawContext.role || '',
             companyName,
             company_name: companyName,
+            tenantName: companyName,
+            tenant_name: companyName,
             companyCode,
             company_code: companyCode,
             roles,
@@ -595,7 +597,8 @@
             const tenantId = getCurrentUrlTenantContext().tenantId;
             return tenantId === 'demo' ? '/' : `/${tenantId}`;
         },
-        getCompanyName: () => (tenantContext ? (tenantContext.companyName || '') : ''),
+        getCompanyName: () => (tenantContext ? (tenantContext.companyName || tenantContext.tenantName || '') : ''),
+        getTenantName: () => (tenantContext ? (tenantContext.tenantName || tenantContext.companyName || '') : ''),
         getDbName: () => (tenantContext ? (tenantContext.dbName || '') : ''),
         getStorageBucketName: () => (tenantContext ? (tenantContext.storageBucketName || '') : ''),
         getTenantLabel: () => toTenantLabel(tenantContext),

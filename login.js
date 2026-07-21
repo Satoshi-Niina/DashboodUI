@@ -160,6 +160,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         tenant_path: data.tenant_path || (data.user && data.user.tenant_path) || loginTenantContext.tenant_path,
                         role: data.role || (data.user && data.user.role),
                         company_name: data.company_name || (data.user && data.user.company_name) || '',
+                        tenant_name: data.tenant_name || (data.user && data.user.tenant_name) || '',
                         company_code: data.company_code || (data.user && data.user.company_code) || '',
                         roles: data.roles || (data.user && data.user.roles) || []
                     })
