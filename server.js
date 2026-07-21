@@ -1784,6 +1784,28 @@ function mapRoleForExternal(role) {
   return 'operator';
 }
 
+function mapSsoRoles(role) {
+  const normalizedRole = normalizeRoleForApp(role);
+  return normalizedRole === 'system_admin' || normalizedRole === 'operation_admin'
+    ? ['admin']
+    : ['user'];
+}
+
+function buildSsoClaims({ runtime, normalizedRole, effectiveTenantId, user }) {
+  const companyCode = String((runtime && (runtime.companyId || runtime.resolvedTenantId)) || effectiveTenantId || '').trim().toLowerCase();
+  const companyName = String((runtime && runtime.companyName) || '').trim();
+  const roles = mapSsoRoles(normalizedRole);
+
+  return {
+    company_code: companyCode,
+    company_name: companyName,
+    roles,
+    companyCode,
+    companyName,
+    userId: user && user.id ? user.id : undefined
+  };
+}
+
 // Login API Endpoint
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
@@ -1901,6 +1923,7 @@ app.post('/api/login', async (req, res) => {
         const department = getDepartmentByRole(normalizedRole);
         const effectiveTenantId = runtime.companyId || runtime.resolvedTenantId || runtime.tenantId || tenantKey || 'demo';
         const effectiveTenantPath = normalizeTenantPathForResponse(runtime.tenantPath || '', effectiveTenantId);
+        const ssoClaims = buildSsoClaims({ runtime, normalizedRole, effectiveTenantId, user });
 
         const payload = {
           id: user.id,
@@ -1909,13 +1932,15 @@ app.post('/api/login', async (req, res) => {
           tenantKey: tenantKey,
           displayName: user.display_name,  // Emergency-Assistanceで必要
           role: normalizedRole,
-          roles: [normalizedRole],
+          roles: ssoClaims.roles,
           externalRole,
           department: department,  // Emergency-Assistanceで必要
           tenantId: effectiveTenantId,  // テナント ID（マルチテナント制御用）
           tenant_id: effectiveTenantId,
           tenantPath: effectiveTenantPath,
           tenant_path: effectiveTenantPath,
+          company_code: ssoClaims.company_code,
+          company_name: ssoClaims.company_name,
           dbName: runtime.dbName,  // DB 名（データベース接続用）
           iat: Math.floor(Date.now() / 1000)  // 発行時刻を明示
         };
@@ -1963,7 +1988,12 @@ app.post('/api/login', async (req, res) => {
             role: normalizedRole,
             externalRole,
             tenant_id: effectiveTenantId,
-            tenant_path: effectiveTenantPath
+            tenant_path: effectiveTenantPath,
+            company_code: ssoClaims.company_code,
+            company_name: ssoClaims.company_name,
+            roles: ssoClaims.roles,
+            companyCode: ssoClaims.company_code,
+            companyName: ssoClaims.company_name
           }
         });
       } else {
@@ -2033,6 +2063,9 @@ app.post('/api/verify-token', async (req, res) => {
         success: true,
         tenant_id: runtime.resolvedTenantId || decoded.tenantId || 'demo_env',
         tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || decoded.tenantId || 'demo_env'),
+        company_code: decoded.company_code || decoded.companyCode || runtime.companyId || runtime.resolvedTenantId || 'demo_env',
+        company_name: decoded.company_name || decoded.companyName || runtime.companyName || '',
+        roles: Array.isArray(decoded.roles) && decoded.roles.length > 0 ? decoded.roles : [mapRoleForExternal(normalizedRole)],
         user: {
           id: user.id,
           username: user.username,
@@ -2041,7 +2074,10 @@ app.post('/api/verify-token', async (req, res) => {
           externalRole: mapRoleForExternal(normalizedRole),
           department: department,
           tenant_id: runtime.resolvedTenantId || decoded.tenantId || 'demo_env',
-          tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || decoded.tenantId || 'demo_env')
+          tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || decoded.tenantId || 'demo_env'),
+          company_code: decoded.company_code || decoded.companyCode || runtime.companyId || runtime.resolvedTenantId || 'demo_env',
+          company_name: decoded.company_name || decoded.companyName || runtime.companyName || '',
+          roles: Array.isArray(decoded.roles) && decoded.roles.length > 0 ? decoded.roles : [mapRoleForExternal(normalizedRole)]
         }
       });
     });
@@ -2251,6 +2287,15 @@ app.post('/api/refresh-token', async (req, res) => {
       decoded.tenantPath || decoded.tenant_path || '',
       effectiveTenantId
     );
+    const ssoClaims = buildSsoClaims({
+      runtime: {
+        companyId: decoded.company_code || decoded.companyCode || effectiveTenantId,
+        companyName: decoded.company_name || decoded.companyName || ''
+      },
+      normalizedRole,
+      effectiveTenantId,
+      user: decoded
+    });
 
     const payload = {
       id: decoded.id,
@@ -2260,10 +2305,13 @@ app.post('/api/refresh-token', async (req, res) => {
       role: normalizedRole,
       externalRole: mapRoleForExternal(normalizedRole),
       department: department,
+      roles: Array.isArray(decoded.roles) && decoded.roles.length > 0 ? decoded.roles : ssoClaims.roles,
       tenantId: effectiveTenantId,
       tenant_id: effectiveTenantId,
       tenantPath: effectiveTenantPath,
       tenant_path: effectiveTenantPath,
+      company_code: decoded.company_code || decoded.companyCode || ssoClaims.company_code,
+      company_name: decoded.company_name || decoded.companyName || ssoClaims.company_name,
       dbName: decoded.dbName || '',
       iat: Math.floor(Date.now() / 1000)
     };

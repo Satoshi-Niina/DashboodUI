@@ -115,6 +115,9 @@
         const tenantId = normalizeTenantId(rawContext.tenant_id || rawContext.tenantId || rawContext.companyId);
         const rawTenantPath = rawContext.tenant_path || rawContext.tenantPath || tenantPathFromTenantId(tenantId);
         const tenantPath = normalizePath(rawTenantPath || tenantPathFromTenantId(tenantId));
+        const companyName = String(rawContext.company_name || rawContext.companyName || '').trim();
+        const companyCode = String(rawContext.company_code || rawContext.companyCode || tenantId).trim().toLowerCase();
+        const roles = Array.isArray(rawContext.roles) ? rawContext.roles : [];
 
         return {
             tenantId,
@@ -122,6 +125,11 @@
             tenantPath,
             tenant_path: tenantPath,
             role: rawContext.role || '',
+            companyName,
+            company_name: companyName,
+            companyCode,
+            company_code: companyCode,
+            roles,
             savedAt: new Date().toISOString()
         };
     }
