@@ -5,6 +5,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
 const path = require('path');
+const ejs = require('ejs');
 const multer = require('multer');
 const { Storage } = require('@google-cloud/storage');
 const { randomUUID } = require('crypto');
@@ -47,6 +48,10 @@ const app = express();
 const PORT = Number(process.env.PORT) || 8080;
 let serverInstance;
 let dbReady = false;
+
+app.set('views', path.join(__dirname, 'views'));
+app.engine('jst', ejs.__express);
+app.set('view engine', 'jst');
 
 console.log(`✅ Will listen on port: ${PORT}`);
 
@@ -148,6 +153,126 @@ async function getAllConfig() {
     console.error('Failed to get all config:', err);
     return {};
   }
+}
+
+function normalizeDashboardAppRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id || row.app_id || row.appId || '',
+    appId: row.app_id || row.appId || row.id || '',
+    name: row.app_name || row.name || row.title || '',
+    url: row.app_url || row.url || row.link_url || '#',
+    icon: row.icon || row.icon_class || row.iconClass || '◌',
+    iconClass: row.icon_class || row.iconClass || '',
+    category: row.category || row.group_name || '一般',
+    requiredRole: row.required_role || row.requiredRole || 'operator',
+    displayOrder: Number(row.display_order || row.displayOrder || 0),
+    isVisible: row.is_visible !== false && row.isVisible !== false,
+    description: row.description || row.app_description || ''
+  };
+}
+
+function normalizeDashboardUserRow(row) {
+  if (!row) {
+    return {
+      id: '',
+      username: 'guest',
+      displayName: 'ゲスト',
+      email: '',
+      role: 'guest'
+    };
+  }
+
+  return {
+    id: row.id || row.user_id || row.userId || '',
+    username: row.username || row.login_name || row.user_name || 'guest',
+    displayName: row.display_name || row.displayName || row.full_name || row.username || 'ゲスト',
+    email: row.email || row.mail_address || '',
+    role: row.role || row.user_role || 'guest'
+  };
+}
+
+function escapeJsonForInlineScript(value) {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
+}
+
+async function getDashboardV2Context(req) {
+  const tenantKey = normalizeTenantAliasKey(
+    req.requestedTenantId
+    || req.tenantContext?.resolvedTenantId
+    || req.tenantContext?.companyId
+    || req.query.tenant_id
+    || 'demo'
+  ) || 'demo';
+
+  const dashboardPool = getControlPlanePool();
+  const userName = String(
+    req.user?.username
+    || req.query.username
+    || req.headers['x-user-name']
+    || req.headers['x-username']
+    || ''
+  ).trim();
+
+  let apps = [];
+  try {
+    const appResult = await dashboardPool.query(`
+      SELECT
+        app_id,
+        app_name,
+        app_url,
+        icon,
+        icon_class,
+        category,
+        required_role,
+        display_order,
+        is_visible,
+        description
+      FROM public.tenant_app_routings
+      WHERE tenant_key = $1
+        AND is_active = true
+      ORDER BY COALESCE(display_order, 9999) ASC, app_id ASC
+    `, [tenantKey]);
+
+    apps = appResult.rows
+      .map(normalizeDashboardAppRow)
+      .filter((row) => row && row.isVisible);
+  } catch (err) {
+    console.warn('[DashboardV2] Failed to load apps from common DB:', err.message);
+  }
+
+  let user = null;
+  try {
+    const userResult = userName
+      ? await dashboardPool.query('SELECT * FROM public.users WHERE username = $1 LIMIT 1', [userName])
+      : await dashboardPool.query('SELECT * FROM public.users ORDER BY 1 ASC LIMIT 1');
+    user = normalizeDashboardUserRow(userResult.rows[0] || null);
+  } catch (err) {
+    console.warn('[DashboardV2] Failed to load user info from common DB:', err.message);
+    user = normalizeDashboardUserRow(null);
+  }
+
+  const environmentLabel = tenantKey === 'demo' ? 'デモ環境' : tenantKey;
+
+  return {
+    pageTitle: 'ダッシュボード v2',
+    environmentLabel,
+    tenantKey,
+    user,
+    apps,
+    appCount: apps.length,
+    generatedAt: new Date().toISOString(),
+    appsJson: escapeJsonForInlineScript(apps),
+    userJson: escapeJsonForInlineScript(user)
+  };
 }
 
 const requestTenantContextStorage = new AsyncLocalStorage();
@@ -920,7 +1045,7 @@ app.get('/api/tenant-routing', async (req, res) => {
 
 // /kosei や /daitetsu 配下でも同じ静的ファイルへ解決できるようにする
 app.use((req, res, next) => {
-  const excludedPrefixes = new Set(['api', 'assets', 'health', '_ah', 'ready']);
+  const excludedPrefixes = new Set(['api', 'assets', 'health', '_ah', 'ready', 'dashboard-v2']);
   const [pathname, searchPart] = req.url.split('?');
   const parts = pathname.split('/').filter(Boolean);
 
@@ -1001,6 +1126,16 @@ app.get('/config.js', async (req, res) => {
 // express.staticより先に記述することでindex.htmlの自動配信を防ぐ
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'login.html'));
+});
+
+app.get('/dashboard-v2', async (req, res) => {
+  try {
+    const dashboardContext = await getDashboardV2Context(req);
+    res.render('dashboard-v2', dashboardContext);
+  } catch (err) {
+    console.error('[DashboardV2] Render failed:', err);
+    res.status(500).send('Failed to render dashboard v2');
+  }
 });
 
 app.get('/login', (req, res) => {

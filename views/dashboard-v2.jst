@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title><%= pageTitle %> | 保守用車運用管理センター</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #07111f;
+      --bg-soft: #0e1a2d;
+      --panel: rgba(10, 19, 34, 0.88);
+      --panel-strong: rgba(14, 26, 45, 0.96);
+      --line: rgba(160, 182, 214, 0.18);
+      --text: #eff6ff;
+      --muted: #9fb3cf;
+      --accent: #53d3c8;
+      --accent-strong: #7ef0e4;
+      --accent-warm: #ffcc66;
+      --danger: #fb7185;
+      --shadow: 0 28px 60px rgba(0, 0, 0, 0.38);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { min-height: 100%; }
+
+    body {
+      margin: 0;
+      font-family: "Noto Sans JP", "Inter", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(83, 211, 200, 0.22), transparent 30%),
+        radial-gradient(circle at top right, rgba(255, 204, 102, 0.12), transparent 26%),
+        linear-gradient(180deg, #050b14 0%, var(--bg) 100%);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 36px 36px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.7), transparent 85%);
+      opacity: 0.4;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .shell {
+      position: relative;
+      min-height: 100vh;
+      padding: 24px;
+      isolation: isolate;
+    }
+
+    .shell__glow {
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 20% 20%, rgba(83, 211, 200, 0.14), transparent 24%);
+      z-index: -1;
+    }
+
+    .frame {
+      width: min(1380px, 100%);
+      margin: 0 auto;
+      display: grid;
+      gap: 20px;
+    }
+
+    .topbar,
+    .hero,
+    .panel,
+    .footer {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+      border-radius: 24px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 20px 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      min-width: 0;
+    }
+
+    .brand__mark {
+      width: 52px;
+      height: 52px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, rgba(83, 211, 200, 0.3), rgba(255, 204, 102, 0.25));
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      font-size: 20px;
+      font-weight: 800;
+      flex: none;
+    }
+
+    .brand__copy {
+      min-width: 0;
+    }
+
+    .brand__title {
+      margin: 0;
+      font-size: clamp(1.1rem, 2vw, 1.55rem);
+      line-height: 1.2;
+      letter-spacing: 0.02em;
+    }
+
+    .brand__subtitle {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-radius: 999px;
+      background: rgba(83, 211, 200, 0.12);
+      border: 1px solid rgba(83, 211, 200, 0.28);
+      color: var(--accent-strong);
+      font-size: 0.88rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .hero {
+      padding: 28px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.7fr);
+      gap: 18px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -120px -120px auto;
+      width: 280px;
+      height: 280px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(83, 211, 200, 0.24), transparent 68%);
+      z-index: 0;
+    }
+
+    .hero__content,
+    .hero__meta {
+      position: relative;
+      z-index: 1;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--accent-strong);
+      font-size: 0.88rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+
+    .hero h1 {
+      margin: 0;
+      font-size: clamp(2rem, 4vw, 3.6rem);
+      line-height: 1.08;
+      letter-spacing: 0.02em;
+    }
+
+    .hero p {
+      margin: 14px 0 0;
+      max-width: 62ch;
+      color: var(--muted);
+      line-height: 1.8;
+      font-size: 1rem;
+    }
+
+    .hero__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 12px 18px;
+      border-radius: 14px;
+      border: 1px solid transparent;
+      font-weight: 700;
+      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+    }
+
+    .button:hover { transform: translateY(-1px); }
+
+    .button--primary {
+      background: linear-gradient(135deg, var(--accent), #2a90ff);
+      color: #04101a;
+    }
+
+    .button--ghost {
+      background: rgba(255, 255, 255, 0.03);
+      border-color: rgba(255, 255, 255, 0.12);
+      color: var(--text);
+    }
+
+    .hero__meta {
+      display: grid;
+      gap: 12px;
+    }
+
+    .meta-card {
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .meta-card__label {
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin-bottom: 6px;
+    }
+
+    .meta-card__value {
+      font-size: 1.15rem;
+      font-weight: 800;
+      word-break: break-word;
+    }
+
+    .panel {
+      padding: 24px;
+    }
+
+    .panel__header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+    }
+
+    .panel__title {
+      margin: 0;
+      font-size: 1.35rem;
+    }
+
+    .panel__hint {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 0.93rem;
+    }
+
+    .app-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .app-card {
+      grid-column: span 4;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding: 18px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+      min-height: 210px;
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .app-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(83, 211, 200, 0.28);
+      background: linear-gradient(180deg, rgba(83, 211, 200, 0.1), rgba(255, 255, 255, 0.03));
+    }
+
+    .app-card::after {
+      content: "";
+      position: absolute;
+      inset: auto -30px -40px auto;
+      width: 140px;
+      height: 140px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(83, 211, 200, 0.13), transparent 68%);
+      pointer-events: none;
+    }
+
+    .app-card__top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .app-card__icon {
+      width: 54px;
+      height: 54px;
+      border-radius: 18px;
+      display: grid;
+      place-items: center;
+      background: rgba(83, 211, 200, 0.14);
+      border: 1px solid rgba(83, 211, 200, 0.24);
+      font-size: 1.5rem;
+      flex: none;
+    }
+
+    .app-card__body {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 10px;
+    }
+
+    .app-card__name {
+      margin: 0;
+      font-size: 1.12rem;
+      line-height: 1.4;
+    }
+
+    .app-card__desc {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.7;
+      min-height: 3.4em;
+    }
+
+    .app-card__meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+
+    .tag--accent {
+      color: var(--accent-strong);
+      background: rgba(83, 211, 200, 0.1);
+      border-color: rgba(83, 211, 200, 0.18);
+    }
+
+    .tag--warm {
+      color: var(--accent-warm);
+      background: rgba(255, 204, 102, 0.1);
+      border-color: rgba(255, 204, 102, 0.18);
+    }
+
+    .empty-state {
+      padding: 28px;
+      border-radius: 20px;
+      border: 1px dashed rgba(255, 255, 255, 0.16);
+      color: var(--muted);
+      text-align: center;
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 24px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      flex-wrap: wrap;
+    }
+
+    .footer__links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .footer__links a {
+      color: var(--text);
+      opacity: 0.82;
+    }
+
+    .footer__links a:hover {
+      opacity: 1;
+      color: var(--accent-strong);
+    }
+
+    @media (max-width: 1100px) {
+      .hero { grid-template-columns: 1fr; }
+      .app-card { grid-column: span 6; }
+    }
+
+    @media (max-width: 720px) {
+      .shell { padding: 14px; }
+      .topbar { padding: 18px; }
+      .hero, .panel { padding: 18px; }
+      .footer { padding: 16px 18px; }
+      .topbar { flex-direction: column; align-items: flex-start; }
+      .app-card { grid-column: span 12; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="shell__glow"></div>
+    <div class="frame">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand__mark">∞</div>
+          <div class="brand__copy">
+            <h1 class="brand__title">保守用車運用管理センター</h1>
+            <p class="brand__subtitle">ダッシュボード v2 / JST テンプレート版</p>
+          </div>
+        </div>
+        <div class="status-pill"><%= environmentLabel %> / <%= tenantKey %></div>
+      </header>
+
+      <section class="hero">
+        <div class="hero__content">
+          <p class="eyebrow">Switchboard v2</p>
+          <h1>共通DBから引いたアプリ一覧とユーザー情報を、そのままサーバー描画する新しい入口です。</h1>
+          <p>
+            現行画面を壊さずに、<code>/dashboard-v2</code> から JST テンプレートで配信します。
+            画面初期表示時点でアプリ一覧とログインユーザーを埋め込み、後続の動的処理にも繋げやすい構成にしています。
+          </p>
+          <div class="hero__actions">
+            <a class="button button--primary" href="/login">ログインへ戻る</a>
+            <a class="button button--ghost" href="/">既存ダッシュボードへ</a>
+          </div>
+        </div>
+        <div class="hero__meta">
+          <div class="meta-card">
+            <div class="meta-card__label">表示ユーザー</div>
+            <div class="meta-card__value"><%= user.displayName %></div>
+          </div>
+          <div class="meta-card">
+            <div class="meta-card__label">ログイン名</div>
+            <div class="meta-card__value"><%= user.username %></div>
+          </div>
+          <div class="meta-card">
+            <div class="meta-card__label">権限</div>
+            <div class="meta-card__value"><%= user.role %></div>
+          </div>
+          <div class="meta-card">
+            <div class="meta-card__label">登録アプリ数</div>
+            <div class="meta-card__value"><%= appCount %></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel__header">
+          <div>
+            <h2 class="panel__title">アプリケーション一覧</h2>
+            <p class="panel__hint">common_db_v2 から取得したアプリを、テンプレート側で直接描画しています。</p>
+          </div>
+          <div class="tag tag--warm">Generated at <%= new Date(generatedAt).toLocaleString('ja-JP', { dateStyle: 'medium', timeStyle: 'short' }) %></div>
+        </div>
+
+        <% if (apps && apps.length > 0) { %>
+          <div class="app-grid">
+            <% apps.forEach(function(app) { %>
+              <a class="app-card" href="<%= app.url %>" target="_blank" rel="noopener noreferrer">
+                <div class="app-card__top">
+                  <div class="app-card__icon <%= app.iconClass %>"><%= app.icon %></div>
+                  <div class="tag tag--accent"><%= app.category %></div>
+                </div>
+                <div class="app-card__body">
+                  <h3 class="app-card__name"><%= app.name %></h3>
+                  <p class="app-card__desc"><%= app.description || '説明は未登録です。' %></p>
+                  <div class="app-card__meta">
+                    <span class="tag">Role: <%= app.requiredRole %></span>
+                    <span class="tag">App ID: <%= app.appId %></span>
+                  </div>
+                </div>
+              </a>
+            <% }); %>
+          </div>
+        <% } else { %>
+          <div class="empty-state">
+            アプリ一覧が見つかりませんでした。common_db_v2 の tenant_app_routings にデータがあるか確認してください。
+          </div>
+        <% } %>
+      </section>
+
+      <footer class="footer">
+        <div>ダッシュボード v2 は JST テンプレートで描画されています。</div>
+        <div class="footer__links">
+          <a href="/login">Login</a>
+          <a href="/dashboard-v2">Reload</a>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <script>
+    window.__DASHBOARD_V2__ = {
+      user: <%- userJson %>,
+      apps: <%- appsJson %>
+    };
+  </script>
+</body>
+</html>
