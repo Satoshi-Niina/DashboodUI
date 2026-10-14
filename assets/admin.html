@@ -43,6 +43,10 @@
                 <span class="tab-icon">🔧</span>
                 <span class="tab-label">検修マスタ</span>
             </button>
+            <button class="tab-button" data-tab="app-management">
+                <span class="tab-icon">🧩</span>
+                <span class="tab-label">アプリ公開設定</span>
+            </button>
             <button class="tab-button" data-tab="database-management">
                 <span class="tab-icon">💾</span>
                 <span class="tab-label">データベース管理</span>
@@ -231,10 +235,30 @@
                 </section>
             </div>
 
+            <!-- アプリ公開設定タブ -->
+            <div id="app-management-tab" class="tab-content" style="display: none;">
+                <div class="info-banner">
+                    <p>💡 テナント（営業先）ごとに、ダッシュボードから起動できるアプリを選んで公開／非公開を切り替えられます。デモで見せたいアプリだけを有効にしてください。</p>
+                </div>
+
+                <section class="config-section">
+                    <div class="user-actions" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                        <label for="app-management-tenant-select" style="font-weight: 600;">対象テナント：</label>
+                        <select id="app-management-tenant-select" style="min-width: 220px;"></select>
+                        <button type="button" id="app-management-refresh-btn" class="btn-info">🔄 再読み込み</button>
+                        <button type="button" id="app-management-save-btn" class="btn-primary btn-add-width-33">💾 公開設定を保存</button>
+                    </div>
+
+                    <div id="app-management-list" class="vehicles-list">
+                        <p class="loading">読み込み中...</p>
+                    </div>
+                </section>
+            </div>
+
             <!-- 検修マスタタブ -->
             <div id="inspection-master-tab" class="tab-content" style="display: none;">
                 <div class="info-banner">
-                    <p>💡 機種・機械番号毎に検修種別による検修周期（月単位）と検修期間（日）を設定します</p>
+                    <p>💡 機種・型式毎に検修種別と検修周期（月単位）、検修期間（日）を設定します</p>
                 </div>
 
                 <!-- 検修種別マスタ管理 -->
@@ -247,20 +271,6 @@
                     </div>
 
                     <div id="inspection-types-list" class="vehicles-list">
-                        <p class="loading">読み込み中...</p>
-                    </div>
-                </section>
-
-                <!-- 検修周期・期間設定 -->
-                <section class="config-section">
-                    <h3>🔧 検修周期・期間設定</h3>
-                    <div class="user-actions">
-                        <button type="button" id="add-new-inspection-schedule-btn" class="btn-primary">
-                            ➕ 新規検修設定追加
-                        </button>
-                    </div>
-
-                    <div id="inspection-schedules-list" class="vehicles-list">
                         <p class="loading">読み込み中...</p>
                     </div>
                 </section>
@@ -1134,35 +1144,36 @@
     <div id="machine-type-modal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 id="machine-type-modal-title">機種を追加</h3>
+                <h3 id="machine-type-modal-title">機種・型式を追加</h3>
                 <button class="modal-close" id="machine-type-modal-close">&times;</button>
             </div>
             <form id="machine-type-form">
                 <input type="hidden" id="machine-type-id" name="machine_type_id">
 
                 <div class="form-group">
-                    <label for="machine-type-model-name">メーカー型式 *</label>
-                    <input type="text" id="machine-type-model-name" name="model_name" required
-                        placeholder="例: PC200-10">
-                </div>
-
-                <div class="form-group">
-                    <label for="machine-type-manufacturer">メーカー</label>
-                    <input type="text" id="machine-type-manufacturer" name="manufacturer" placeholder="例: コマツ">
-                </div>
-
-                <div class="form-group">
-                    <label for="machine-type-category">カテゴリ *</label>
+                    <label for="machine-type-category">機種 *</label>
                     <select id="machine-type-category" name="category" required>
                         <option value="">選択してください</option>
-                        <option value="軌道モータカー">軌道モータカー</option>
+                        <option value="軌道モータカー">軌道モーターカー</option>
                         <option value="箱トロ">箱トロ</option>
                         <option value="鉄トロ">鉄トロ</option>
+                        <option value="ホッパー車">ホッパー車</option>
                         <option value="レールカッター">レールカッター</option>
                         <option value="油圧ショベル">油圧ショベル</option>
                         <option value="クレーン">クレーン</option>
                         <option value="その他">その他</option>
                     </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="machine-type-manufacturer">メーカー</label>
+                    <input type="text" id="machine-type-manufacturer" name="manufacturer" placeholder="例: 堀川工機">
+                </div>
+
+                <div class="form-group">
+                    <label for="machine-type-model-name">型式 *</label>
+                    <input type="text" id="machine-type-model-name" name="model_name" required
+                        placeholder="例: 300NS">
                 </div>
 
                 <div class="form-group">
@@ -1196,24 +1207,20 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="machine-type-select">機種 *</label>
+                    <label for="machine-type-select">機種・型式 *</label>
                     <select id="machine-type-select" name="machine_type_id" required>
-                        <option value="">-- 機種を選択 --</option>
+                        <option value="">-- 機種・型式を選択 --</option>
                     </select>
                 </div>
 
                 <div class="form-group">
                     <label for="machine-number">機械番号 *</label>
-                    <input type="text" id="machine-number" name="machine_number" required placeholder="例: M-12345">
+                    <input type="text" id="machine-number" name="machine_number" placeholder="空欄の場合は機種に応じて自動採番">
+                    <small>空欄の場合は機種に応じて MC001、HT001、TT001、HPT001 形式で自動採番します。</small>
                 </div>
 
                 <div class="form-group">
-                    <label for="machine-serial-number">シリアル番号</label>
-                    <input type="text" id="machine-serial-number" name="serial_number" placeholder="例: SN123456789">
-                </div>
-
-                <div class="form-group">
-                    <label for="machine-type-certification">型式認定</label>
+                    <label for="machine-type-certification">型式認定番号</label>
                     <input type="text" id="machine-type-certification" name="type_certification"
                         placeholder="例: ABC-123">
                 </div>
@@ -1221,6 +1228,11 @@
                 <div class="form-group">
                     <label for="machine-manufacture-date">製造年月日</label>
                     <input type="date" id="machine-manufacture-date" name="manufacture_date">
+                </div>
+
+                <div class="form-group">
+                    <label for="machine-certification-date">型式認定年月日</label>
+                    <input type="date" id="machine-certification-date" name="model_certification_date">
                 </div>
 
                 <div class="form-group">
@@ -1252,15 +1264,41 @@
                 <input type="hidden" id="inspection-type-id" name="id">
 
                 <div class="form-group">
-                    <label for="inspection-type-code">種別コード</label>
-                    <input type="text" id="inspection-type-code" name="type_code" placeholder="自動採番（変更可）">
-                    <small>空欄の場合は自動で生成されます</small>
+                    <label for="inspection-type-category">機種 *</label>
+                    <select id="inspection-type-category" required>
+                        <option value="">-- 機種を選択 --</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="inspection-type-machine-type">型式 *</label>
+                    <select id="inspection-type-machine-type" name="machine_type_id" required>
+                        <option value="">-- 先に機種を選択してください --</option>
+                    </select>
+                </div>
+
+                <div class="form-group" style="display: none;">
+                    <label for="inspection-type-code">検修種別コード</label>
+                    <input type="text" id="inspection-type-code" name="type_code" readonly
+                        placeholder="型式を選択すると自動採番">
+                    <small>軌道モーターカー:MC、鉄トロ:TT、箱トロ:HTT、ホッパー車:HPT + 2桁で自動採番します。</small>
                 </div>
 
                 <div class="form-group">
                     <label for="inspection-type-name">検修種別名 *</label>
                     <input type="text" id="inspection-type-name" name="type_name" required placeholder="例: A検修">
-                    <small>検修種別コードは自動で生成されます</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="inspection-type-cycle">検修周期（月単位） *</label>
+                    <input type="number" id="inspection-type-cycle" name="cycle_months" required min="1"
+                        placeholder="例: 12">
+                </div>
+
+                <div class="form-group">
+                    <label for="inspection-type-duration">検修期間（日数） *</label>
+                    <input type="number" id="inspection-type-duration" name="duration_days" required min="1"
+                        placeholder="例: 7">
                 </div>
 
                 <div class="form-group">
@@ -1288,78 +1326,6 @@
             </form>
         </div>
     </div>
-
-    <!-- 検修周期・期間設定モーダル -->
-    <div id="inspection-schedule-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="inspection-schedule-modal-title">検修設定を追加</h3>
-                <button class="modal-close" id="inspection-schedule-modal-close">&times;</button>
-            </div>
-            <form id="inspection-schedule-form">
-                <input type="hidden" id="inspection-schedule-id" name="id">
-
-                <div class="form-group">
-                    <label for="inspection-schedule-category">カテゴリー (機種個別設定でない場合)</label>
-                    <select id="inspection-schedule-category" name="target_category">
-                        <option value="">-- カテゴリーを選択 --</option>
-                        <option value="軌道モータカー">軌道モータカー</option>
-                        <option value="箱トロ">箱トロ</option>
-                        <option value="鉄トロ">鉄トロ</option>
-                        <option value="レールカッター">レールカッター</option>
-                        <option value="油圧ショベル">油圧ショベル</option>
-                        <option value="クレーン">クレーン</option>
-                        <option value="その他">その他</option>
-                    </select>
-                    <small>カテゴリー単位で設定する場合に選択してください</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="inspection-schedule-machine">保守用車 (個別設定)</label>
-                    <select id="inspection-schedule-machine" name="machine_id">
-                        <option value="">-- 保守用車を選択 --</option>
-                    </select>
-                    <small>特定の保守用車に設定する場合に選択してください（カテゴリーより優先されます）</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="inspection-schedule-type">検修種別 *</label>
-                    <select id="inspection-schedule-type" name="inspection_type_id" required>
-                        <option value="">-- 検修種別を選択 --</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="inspection-schedule-cycle">検修周期（月単位） *</label>
-                    <input type="number" id="inspection-schedule-cycle" name="cycle_months" required min="1"
-                        placeholder="例: 6">
-                    <small>検修を実施する周期を月単位で入力してください</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="inspection-schedule-duration">検修期間（日数） *</label>
-                    <input type="number" id="inspection-schedule-duration" name="duration_days" required min="1"
-                        placeholder="例: 7">
-                    <small>検修にかかる期間を日数で入力してください</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="inspection-schedule-remarks">備考</label>
-                    <textarea id="inspection-schedule-remarks" name="remarks" rows="3"></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="inspection-schedule-active" name="is_active" checked>
-                        有効
-                    </label>
-                </div>
-
-                <div class="form-actions">
-                    <button type="submit" class="btn-primary">保存</button>
-                    <button type="button" class="btn-secondary" id="cancel-inspection-schedule-btn">キャンセル</button>
-                </div>
-            </form>
         </div>
     </div>
 
@@ -1368,7 +1334,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="tenant-context.js?v=20260718-tenant-fix"></script>
-    <script src="admin.js?v=20260718-tenant-fix"></script>
+    <script src="admin.js?v=20261011-machine-inspection-config"></script>
 </body>
 
 </html>

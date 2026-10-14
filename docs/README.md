@@ -1,188 +1,29 @@
-﻿# 保守用車運用管理ダッシュボード
+# 資料一覧とファイル分類
 
-統合管理システムのメインダッシュボードアプリケーション
+現行手順の入口はリポジトリ直下の [README](../README.md) です。
 
----
+## 現行資料
 
-## 🎯 プロジェクト概要
+- [システム構成・現在の DB 構造](./CURRENT_DB_SCHEMA.md): scope ごとの表・キー・用途と DB 境界
+- [マイグレーション方式・検証結果](./MIGRATION_REPORT.md): 新規／既存更新、baseline、検証状況
+- [共通 DB アーキテクチャ](./COMMON_DB_ARCHITECTURE.md): 正規化案の設計背景。現行 route と区別して参照
+- [認証アーキテクチャ](./AUTH_ARCHITECTURE.md): 認証コードと DB 前提
+- [ダッシュボード機能・運用メモ](./DASHBOARD_FUNCTION_SPEC_AND_OPERATION_GUIDE.md): 機能・運用
 
-このシステムは、複数の鉄道会社（テナント）が共通のプラットフォームで保守用車両を管理できる**マルチテナント対応ダッシュボードUI**です。
+## 過去資料と分類
 
-### 主要機能
+| 区分 | 対象 | 根拠・扱い |
+|---|---|---|
+| 現役コード | `server.js`、`server/`、`assets/`、`views/` | `server.js` が起動入口、`server/` が backend module、`assets/` のみ静的公開 |
+| 現行開発・DB処理 | `db/`、`scripts/`、`test/` | migrations／runner／workflow test。静的公開しない |
+| 現行 DB 履歴 | `db/migrations/common/`、`db/migrations/tenant/` | checksum / verifier 付き migration runner の対象 |
+| 旧・適用状態不明 | `docs/migrations/20260903_common_db_foundation_{up,down}.sql` | 適用履歴が不明なため変更・削除・標準実行せず保持 |
+| 旧補助 SQL | `docs/local-dev-migration.sql` | 旧 routing table 向け。標準構築・更新では使用しない |
+| 凍結した別移行案 | `docs/user_id_migration/` | 本作業の scope 外。承認と独立検証なしに実行しない |
+| 調査記録 | `docs/env_unification/` | 手順ではなく環境差分調査として保持 |
+| ルート必須ファイル | `package.json`、`package-lock.json`、`README.md`、`.env.example`、`Dockerfile`、`cloudbuild.yaml`、ignore／deploy 設定 | npm・Docker・Cloud Build・dotenv・CI が root 前提で読むため保持 |
+| 用途確認できず保持 | `.version` | リポジトリ内の参照なし。cache-busting 用 marker と記載され外部 deployment tooling の参照を排除できないため保留 |
+| 環境生成物 | `.env`、`.env.production`、`node_modules/`、DB dump/backup、一時検証 DB | ignore 対象。資格情報・利用者データを含む可能性があり削除しない |
 
-- 🚂 **保守用車両管理**: 車両情報、検修スケジュール、基地情報の統合管理
-- 👥 **ユーザー管理**: 事業所ごとの権限制御とアクセス管理
-- 🤖 **AI検索機能**: ナレッジベースを活用したインテリジェント検索
-- 📊 **ダッシュボード**: リアルタイムでの車両運用状況の可視化
-
-### マルチテナント対応
-
-各テナント（鉄道会社）は以下を独立して保有します：
-- **専用データベース**: テナントごとの完全データ分離
-- **専用ストレージ**: Google Cloud Storage バケット
-- **独自URL**: /テナント名 パスでアクセス（例: /kintetsu, /daitetsu）
-
-**特徴**: アプリケーションの再デプロイなしで、データ登録のみで新規テナントを追加できます。
-
----
-
-## 🏗️ システムアーキテクチャ
-
-### データ駆動型ルーティング
-
-```
-┌─────────────────────────────────────────┐
-│     common_db（司令塔データベース）       │
-│  ┌─────────────────────────────────┐   │
-│  │  company_db_routing テーブル    │   │
-│  │  - テナント別DB接続情報         │   │
-│  │  - ストレージバケット情報       │   │
-│  └─────────────────────────────────┘   │
-└─────────────────────────────────────────┘
-              ↓ ルーティング情報を参照
-┌─────────────────────────────────────────┐
-│   アプリケーションサーバー (Node.js)     │
-│   - URLパスからテナントを自動識別       │
-│   - 動的にDB接続を切り替え               │
-│   - キャッシュ機構（TTL: 1分）           │
-└─────────────────────────────────────────┘
-              ↓ テナント専用DBへ接続
-┌──────────┬──────────┬──────────┐
-│kintetsu_db│daitetsu_db│ ...     │
-│（近鉄）   │（大鉄）   │（他社）  │
-└──────────┴──────────┴──────────┘
-```
-
----
-
-## 🚀 クイックスタート
-
-### 前提条件
-
-- Node.js (v16以上推奨)
-- PostgreSQL (v14以上)
-- Google Cloud SDK（本番環境のみ）
-
-### ローカル開発環境
-
-#### 1. 環境変数の設定
-
-```bash
-cp .env.example .env
-```
-
-.env ファイルに以下の環境変数を設定：
-
-```env
-# データベース接続（司令塔DB）
-DB_HOST=127.0.0.1
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=your_password
-DB_NAME=common_db
-
-# セキュリティ
-JWT_SECRET=your_secure_random_string
-
-# テナントルーティング（オプション）
-TENANT_ROUTING_DB_NAME=common_db
-```
-
-#### 2. 依存関係のインストール
-
-```bash
-npm install
-```
-
-#### 3. アプリケーション起動
-
-```bash
-npm start
-```
-
-ブラウザで http://localhost:3000 にアクセス
-
-**デフォルトログイン情報**:
-- ユーザー名: dmin
-- パスワード: dmin123
-
----
-
-## 📚 詳細ドキュメント
-
-- **[技術仕様書](docs/technical-spec.md)** - システムの心臓部の詳細設計
-- **[ルーティング運用マニュアル](ROUTING_OPERATIONS_MANUAL.md)** - テーブル追加・移動手順
-- **[テナント管理ガイド](SYSTEM_OPERATIONS_ENV_GUIDE.md)** - 新規テナント追加方法
-
----
-
-## 🔧 主要ファイル構成
-
-```
-├── server.js                   # メインサーバー（マルチテナントルーティング実装）
-├── db-gateway.js               # 動的テーブルルーティングモジュール
-├── tenant-context.js           # フロントエンド：テナント検出ロジック
-├── shared-db-config.js         # 統一DB接続管理
-├── index.html                  # メインダッシュボード
-├── login.html                  # ログイン画面
-├── admin.html                  # 管理者画面（AI設定等）
-├── docs/                       # 技術ドキュメント・SQLバックアップ
-│   ├── technical-spec.md       # 技術仕様書
-│   └── init-common-routing.sql # common_db 初期化スクリプト
-└── scripts/                    # 運用スクリプト
-    └── tenant-management/      # テナント管理用スクリプト
-```
-
----
-
-## 🌐 本番環境デプロイ
-
-### Cloud Run へのデプロイ
-
-```bash
-# Google Cloud プロジェクトの設定
-gcloud config set project YOUR_PROJECT_ID
-
-# デプロイ実行
-gcloud run deploy dashboard-ui \
-  --source . \
-  --allow-unauthenticated \
-  --set-env-vars NODE_ENV=production \
-  --set-env-vars DB_HOST=/cloudsql/PROJECT:REGION:INSTANCE \
-  --set-env-vars DB_NAME=common_db \
-  --add-cloudsql-instances PROJECT:REGION:INSTANCE
-```
-
-詳細は [SYSTEM_OPERATIONS_ENV_GUIDE.md](SYSTEM_OPERATIONS_ENV_GUIDE.md) を参照してください。
-
----
-
-## 🛠️ 開発ガイドライン
-
-### 新しいテーブルを追加する場合
-
-1. 物理テーブルをDBに作成
-2. pp_resource_routing テーブルに論理リソース名を登録
-3. コード内では論理名でアクセス（例: users, ehicles）
-
-詳細: [ROUTING_OPERATIONS_MANUAL.md](ROUTING_OPERATIONS_MANUAL.md)
-
-### 新しいテナントを追加する場合
-
-1. テナント専用のDBとGCSバケットを作成
-2. common_db.company_db_routing にルーティング情報を登録
-3. 1分後に自動反映（キャッシュTTL）
-
-詳細: [docs/technical-spec.md](docs/technical-spec.md) の「新規テナント追加手順」を参照
-
----
-
-## 📝 ライセンス
-
-社内システム - 無断転載禁止
-
----
-
-## 📞 サポート
-
-技術的な質問や問題が発生した場合は、開発チームまでお問い合わせください。
+DB 構造は migration SQL を基準とし、実環境の適用状態とは区別してください。詳しくは
+[検証済み／未検証の一覧](./MIGRATION_REPORT.md#検証結果)を参照してください。

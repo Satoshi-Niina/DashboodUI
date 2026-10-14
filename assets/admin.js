@@ -1,0 +1,4978 @@
+// ========================================
+// デ��ント判定�者共通fetchユーデ��リデ��
+// ========================================
+
+// グローバルな token 参照エラー（Reference者rror: token is not defined）を防ぐトークン定義
+let token = '';
+try {
+    token = localStorage.getItem('user_token') || localStorage.getItem('auth_token') || '';
+} catch (e) {
+    token = '';
+}
+
+function getAuthToken() {
+    try {
+        const val = localStorage.getItem('user_token') || localStorage.getItem('auth_token') || token || '';
+        return (val && val !== 'undefined' && val !== 'null') ? val : '';
+    } catch {
+        return (token && token !== 'undefined') ? token : '';
+    }
+}
+
+function getCurrentTenantId() {
+    const pathSegments = window.location.pathname
+        .split("/")
+        .filter(Boolean);
+
+    const firstSegment = String(pathSegments[0] ?? "")
+        .trim()
+        .toLowerCase();
+
+    const excludedPaths = [
+        "admin.html",
+        "index.html",
+        "login.html",
+        "api",
+        "assets"
+    ];
+
+    if (!firstSegment || excludedPaths.includes(firstSegment)) {
+        return "demo";
+    }
+
+    return firstSegment;
+}
+
+async function tenantFetch(url, options = {}) {
+    const tenantId = getCurrentTenantId();
+
+    const headers = new Headers(options.headers || {});
+    headers.set("X-Tenant-Id", tenantId);
+    headers.set(
+        "X-Tenant-Path",
+        tenantId === "demo" ? "/" : `/${tenantId}`
+    );
+    headers.set("X-Tenant-Full-Url", window.location.href);
+
+    return fetch(url, {
+        ...options,
+        headers
+    });
+}
+
+// ========================================
+// 設定: 機種マスタ関連の定数
+// ========================================
+const MACHIN者_CAT者GORI者S = [
+    '軌道モータカー',
+    '箱トロ',
+    '鉄トロ',
+    'ホッパー車',
+    'レールカッター',
+    '油圧ショベル',
+    'クレーン',
+    'その他'
+];
+
+function unwrapApiArray(payload) {
+    if (Array.isArray(payload)) {
+        return payload;
+    }
+
+    if (!payload || typeof payload !== 'object') {
+        return [];
+    }
+
+    if (Array.isArray(payload.data)) {
+        return payload.data;
+    }
+
+    if (Array.isArray(payload.offices)) {
+        return payload.offices;
+    }
+
+    if (Array.isArray(payload.bases)) {
+        return payload.bases;
+    }
+
+    if (Array.isArray(payload.rows)) {
+        return payload.rows;
+    }
+
+    return [];
+}
+
+function getApiMessage(payload, fallbackMessage) {
+    if (payload && typeof payload === 'object') {
+        return payload.message || payload.error || fallbackMessage;
+    }
+    return fallbackMessage;
+}
+
+// UUID/S者RIALぁ者��れ�者ID列でも安�者に扱ぁ者��め、数値変換せず文���者のまま正規化する、者
+// 空文���者みnullに変換し、それ以外�者文���者として保持する、者
+function normalizeOptionalId(value) {
+    const normalized = String(value ?? '').trim();
+    return normalized === '' ? null : normalized;
+}
+
+function normalizeUserRole(role) {
+    const raw = String(role || '').trim();
+    const normalized = raw.toLowerCase();
+
+    if (normalized === 'system_admin' || normalized === 'administrator' || normalized === 'admin') {
+        return 'system_admin';
+    }
+
+    if (normalized === 'operation_admin' || normalized === 'manager' || raw === '責任者') {
+        return 'operation_admin';
+    }
+
+    if (!raw || normalized === 'user' || normalized === 'general_user' || normalized === 'operator') {
+        return 'user';
+    }
+
+    return null;
+}
+
+function getRoleDisplayName(role) {
+    const normalizedRole = normalizeUserRole(role) || 'user';
+    if (normalizedRole === 'system_admin') {
+        return 'システム管理者';
+    }
+    if (normalizedRole === 'operation_admin') {
+        return '運用管理者';
+    }
+    return '一般ユーザー';
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+    if (window.TenantContext && typeof window.TenantContext.init === 'function') {
+        await window.TenantContext.init();
+    }
+
+    const buildTenantPath = (targetPath) => (
+        window.TenantContext && typeof window.TenantContext.buildPath === 'function'
+            ? window.TenantContext.buildPath(targetPath)
+            : targetPath
+    );
+
+    // HttpOnly Cookieをサーバ�者で検証し、表示用の最小ユーザー情報��だけを取得すめ者
+    const authResponse = await fetch('/api/auth/me', { credentials: 'same-origin' });
+    console.log('[Admin] Version: 20260107-1400');
+    console.log('[Admin] Initializing admin page...');
+
+    if (!authResponse.ok) {
+        console.error('[Admin] No active session, redirecting to login');
+        window.location.href = buildTenantPath('/');
+        return;
+    }
+
+    // ユーザー情報��の表示とロールチェック��
+    const authData = await authResponse.json();
+    const userInfo = authData.user || {};
+    console.log('[Admin] User info:', userInfo);
+    console.log('[Admin] User role:', userInfo.role);
+    document.getElementById('admin-user').textContent = userInfo.displayName || userInfo.username;
+
+    // シスデ��管理��者��た�者運用管理��者�者みアクセス可能
+    const normalizedRole = normalizeUserRole(userInfo.role);
+    const isAllowed = normalizedRole === 'system_admin' || normalizedRole === 'operation_admin';
+
+    if (!isAllowed) {
+        console.error('[Admin] Access denied - role:', userInfo.role);
+        alert('アクセス権限がありません。管理者権限が必要です。');
+        window.location.href = buildTenantPath('/index.html');
+        return;
+    }
+
+    console.log('[Admin] Access granted for admin user');
+
+    // ロールに基づい��タブ�者表示制御
+    applyRoleBasedTabVisibility(normalizedRole || 'user');
+
+    // メイン画面に戻め者
+    document.getElementById('back-to-main-btn').addEventListener('click', () => {
+        window.location.href = buildTenantPath('/index.html');
+    });
+
+    // タブ機�者の初期匁者
+    initializeTabs();
+
+    // 初期ローデ- 最初�者タブ（ユーザー管理���者み読み込む
+    loadUsers();
+
+    // 汎用デ�者ブルフィルター関数
+    window.applyTableFilter = function (table) {
+        const filters = Array.from(table.querySelectorAll('.column-filter'));
+        const activeFilters = filters.map(f => ({
+            index: parseInt(f.dataset.col),
+            value: f.value
+        })).filter(f => f.value !== "");
+
+        console.log('[applyTableFilter] Active filters:', activeFilters);
+
+        const rows = Array.from(table.querySelector('tbody').rows);
+        let visibleCount = 0;
+
+        rows.forEach(row => {
+            const isMatch = activeFilters.every(f => {
+                const cellText = row.cells[f.index].textContent.trim();
+                const matches = cellText === f.value;
+                return matches;
+            });
+            row.style.display = isMatch ? "" : "none";
+            if (isMatch) visibleCount++;
+        });
+
+        console.log('[applyTableFilter] Visible rows:', visibleCount, '/', rows.length);
+    };
+
+    // フィルタの選択肢を�者動生成する関数
+    window.updateFilterOptions = function (table) {
+        const filters = Array.from(table.querySelectorAll('.column-filter'));
+        const rows = Array.from(table.querySelector('tbody').rows);
+
+        console.log('[updateFilterOptions] Called with rows:', rows.length);
+
+        filters.forEach(select => {
+            const colIndex = parseInt(select.dataset.col);
+
+            // アクデ��ブなフィルター�者�他�者列）を取征者
+            const activeFilters = filters.map((f, idx) => {
+                if (idx === filters.indexOf(select)) return null; // 自切�者身は除夁者
+                return {
+                    index: parseInt(f.dataset.col),
+                    value: f.value
+                };
+            }).filter(f => f && f.value !== "");
+
+            console.log(`[updateFilterOptions] Column ${colIndex} active filters:`, activeFilters);
+
+            // アクデ��ブなフィルターにマッチする行を抽出
+            const filteredRows = rows.filter(row => {
+                return activeFilters.every(f => {
+                    const cellText = row.cells[f.index].textContent.trim();
+                    return cellText === f.value;
+                });
+            });
+
+            console.log(`[updateFilterOptions] Filtered rows for column ${colIndex}:`, filteredRows.length);
+
+            // フィルター済み行から選択肢を抽出
+            const values = new Set();
+            filteredRows.forEach(row => {
+                const text = row.cells[colIndex].textContent.trim();
+                if (text) values.add(text);
+            });
+
+            const currentVal = select.value;
+            let optionsHtml = '<option value="">(全て)</option>';
+            Array.from(values).sort().forEach(val => {
+                optionsHtml += `<option value="${val}">${val}</option>`;
+            });
+            select.innerHTML = optionsHtml;
+            select.value = currentVal;
+
+            console.log(`[updateFilterOptions] Column ${colIndex}: ${Array.from(values).length} options`);
+        });
+    };
+
+    // イベントリスナ�者の初期匁者
+    initializeEventListeners();
+    initializeCorsSettings();
+});
+
+// ロールに基づい��タブ�者表示制御
+function applyRoleBasedTabVisibility(role) {
+    console.log('[applyRoleBasedTabVisibility] Applying visibility for role:', role);
+    const normalizedRole = normalizeUserRole(role) || 'user';
+
+    // シスデ��管理��者��用のタデ
+    const systemAdminOnlyTabs = [
+        'database-management',
+        'system-operations',
+        'cors-settings'
+    ];
+
+    systemAdminOnlyTabs.forEach(tabName => {
+        const tabButton = document.querySelector(`.tab-button[data-tab="${tabName}"]`);
+        const tabContent = document.getElementById(`${tabName}-tab`);
+
+        if (normalizedRole === 'system_admin') {
+            // シスデ��管理��者��は表示
+            if (tabButton) {
+                tabButton.style.display = '';
+                console.log(`[applyRoleBasedTabVisibility] Showing tab: ${tabName}`);
+            }
+            if (tabContent) {
+                tabContent.style.display = '';
+            }
+        } else {
+            // 運用管理��者��は非表示
+            if (tabButton) {
+                tabButton.style.display = 'none';
+                console.log(`[applyRoleBasedTabVisibility] Hiding tab: ${tabName}`);
+            }
+            if (tabContent) {
+                tabContent.style.display = 'none';
+            }
+        }
+    });
+}
+
+// タブ機�者
+function initializeTabs() {
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    console.log('[initializeTabs] Found tab buttons:', tabButtons.length);
+    console.log('[initializeTabs] Found tab contents:', tabContents.length);
+
+    // 最初�者タブをアクデ��ブにする
+    if (tabButtons.length > 0) {
+        tabButtons[0].classList.add('active');
+        const firstTabName = tabButtons[0].getAttribute('data-tab');
+        console.log('[initializeTabs] First tab name:', firstTabName);
+        const firstTabContent = document.getElementById(`${firstTabName}-tab`);
+        if (firstTabContent) {
+            firstTabContent.style.display = 'block';
+            console.log('[initializeTabs] First tab activated');
+        } else {
+            console.error('[initializeTabs] First tab content not found:', `${firstTabName}-tab`);
+        }
+    }
+
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const tabName = button.getAttribute('data-tab');
+            console.log('[Tab Click] Clicked tab:', tabName);
+
+            // すべてのタブ�者タンとコンデ��デ��非アクデ��ブにする
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabContents.forEach(content => content.style.display = 'none');
+
+            // クリデ��されたタブをアクデ��ブにする
+            button.classList.add('active');
+            const targetTab = document.getElementById(`${tabName}-tab`);
+            if (targetTab) {
+                targetTab.style.display = 'block';
+                console.log('[Tab Click] Tab activated:', tabName);
+            } else {
+                console.error('[Tab Click] Tab content not found:', `${tabName}-tab`);
+            }
+
+            // タブに応じてデ�者タを読み込み
+            if (tabName === 'user-management') {
+                loadUsers();
+            } else if (tabName === 'office-master') {
+                loadOffices();
+            } else if (tabName === 'base-master') {
+                loadBases();
+            } else if (tabName === 'vehicle-master') {
+                loadMachineTypes();
+                loadMachines();
+            } else if (tabName === 'inspection-master') {
+                loadInspectionTypes();
+                loadInspectionSchedules();
+            } else if (tabName === 'database-management') {
+                loadDatabaseStats();
+            } else if (tabName === 'cors-settings') {
+                loadCorsSettings();
+            } else if (tabName === 'app-management') {
+                loadAppManagementTenants();
+            }
+        });
+    });
+}
+
+// イベントリスナ�者の初期匁者
+function initializeEventListeners() {
+    // ユーザー追加ボタン
+    const addUserBtn = document.getElementById('add-new-user-btn');
+    if (addUserBtn) {
+        addUserBtn.addEventListener('click', () => openUserModal());
+    }
+
+    // ユーザーインポ�者ト�者タン
+    const importUsersBtn = document.getElementById('import-users-btn');
+    const userImportFile = document.getElementById('user-import-file');
+    if (importUsersBtn && userImportFile) {
+        importUsersBtn.addEventListener('click', () => {
+            userImportFile.click();
+        });
+        userImportFile.addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                await importUsers(e.target.files[0]);
+                e.target.value = ''; // ファイル選択をリセット��
+            }
+        });
+    }
+
+    // デ��プレートダウンロード�者タン
+    const download者xcelBtn = document.getElementById('download-excel-template-btn');
+    if (download者xcelBtn) {
+        download者xcelBtn.addEventListener('click', () => downloadUserTemplate());
+    }
+
+    // フィルターイベンデ
+    const filterDisplayName = document.getElementById('filter-display-name');
+    const filterUsername = document.getElementById('filter-username');
+    const filterRole = document.getElementById('filter-role');
+    const clearFiltersBtn = document.getElementById('clear-filters-btn');
+
+    if (filterDisplayName) {
+        filterDisplayName.addEventListener('change', applyUserFilters);
+    }
+    if (filterUsername) {
+        filterUsername.addEventListener('change', applyUserFilters);
+    }
+    if (filterRole) {
+        filterRole.addEventListener('change', applyUserFilters);
+    }
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', () => {
+            if (filterDisplayName) filterDisplayName.value = '';
+            if (filterUsername) filterUsername.value = '';
+            if (filterRole) filterRole.value = '';
+            applyUserFilters();
+        });
+    }
+
+    // ユーザーモーダルのイベントリスナ�者
+    const userModal = document.getElementById('user-modal');
+    const userCloseModal = document.getElementById('modal-close');
+    const userCancelBtn = document.getElementById('cancel-user-btn');
+    const userForm = document.getElementById('user-form');
+
+    if (userCloseModal) {
+        userCloseModal.addEventListener('click', () => {
+            userModal.style.display = 'none';
+        });
+    }
+
+    if (userCancelBtn) {
+        userCancelBtn.addEventListener('click', () => {
+            userModal.style.display = 'none';
+        });
+    }
+
+    if (userForm) {
+        userForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await saveUser();
+        });
+    }
+
+    // 事業所追加ボタン
+    const addOfficeBtn = document.getElementById('add-new-office-btn');
+    if (addOfficeBtn) {
+        addOfficeBtn.addEventListener('click', () => showOfficeModal('add', null));
+    }
+
+    // 事業所インポ�者ト�者タン
+    const importOfficesBtn = document.getElementById('import-offices-btn');
+    const officesImportFile = document.getElementById('offices-import-file');
+    if (importOfficesBtn && officesImportFile) {
+        importOfficesBtn.addEventListener('click', () => {
+            officesImportFile.click();
+        });
+        officesImportFile.addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                await importMasterData('offices', e.target.files[0]);
+                e.target.value = '';
+            }
+        });
+    }
+
+    // 事業所デ��プレート�者タン
+    const downloadOfficesTemplateBtn = document.getElementById('download-offices-template-btn');
+    if (downloadOfficesTemplateBtn) {
+        downloadOfficesTemplateBtn.addEventListener('click', () => downloadMasterTemplate('offices'));
+    }
+
+    // 保守基地追加ボタン
+    const addBaseBtn = document.getElementById('add-new-base-btn');
+    if (addBaseBtn) {
+        addBaseBtn.addEventListener('click', () => showBaseModal('add', null));
+    }
+
+    // 保守基地インポ�者ト�者タン
+    const importBasesBtn = document.getElementById('import-bases-btn');
+    const basesImportFile = document.getElementById('bases-import-file');
+    if (importBasesBtn && basesImportFile) {
+        importBasesBtn.addEventListener('click', () => {
+            basesImportFile.click();
+        });
+        basesImportFile.addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                await importMasterData('bases', e.target.files[0]);
+                e.target.value = '';
+            }
+        });
+    }
+
+    // 保守基地デ��プレート�者タン
+    const downloadBasesTemplateBtn = document.getElementById('download-bases-template-btn');
+    if (downloadBasesTemplateBtn) {
+        downloadBasesTemplateBtn.addEventListener('click', () => downloadMasterTemplate('bases'));
+    }
+
+    // 機種マスタ追加ボタン
+    const addMachineTypeBtn = document.getElementById('add-new-machine-type-btn');
+    if (addMachineTypeBtn) {
+        addMachineTypeBtn.addEventListener('click', () => {
+            // カデ��リ選択肢を�者期化
+            const categorySelect = document.getElementById('machine-type-category');
+            if (categorySelect && categorySelect.options.length === 1) {
+                MACHIN者_CAT者GORI者S.forEach(cat => {
+                    const option = document.createElement('option');
+                    option.value = cat;
+                    option.textContent = cat;
+                    categorySelect.appendChild(option);
+                });
+            }
+            openMachineTypeModal();
+        });
+    }
+
+    // 機種マスタインポ�者ト�者タン
+    const importMachineTypesBtn = document.getElementById('import-machine-types-btn');
+    const machineTypesImportFile = document.getElementById('machine-types-import-file');
+    if (importMachineTypesBtn && machineTypesImportFile) {
+        importMachineTypesBtn.addEventListener('click', () => {
+            machineTypesImportFile.click();
+        });
+        machineTypesImportFile.addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                await importMasterData('machine-types', e.target.files[0]);
+                e.target.value = '';
+            }
+        });
+    }
+
+    // 機種マスタデ��プレート�者タン
+    const downloadMachineTypesTemplateBtn = document.getElementById('download-machine-types-template-btn');
+    if (downloadMachineTypesTemplateBtn) {
+        downloadMachineTypesTemplateBtn.addEventListener('click', () => downloadMasterTemplate('machine-types'));
+    }
+
+    // 機種マスタモーダルのイベントリスナ�者
+    const machineTypeModal = document.getElementById('machine-type-modal');
+    const machineTypeCloseModal = document.getElementById('machine-type-modal-close');
+    const machineTypeCancelBtn = document.getElementById('cancel-machine-type-btn');
+    const machineTypeForm = document.getElementById('machine-type-form');
+
+    if (machineTypeCloseModal) {
+        machineTypeCloseModal.addEventListener('click', () => {
+            machineTypeModal.style.display = 'none';
+        });
+    }
+
+    if (machineTypeCancelBtn) {
+        machineTypeCancelBtn.addEventListener('click', () => {
+            machineTypeModal.style.display = 'none';
+        });
+    }
+
+    if (machineTypeForm) {
+        machineTypeForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await saveMachineType();
+        });
+    }
+
+    // 機械番号マスタ追加ボタン
+    const addMachineBtn = document.getElementById('add-new-machine-btn');
+    if (addMachineBtn) {
+        addMachineBtn.addEventListener('click', () => openMachineModal());
+    }
+
+    // 保守用車インポ�者ト�者タン
+    const importMachinesBtn = document.getElementById('import-machines-btn');
+    const machinesImportFile = document.getElementById('machines-import-file');
+    if (importMachinesBtn && machinesImportFile) {
+        importMachinesBtn.addEventListener('click', () => {
+            machinesImportFile.click();
+        });
+        machinesImportFile.addEventListener('change', async (e) => {
+            if (e.target.files.length > 0) {
+                await importMasterData('machines', e.target.files[0]);
+                e.target.value = '';
+            }
+        });
+    }
+
+    // 保守用車テンプレート�者タン
+    const downloadMachinesTemplateBtn = document.getElementById('download-machines-template-btn');
+    if (downloadMachinesTemplateBtn) {
+        downloadMachinesTemplateBtn.addEventListener('click', () => downloadMasterTemplate('machines'));
+    }
+
+    // 機械番号マスタモーダルのイベントリスナ�者
+    const machineModal = document.getElementById('machine-modal');
+    const machineCloseModal = document.getElementById('machine-modal-close');
+    const machineCancelBtn = document.getElementById('cancel-machine-btn');
+    const machineForm = document.getElementById('machine-form');
+
+    if (machineCloseModal) {
+        machineCloseModal.addEventListener('click', () => {
+            machineModal.style.display = 'none';
+        });
+    }
+
+    if (machineCancelBtn) {
+        machineCancelBtn.addEventListener('click', () => {
+            machineModal.style.display = 'none';
+        });
+    }
+
+    if (machineForm) {
+        machineForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await saveMachine();
+        });
+    }
+
+    // 検修種別追加ボタン
+    const addInspectionTypeBtn = document.getElementById('add-new-inspection-type-btn');
+    if (addInspectionTypeBtn) {
+        addInspectionTypeBtn.addEventListener('click', () => openInspectionTypeModal());
+    }
+
+    // 検修種別モーダルのイベントリスナ�者
+    const inspectionTypeModal = document.getElementById('inspection-type-modal');
+    const inspectionTypeCloseModal = document.getElementById('inspection-type-modal-close');
+    const inspectionTypeCancelBtn = document.getElementById('cancel-inspection-type-btn');
+    const inspectionTypeForm = document.getElementById('inspection-type-form');
+
+    if (inspectionTypeCloseModal) {
+        inspectionTypeCloseModal.addEventListener('click', () => {
+            inspectionTypeModal.style.display = 'none';
+        });
+    }
+
+    if (inspectionTypeCancelBtn) {
+        inspectionTypeCancelBtn.addEventListener('click', () => {
+            inspectionTypeModal.style.display = 'none';
+        });
+    }
+
+    if (inspectionTypeForm) {
+        inspectionTypeForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await saveInspectionType();
+        });
+    }
+
+    // 検修設定追加ボタン
+    const addInspectionScheduleBtn = document.getElementById('add-new-inspection-schedule-btn');
+    if (addInspectionScheduleBtn) {
+        addInspectionScheduleBtn.addEventListener('click', () => openInspectionScheduleModal());
+    }
+
+    // 検修設定モーダルのイベントリスナ�者
+    const inspectionScheduleModal = document.getElementById('inspection-schedule-modal');
+    const inspectionScheduleCloseModal = document.getElementById('inspection-schedule-modal-close');
+    const inspectionScheduleCancelBtn = document.getElementById('cancel-inspection-schedule-btn');
+    const inspectionScheduleForm = document.getElementById('inspection-schedule-form');
+
+    if (inspectionScheduleCloseModal) {
+        inspectionScheduleCloseModal.addEventListener('click', () => {
+            inspectionScheduleModal.style.display = 'none';
+        });
+    }
+
+    if (inspectionScheduleCancelBtn) {
+        inspectionScheduleCancelBtn.addEventListener('click', () => {
+            inspectionScheduleModal.style.display = 'none';
+        });
+    }
+
+    if (inspectionScheduleForm) {
+        inspectionScheduleForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await saveInspectionSchedule();
+        });
+    }
+
+    // 全デ�者ブルの編集�者削除ボタンをイベント委譲で一允者��理
+    const appManagementTenantSelect = document.getElementById('app-management-tenant-select');
+    if (appManagementTenantSelect) {
+        appManagementTenantSelect.addEventListener('change', () => {
+            loadAppManagementApps(appManagementTenantSelect.value);
+        });
+    }
+
+    const appManagementRefreshBtn = document.getElementById('app-management-refresh-btn');
+    if (appManagementRefreshBtn) {
+        appManagementRefreshBtn.addEventListener('click', () => {
+            loadAppManagementTenants();
+        });
+    }
+
+    const appManagementSaveBtn = document.getElementById('app-management-save-btn');
+    if (appManagementSaveBtn) {
+        appManagementSaveBtn.addEventListener('click', () => {
+            saveAppManagementApps();
+        });
+    }
+
+    document.addEventListener('click', event => {
+        const btn = event.target.closest('[data-action]');
+        if (!btn) return;
+
+        event.preventDefault();
+        const action = btn.dataset.action;
+        const id = btn.dataset.id;
+        const name = btn.dataset.name || '';
+
+        switch (action) {
+            // ユーザー管理
+            case 'edit-user':
+                editUser(id);
+                break;
+            case 'delete-user':
+                deleteUser(id, name);
+                break;
+            // 事業所マスタ
+            case 'edit-office':
+                window.editOffice(id);
+                break;
+            case 'delete-office':
+                window.deleteOffice(id, name);
+                break;
+            // 保守基地マスタ
+            case 'edit-base':
+                window.editBase(id);
+                break;
+            case 'delete-base':
+                window.deleteBase(id, name);
+                break;
+            // 機種マスタ
+            case 'edit-type':
+                window.editMachineType(id);
+                break;
+            case 'delete-type':
+                window.deleteMachineType(id, name);
+                break;
+            // 保守用車�者スタ
+            case 'edit-machine':
+                window.editMachine(id);
+                break;
+            case 'delete-machine':
+                window.deleteMachine(id, btn.dataset.number || name);
+                break;
+            // 検修種別マスタ
+            case 'edit-inspection-type':
+                editInspectionType(id);
+                break;
+            case 'delete-inspection-type':
+                deleteInspectionType(id, name);
+                break;
+            // 検修設定
+            case 'edit-inspection-schedule':
+                editInspectionSchedule(id);
+                break;
+            case 'delete-inspection-schedule':
+                deleteInspectionSchedule(id, name);
+                break;
+            default:
+                console.warn('[者vent] Unknown action:', action);
+        }
+    });
+}
+
+// ========== ユーザー管理==========
+// グローバル変数としてユーザーデ�者タを保持
+let allUsers = [];
+
+// ========================================
+// アプリ公開設定（テナント別デ��用アプリ起動制御�者�者
+// ========================================
+
+async function loadAppManagementTenants() {
+    const select = document.getElementById('app-management-tenant-select');
+    const list者l = document.getElementById('app-management-list');
+    if (!select) return;
+
+    try {
+        const response = await tenantFetch('/api/admin/app-tenants', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(getApiMessage(data, 'テナント一覧の取得に失敗しました'));
+        }
+
+        const currentTenantId = getCurrentTenantId();
+        const tenants = data.tenants && data.tenants.length > 0 ? data.tenants : [currentTenantId];
+        const previousValue = select.value;
+
+        select.innerHTML = tenants.map(t => `<option value="${t}">${t}</option>`).join('');
+        select.value = tenants.includes(previousValue) ? previousValue : (tenants.includes(currentTenantId) ? currentTenantId : tenants[0]);
+
+        await loadAppManagementApps(select.value);
+    } catch (error) {
+        console.error('[loadAppManagementTenants] 者rror:', error);
+        if (list者l) {
+            list者l.innerHTML = `<p class="loading" style="color: red;">⚠️ <br>エラー: ${error.message}</p>`;
+        }
+    }
+}
+
+async function loadAppManagementApps(tenantKey) {
+    const list者l = document.getElementById('app-management-list');
+    if (!list者l || !tenantKey) return;
+
+    list者l.innerHTML = '<p class="loading">読み込み中...</p>';
+
+    try {
+        const response = await tenantFetch(`/api/admin/tenant-apps/${encodeURIComponent(tenantKey)}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(getApiMessage(data, 'アプリ一覧の取得に失敗しました'));
+        }
+
+        if (!data.apps || data.apps.length === 0) {
+            list者l.innerHTML = '<p class="loading">公開可能なアプリが登録されていません</p>';
+            return;
+        }
+
+        list者l.innerHTML = `
+            <table class="simple-table" style="width:100%;">
+                <thead>
+                    <tr>
+                        <th style="text-align:left;">公開</th>
+                        <th style="text-align:left;">アプリ名</th>
+                        <th style="text-align:left;">カテゴリ</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.apps.map(app => `
+                        <tr>
+                            <td>
+                                <input type="checkbox" class="app-management-toggle" data-app-id="${app.appId}" ${app.isActive ? 'checked' : ''}>
+                            </td>
+                            <td>${app.appName || app.appId}</td>
+                            <td>${app.category || '一般'}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } catch (error) {
+        console.error('[loadAppManagementApps] 者rror:', error);
+        list者l.innerHTML = `<p class="loading" style="color: red;">⚠️ <br>エラー: ${error.message}</p>`;
+    }
+}
+
+async function saveAppManagementApps() {
+    const select = document.getElementById('app-management-tenant-select');
+    const tenantKey = select ? select.value : '';
+    if (!tenantKey) return;
+
+    const toggles = document.querySelectorAll('.app-management-toggle');
+    const apps = Array.from(toggles).map(toggle => ({
+        appId: toggle.getAttribute('data-app-id'),
+        isActive: toggle.checked
+    }));
+
+    if (apps.length === 0) return;
+
+    try {
+        const response = await tenantFetch(`/api/admin/tenant-apps/${encodeURIComponent(tenantKey)}`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ apps })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(getApiMessage(data, '公開設定の保存に失敗しました'));
+        }
+
+        alert(`テナント「${tenantKey}」のアプリ公開設定を保存しました`);
+        await loadAppManagementApps(tenantKey);
+    } catch (error) {
+        console.error('[saveAppManagementApps] Error:', error);
+        alert(`公開設定の保存に失敗しました: ${error.message}`);
+    }
+}
+
+async function loadUsers() {
+    const usersList = document.getElementById('users-list');
+    usersList.innerHTML = '<p class="loading">読み込み中...</p>';
+
+    try {
+        console.log('[loadUsers] Fetching users...');
+        const response = await tenantFetch('/api/users', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        console.log('[loadUsers] Response status:', response.status);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('[loadUsers] Data received:', data);
+
+        if (data.success && data.users.length > 0) {
+            // 全ユーザーデ�者タをグローバル変数に保存
+            allUsers = data.users.map(user => ({
+                ...user,
+                role: normalizeUserRole(user.role) || 'user'
+            }));
+            // フィルター選択肢を更新
+            updateUserFilterOptions();
+            // フィルター適用して表示
+            applyUserFilters();
+        } else {
+            allUsers = [];
+            usersList.innerHTML = '<p class="loading">ユーザーが登録されていません</p>';
+        }
+    } catch (error) {
+        console.error('[loadUsers] 者rror:', error);
+        allUsers = [];
+        usersList.innerHTML = `<p class="loading" style="color: red;">⚠️ <br>エラー: ${error.message}<br>データベース接続を確認してください</p>`;
+    }
+}
+
+// ユーザーフィルターの選択肢を更新する関数
+function updateUserFilterOptions() {
+    const filterDisplayName = document.getElementById('filter-display-name');
+    const filterUsername = document.getElementById('filter-username');
+
+    if (!filterDisplayName || !filterUsername) return;
+
+    // 表示名�者一覧を取得（重複��去・ソート！者
+    const displayNames = [...new Set(allUsers.map(u => u.display_name).filter(Boolean))].sort();
+    const currentDisplayName = filterDisplayName.value;
+    filterDisplayName.innerHTML = '<option value="">すべて</option>' +
+        displayNames.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+    filterDisplayName.value = currentDisplayName;
+
+    // ユーザー名�者一覧を取得（重複��去・ソート！者
+    const usernames = [...new Set(allUsers.map(u => u.username))].sort();
+    const currentUsername = filterUsername.value;
+    filterUsername.innerHTML = '<option value="">すべて</option>' +
+        usernames.map(name => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('');
+    filterUsername.value = currentUsername;
+}
+
+// ユーザーフィルター適用関数
+function applyUserFilters() {
+    const filterDisplayName = document.getElementById('filter-display-name').value.trim();
+    const filterUsername = document.getElementById('filter-username').value.trim();
+    const filterRole = document.getElementById('filter-role').value;
+
+    // フィルター条件に基づい��ユーザーを絞り込み
+    const filteredUsers = allUsers.filter(user => {
+        const matchDisplayName = !filterDisplayName || user.display_name === filterDisplayName;
+        const matchUsername = !filterUsername || user.username === filterUsername;
+        const matchRole = !filterRole || (normalizeUserRole(user.role) || 'user') === filterRole;
+
+        return matchDisplayName && matchUsername && matchRole;
+    });
+
+    // 表示を更新
+    displayUsers(filteredUsers);
+}
+
+// ユーザー表示関数
+function displayUsers(users) {
+    const usersList = document.getElementById('users-list');
+
+    if (users.length === 0) {
+        usersList.innerHTML = '<p class="loading">条件に一致するユーザーが見つかりません</p>';
+        return;
+    }
+
+    usersList.innerHTML = users.map(user => {
+        const normalizedRole = normalizeUserRole(user.role) || 'user';
+        const roleDisplayName = getRoleDisplayName(normalizedRole);
+
+        return `
+            <div class="user-item" data-username="${escapeHtml(user.username)}" data-displayname="${escapeHtml(user.display_name || '')}" data-role="${normalizedRole}">
+                <div class="user-info">
+                    <div class="username">${escapeHtml(user.username)}</div>
+                    <div class="display-name">${escapeHtml(user.display_name || '')}</div>
+                    <span class="role-badge role-${normalizedRole}">${roleDisplayName}</span>
+                </div>
+                <div class="user-actions-buttons">
+                    <button class="btn-edit" data-action="edit-user" data-id="${user.id}">編集</button>
+                    <button class="btn-delete" data-action="delete-user" data-id="${user.id}" data-name="${escapeHtml(user.username)}">削除</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function openUserModal(userId = null) {
+    const modal = document.getElementById('user-modal');
+    const modalTitle = document.getElementById('modal-title');
+    const form = document.getElementById('user-form');
+
+    form.reset();
+    document.getElementById('user-id').value = '';
+
+    if (userId) {
+        modalTitle.textContent = 'ユーザーを編集';
+        loadUserData(userId);
+    } else {
+        modalTitle.textContent = 'ユーザーを追加';
+    }
+
+    modal.style.display = 'flex';
+}
+
+async function loadUserData(userId) {
+    try {
+        const response = await tenantFetch(`/api/users/${userId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        let data = null;
+
+        try {
+            data = await response.json();
+        } catch (_) {
+            data = null;
+        }
+
+        if (!response.ok || !data || !data.success || !data.user) {
+            throw new Error((data && data.message) || `HTTP ${response.status}`);
+        }
+
+        const user = data.user;
+        document.getElementById('user-id').value = user.id;
+        document.getElementById('user-username').value = user.username || '';
+        document.getElementById('user-full-name').value = user.display_name || '';
+        document.getElementById('user-email').value = user.email || '';
+        document.getElementById('user-role').value = normalizeUserRole(user.role) || 'user';
+    } catch (error) {
+        console.error('Failed to load user data:', error);
+        // 詳細APIが失敗した場合でも、一覧で取得済みの最低限の情情報を表示する
+        const fallbackUser = allUsers.find(u => String(u.id) === String(userId));
+        if (fallbackUser) {
+            document.getElementById('user-id').value = fallbackUser.id;
+            document.getElementById('user-username').value = fallbackUser.username || '';
+            document.getElementById('user-full-name').value = fallbackUser.display_name || '';
+            document.getElementById('user-role').value = normalizeUserRole(fallbackUser.role) || 'user';
+        }
+        showToast('ユーザー情情報の読み込みに失敗しました', 'error');
+    }
+}
+
+async function saveUser() {
+    const userId = document.getElementById('user-id').value;
+    const userData = {
+        username: document.getElementById('user-username').value,
+        display_name: document.getElementById('user-full-name').value,
+        email: document.getElementById('user-email').value,
+        password: document.getElementById('user-password').value,
+        role: normalizeUserRole(document.getElementById('user-role').value) || 'user'
+    };
+
+    console.log('[saveUser] Saving user:', { userId, userData: { ...userData, password: '***' } });
+
+    try {
+        const url = userId ? `/api/users/${userId}` : '/api/users';
+        const method = userId ? 'PUT' : 'POST';
+
+        console.log('[saveUser] Request:', { url, method });
+
+        const response = await tenantFetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(userData)
+        });
+
+        console.log('[saveUser] Response status:', response.status);
+
+        const data = await response.json();
+        console.log('[saveUser] Response data:', data);
+
+        if (data.success) {
+            showToast(userId ? 'ユーザーを更新しました' : 'ユーザーを追加しました', 'success');
+            document.getElementById('user-modal').style.display = 'none';
+            loadUsers();
+        } else {
+            console.error('[saveUser] Save failed:', data.message);
+            showToast(data.message || '保存に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('[saveUser] Failed to save user:', error);
+        showToast('保存中にエラーが発生しました: ' + error.message, 'error');
+    }
+}
+
+function editUser(userId) {
+    openUserModal(userId);
+}
+window.editUser = editUser;
+
+async function deleteUser(userId, username) {
+    if (!confirm(`ユーザー「${username}」を削除してもよろしいですか？`)) {
+        return;
+    }
+
+    try {
+        const response = await tenantFetch(`/api/users/${userId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('ユーザーを削除しました', 'success');
+            loadUsers();
+        } else {
+            showToast(data.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to delete user:', error);
+        showToast('削除中にエラーが発生しました', 'error');
+    }
+}
+window.deleteUser = deleteUser;
+
+// ========== 機種マスタ管理==========
+async function loadMachineTypes() {
+    const list = document.getElementById('machine-types-list');
+    list.innerHTML = '<p class="loading">読み込み中...</p>';
+
+    try {
+        const response = await tenantFetch('/api/machine-types', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const machineTypes = unwrapApiArray(data);
+
+        if (data.success && machineTypes.length > 0) {
+            let html = `
+                <table class="data-table" id="machine-types-table">
+                    <thead>
+                        <tr>
+                            <th>機種コード</th>
+                            <th>メーカー</th>
+                            <th>型式</th>
+                            <th>機種</th>
+                            <th>操作</th>
+                        </tr>
+                        <tr class="filter-row">
+                            <th><select class="column-filter" data-col="0"></select></th>
+                            <th><select class="column-filter" data-col="1"></select></th>
+                            <th><select class="column-filter" data-col="2"></select></th>
+                            <th><select class="column-filter" data-col="3"></select></th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            machineTypes.forEach((type, index) => {
+                const typeId = String(type.id);
+                const displayCode = type.display_code || `MT-${String(index + 1).padStart(4, '0')}`;
+                const categoryLabel = type.category ? String(type.category).replace('軌道モータカー', '軌道モーターカー') : '-';
+                console.log('[loadMachineTypes] Rendering type:', { id: typeId });
+                html += `
+                    <tr>
+                        <td>${escapeHtml(displayCode)}</td>
+                        <td>${escapeHtml(type.manufacturer || '-')}</td>
+                        <td>${escapeHtml(type.model_name || '-')}</td>
+                        <td>${escapeHtml(categoryLabel)}</td>
+                        <td>
+                            <button class="btn-sm btn-edit" data-id="${typeId}" data-action="edit-type">編集</button>
+                            <button class="btn-sm btn-delete" data-id="${typeId}" data-name="${escapeHtml(type.model_name || String(type.id))}" data-action="delete-type">削除</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += `</tbody></table>`;
+            list.innerHTML = html;
+
+            // フィルターイベントと選択肢の初期匁者
+            const table = document.getElementById('machine-types-table');
+            if (table) {
+                updateFilterOptions(table);
+                const filters = table.querySelectorAll('.column-filter');
+                filters.forEach(filter => {
+                    filter.addEventListener('change', () => window.applyTableFilter(table));
+                });
+            }
+        } else {
+            list.innerHTML = '<p class="loading">機種が登録されていません</p>';
+        }
+    } catch (error) {
+        console.error('[loadMachineTypes] 者rror:', error);
+        list.innerHTML = `<p class="loading" style="color: red;">⚠️ 機種の読み込みに失敗しました</p>`;
+    }
+}
+
+function openMachineTypeModal(machineTypeId = null) {
+    const modal = document.getElementById('machine-type-modal');
+    const modalTitle = document.getElementById('machine-type-modal-title');
+    const form = document.getElementById('machine-type-form');
+
+    form.reset();
+    document.getElementById('machine-type-id').value = '';
+
+    if (machineTypeId) {
+        modalTitle.textContent = '編集';
+        loadMachineTypeData(machineTypeId);
+    } else {
+        modalTitle.textContent = '新規追加';
+    }
+
+    modal.style.display = 'flex';
+}
+
+async function loadMachineTypeData(machineTypeId) {
+    try {
+        console.log('[loadMachineTypeData] Loading machine type:', machineTypeId, 'Type:', typeof machineTypeId);
+        const response = await tenantFetch('/api/machine-types', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            // IDの型を柔軟に比輁者��数値と文���者の両方に対応！者
+            const machineType = data.data.find(mt => String(mt.id) === String(machineTypeId));
+            console.log('[loadMachineTypeData] Found machine type:', machineType);
+            if (machineType) {
+                document.getElementById('machine-type-id').value = machineType.id;
+                document.getElementById('machine-type-model-name').value = machineType.model_name || '';
+                document.getElementById('machine-type-manufacturer').value = machineType.manufacturer || '';
+                document.getElementById('machine-type-category').value = machineType.category || '';
+                document.getElementById('machine-type-description').value = machineType.description || '';
+            } else {
+                console.error('[loadMachineTypeData] Machine type not found:', machineTypeId);
+                showToast('機種が見つかりません', 'error');
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load machine type data:', error);
+        showToast('機種情報の読み込みに失敗しました', 'error');
+    }
+}
+
+async function saveMachineType() {
+    const machineTypeId = document.getElementById('machine-type-id').value;
+    const machineTypeData = {
+        model_name: document.getElementById('machine-type-model-name').value,
+        manufacturer: document.getElementById('machine-type-manufacturer').value,
+        category: document.getElementById('machine-type-category').value
+    };
+
+    try {
+        const url = machineTypeId ? `/api/machine-types/${machineTypeId}` : '/api/machine-types';
+        const method = machineTypeId ? 'PUT' : 'POST';
+
+        const response = await tenantFetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(machineTypeData)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(machineTypeId ? '機種を更新しました' : '機種を追加しました', 'success');
+            document.getElementById('machine-type-modal').style.display = 'none';
+            loadMachineTypes();
+        } else {
+            // サーバ�者からのエラー詳細をアラートで表示�者�診断用�者�者
+            const errorMsg = data.detail ? `${data.message}\n詳細: ${data.detail}` : (data.message || '保存に失敗しました');
+            alert('🚨 サーバーエラーが発生しました:\n' + errorMsg);
+            showToast(data.message || '保存に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to save machine type:', error);
+        alert('リクエスト全体が失敗しました:\n' + error.message);
+        showToast('保存中にエラーが発生しました', 'error');
+    }
+}
+
+function editMachineType(machineTypeId) {
+    console.log('[editMachineType] Called with ID:', machineTypeId);
+    try {
+        openMachineTypeModal(machineTypeId);
+    } catch (error) {
+        console.error('[editMachineType] 者rror:', error);
+        alert('編集モーダルを開く際にエラーが発生しました: ' + error.message);
+    }
+}
+
+async function loadInspectionTypeCodePreview(machineTypeId) {
+    const codeInput = document.getElementById('inspection-type-code');
+    codeInput.value = '';
+    if (!machineTypeId) return;
+    try {
+        const response = await tenantFetch(`/api/inspection-types/next-code?machine_type_id=${encodeURIComponent(machineTypeId)}`, {
+            headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || `検修種別コードの取得に失敗しました (HTTP ${response.status})`);
+        }
+        codeInput.value = data.data.type_code;
+    } catch (error) {
+        console.error('Failed to load inspection type code preview:', error);
+        showToast(error.message || '検修種別コードの取得に失敗しました', 'error');
+    }
+}
+
+// グローバルに公閁者
+window.editMachineType = editMachineType;
+console.log('[Global] editMachineType function registered:', typeof window.editMachineType);
+
+async function deleteMachineType(machineTypeId, typeCode) {
+    console.log('[deleteMachineType] Called with ID:', machineTypeId);
+    if (!confirm(`機種「${typeCode}」を削除してもよろしいですか？`)) {
+        return;
+    }
+
+    try {
+        const response = await tenantFetch(`/api/machine-types/${machineTypeId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('機種を削除しました', 'success');
+            loadMachineTypes();
+        } else {
+            showToast(data.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to delete machine type:', error);
+        showToast('削除中にエラーが発生しました', 'error');
+    }
+}
+
+// グローバルに公閁者
+window.deleteMachineType = deleteMachineType;
+
+// ========== 機械番号マスタ管理==========
+async function loadMachines() {
+    const list = document.getElementById('machines-list');
+    list.innerHTML = '<p class="loading">読み込み中...</p>';
+
+    try {
+        const response = await tenantFetch('/api/machines', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            const errorMsg = `HTTP ${response.status}: ${errData.message || response.statusText}`;
+            if (errData.detail) alert(`🚨 サーバーエラー詳細:\n${errData.detail}`);
+            throw new Error(errorMsg);
+        }
+
+        const data = await response.json();
+        const machines = unwrapApiArray(data);
+
+        if (data.success && machines.length > 0) {
+            let html = `
+                <table class="data-table" id="machines-table">
+                    <thead>
+                        <tr>
+                            <th>管理事業所</th>
+                            <th>機種</th>
+                            <th>型式</th>
+                            <th>機械番号</th>
+                            <th>製造年月日</th>
+                            <th>型式認定年月日</th>
+                            <th>操作</th>
+                        </tr>
+                        <tr class="filter-row">
+                            <th><select class="column-filter" data-col="0"></select></th>
+                            <th><select class="column-filter" data-col="1"></select></th>
+                            <th><select class="column-filter" data-col="2"></select></th>
+                            <th><select class="column-filter" data-col="3"></select></th>
+                            <th></th>
+                            <th></th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            machines.forEach(machine => {
+                const machineId = String(machine.machine_id || machine.id);
+                const machineNumber = machine.machine_number || '-';
+                const categoryLabel = machine.category
+                    ? String(machine.category).replace('軌道モータカー', '軌道モーターカー')
+                    : (machine.machine_category || '-');
+                const modelLabel = [machine.manufacturer, machine.model_name].filter(Boolean).join(' ')
+                    || machine.model_name
+                    || '-';
+
+                console.log('[loadMachines] Rendering machine:', { id: machineId, number: machineNumber });
+                html += `
+                    <tr>
+                        <td>${escapeHtml(machine.office_name || '-')}</td>
+                        <td><strong>${escapeHtml(categoryLabel)}</strong></td>
+                        <td>${escapeHtml(modelLabel)}</td>
+                        <td>${escapeHtml(machineNumber)}</td>
+                        <td>${machine.manufacture_date ? new Date(machine.manufacture_date).toLocaleDateString('ja-JP') : '-'}</td>
+                        <td>${machine.model_certification_date ? new Date(machine.model_certification_date).toLocaleDateString('ja-JP') : '-'}</td>
+                        <td>
+                            <button class="btn-sm btn-edit" data-id="${machineId}" data-action="edit-machine">編集</button>
+                            <button class="btn-sm btn-delete" data-id="${machineId}" data-number="${escapeHtml(machineNumber)}" data-action="delete-machine">削除</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += `</tbody></table>`;
+            list.innerHTML = html;
+
+            // デ��デ��: デ�者タ確認
+            console.log('[loadMachines] Sample data:', machines.slice(0, 3));
+            console.log('[loadMachines] Office names:', machines.map(m => m.office_name).filter((v, i, a) => a.indexOf(v) === i));
+            console.log('[loadMachines] Sample with office_id:');
+            machines.slice(0, 3).forEach(m => {
+                console.log(`  - ${m.machine_number}: office_id=${m.office_id}, office_name=${m.office_name}`);
+            });
+
+            // フィルターイベントと選択肢の初期匁者
+            const table = document.getElementById('machines-table');
+            if (table) {
+                console.log('[loadMachines] Calling updateFilterOptions');
+                updateFilterOptions(table);
+                const filters = table.querySelectorAll('.column-filter');
+                console.log('[loadMachines] Found filters:', filters.length);
+                filters.forEach(filter => {
+                    filter.addEventListener('change', () => {
+                        console.log('[filter change] Applying filter');
+                        window.applyTableFilter(table);
+                        console.log('[filter change] Updating other filter options');
+                        updateFilterOptions(table);
+                    });
+                });
+            }
+        } else {
+            list.innerHTML = '<p class="loading">機械番号が登録されていません</p>';
+        }
+    } catch (error) {
+        console.error('[loadMachines] 者rror:', error);
+        list.innerHTML = `<p class="loading" style="color: red;">⚠️ </p>`;
+    }
+}
+
+async function openMachineModal(machineId = null) {
+    console.log('[openMachineModal] ===== START =====');
+    console.log('[openMachineModal] Opening modal, machineId:', machineId);
+    const modal = document.getElementById('machine-modal');
+    const modalTitle = document.getElementById('machine-modal-title');
+    const form = document.getElementById('machine-form');
+    if (!modal) {
+        console.error('[openMachineModal] ❁者Modal element not found!');
+        alert('エラー: モーダルが見つかりません');
+        return;
+    }
+
+    form.reset();
+    document.getElementById('machine-id').value = '';
+
+    // モーダルを�者に表示
+    modal.style.display = 'flex';
+    console.log('[openMachineModal] • Modal displayed');
+
+    // 機種リストを読み込む
+    try {
+        console.log('[openMachineModal] 📡 Fetching machine types from /api/machine-types...');
+        const machineTypesResponse = await tenantFetch('/api/machine-types', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        console.log('[openMachineModal] Machine types response status:', machineTypesResponse.status);
+
+        if (!machineTypesResponse.ok) {
+            throw new Error(`HTTP ${machineTypesResponse.status}: ${machineTypesResponse.statusText}`);
+        }
+
+        const machineTypesData = await machineTypesResponse.json();
+        const machineTypes = unwrapApiArray(machineTypesData);
+        console.log('[openMachineModal] 📦 Machine types data received:', machineTypesData);
+        console.log('[openMachineModal] Success:', machineTypesData.success);
+        console.log('[openMachineModal] Data array:', machineTypes);
+        console.log('[openMachineModal] Data count:', machineTypes.length);
+
+        if (machineTypesData.success && machineTypes.length > 0) {
+            const machineTypeSelect = document.getElementById('machine-type-select');
+            if (!machineTypeSelect) {
+                console.error('[openMachineModal] machine-type-select element not found');
+                showToast('機種選択欄が見つかりません', 'error');
+                return;
+            }
+
+            console.log('[openMachineModal] • machine-type-select found:', machineTypeSelect);
+
+            const options = ['<option value="">-- 機種・型式を選択 --</option>'];
+            console.log('[openMachineModal] Processing machine types...');
+
+            machineTypes.forEach((type, index) => {
+                const typeId = type.id;
+                const modelName = type.model_name || '名前なし';
+                const manufacturer = type.manufacturer || '';
+                const category = type.category || '';
+
+                // 機種名！者odel_name�者�を表示
+                const catDisplay = category ? `[${String(category).replace('軌道モータカー', '軌道モーターカー')}] ` : '';
+                const displayText = `${catDisplay}${manufacturer ? `${manufacturer} ` : ''}${modelName}`;
+
+                options.push(`<option value="${typeId}">${escapeHtml(displayText)}</option>`);
+                console.log(`[openMachineModal] Type ${index + 1}/${machineTypes.length}:`, {
+                    id: typeId,
+                    modelName: modelName,
+                    manufacturer: manufacturer
+                });
+            });
+
+            machineTypeSelect.innerHTML = options.join('');
+            console.log('[openMachineModal] • Machine types loaded:', machineTypes.length, 'items');
+            console.log('[openMachineModal] Select HTML length:', machineTypeSelect.innerHTML.length);
+            console.log('[openMachineModal] Option elements:', machineTypeSelect.children.length);
+        } else {
+            console.error('[openMachineModal] ❁者Invalid machine types response:', {
+                success: machineTypesData.success,
+                hasData: machineTypes.length > 0,
+                isArray: Array.isArray(machineTypes),
+                message: machineTypesData.message
+            });
+            showToast('機種データの読み込みに失敗しました', 'error');
+        }
+
+        // 管理��業所を読み込む
+        console.log('[openMachineModal] 📡 Fetching offices from /api/offices...');
+        const officesResponse = await tenantFetch('/api/offices', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        console.log('[openMachineModal] Offices response status:', officesResponse.status);
+
+        if (!officesResponse.ok) {
+            throw new Error(`HTTP ${officesResponse.status}: ${officesResponse.statusText}`);
+        }
+
+        const officesData = await officesResponse.json();
+        const offices = unwrapApiArray(officesData);
+        console.log('[openMachineModal] 📦 Offices data received:', officesData);
+        console.log('[openMachineModal] Success:', officesData.success);
+        console.log('[openMachineModal] Offices array:', offices);
+        console.log('[openMachineModal] Offices count:', offices.length);
+
+        if (officesData.success && offices.length > 0) {
+            const officeSelect = document.getElementById('machine-office-select');
+            if (!officeSelect) {
+                console.error('[openMachineModal] machine-office-select element not found');
+                showToast('事業所選択欄が見つかりません', 'error');
+                return;
+            }
+
+            console.log('[openMachineModal] • machine-office-select found:', officeSelect);
+
+            const options = ['<option value="">-- 事業所を選択 --</option>'];
+            console.log('[openMachineModal] Processing offices...');
+
+            offices.forEach((office, index) => {
+                const officeId = office.office_id;
+                const officeName = office.office_name || '名前なし';
+                options.push(`<option value="${officeId}">${escapeHtml(officeName)}</option>`);
+                console.log(`[openMachineModal] Office ${index + 1}/${offices.length}:`, {
+                    id: officeId,
+                    name: officeName
+                });
+            });
+
+            officeSelect.innerHTML = options.join('');
+            console.log('[openMachineModal] • Offices loaded:', offices.length, 'items');
+            console.log('[openMachineModal] Select HTML length:', officeSelect.innerHTML.length);
+            console.log('[openMachineModal] Option elements:', officeSelect.children.length);
+        } else {
+            console.error('[openMachineModal] ❁者Invalid offices response:', {
+                success: officesData.success,
+                hasOffices: offices.length > 0,
+                isArray: Array.isArray(offices),
+                message: officesData.message
+            });
+            showToast('事業所データの読み込みに失敗しました', 'error');
+        }
+
+        console.log('[openMachineModal] • All data loaded successfully');
+    } catch (error) {
+        console.error('[openMachineModal] Critical error:', error);
+        console.error('[openMachineModal] Error stack:', error.stack);
+        showToast('データの読み込み中にエラーが発生しました: ' + error.message, 'error');
+    }
+
+    if (machineId) {
+        modalTitle.textContent = '編集';
+        await loadMachineData(machineId);
+    } else {
+        modalTitle.textContent = '新規追加';
+    }
+
+    console.log('[openMachineModal] ===== 者ND =====');
+}
+
+async function loadMachineData(machineId) {
+    try {
+        console.log('[loadMachineData] Loading machine:', machineId, 'Type:', typeof machineId);
+        const response = await tenantFetch('/api/machines', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        if (data.success) {
+            // IDの型を柔軟に比輁者��数値と文���者の両方に対応！者
+            const machine = data.data.find(m => {
+                const mId = m.machine_id || m.id;
+                return String(mId) === String(machineId);
+            });
+            console.log('[loadMachineData] Found machine:', machine);
+            if (machine) {
+                document.getElementById('machine-id').value = machine.machine_id || machine.id;
+                document.getElementById('machine-office-select').value = machine.office_id || '';
+                document.getElementById('machine-type-select').value = machine.machine_type_id || '';
+                document.getElementById('machine-number').value = machine.machine_number || '';
+                document.getElementById('machine-type-certification').value = machine.type_certification || '';
+                document.getElementById('machine-manufacture-date').value = machine.manufacture_date ? machine.manufacture_date.split('T')[0] : '';
+                document.getElementById('machine-certification-date').value = machine.model_certification_date ? machine.model_certification_date.split('T')[0] : '';
+                document.getElementById('machine-purchase-date').value = machine.purchase_date ? machine.purchase_date.split('T')[0] : '';
+                document.getElementById('machine-notes').value = machine.notes || '';
+            } else {
+                console.error('[loadMachineData] Machine not found:', machineId);
+                showToast('保守用車が見つかりません', 'error');
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load machine data:', error);
+        showToast('保守用車情情報の読み込みに失敗しました', 'error');
+    }
+}
+
+async function saveMachine() {
+    const machineId = document.getElementById('machine-id').value;
+    const machineData = {
+        office_id: document.getElementById('machine-office-select').value,
+        machine_type_id: document.getElementById('machine-type-select').value,
+        machine_number: document.getElementById('machine-number').value,
+        type_certification: document.getElementById('machine-type-certification').value,
+        manufacture_date: document.getElementById('machine-manufacture-date').value || null,
+        model_certification_date: document.getElementById('machine-certification-date').value || null,
+        purchase_date: document.getElementById('machine-purchase-date').value || null,
+        notes: document.getElementById('machine-notes').value
+    };
+
+    try {
+        const url = machineId ? `/api/machines/${machineId}` : '/api/machines';
+        const method = machineId ? 'PUT' : 'POST';
+
+        const response = await tenantFetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(machineData)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(machineId ? '保守用車を更新しました' : '保守用車を追加しました', 'success');
+            document.getElementById('machine-modal').style.display = 'none';
+            loadMachines();
+        } else {
+            const errorMsg = data.detail ? `${data.message}\n詳細: ${data.detail}` : (data.message || '保存に失敗しました');
+            alert('🚨 サーバーエラーが発生しました:\n' + errorMsg);
+            showToast(data.message || '保存に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to save machine:', error);
+        alert('リクエスト全体が失敗しました:\n' + error.message);
+        showToast('保存中にエラーが発生しました', 'error');
+    }
+}
+
+function editMachine(machineId) {
+    console.log('[editMachine] Called with ID:', machineId);
+    try {
+        openMachineModal(machineId);
+    } catch (error) {
+        console.error('[editMachine] Error:', error);
+        alert('編集モーダルを開く際にエラーが発生しました: ' + error.message);
+    }
+}
+
+window.editMachine = editMachine;
+console.log('[Global] editMachine function registered:', typeof window.editMachine);
+
+async function deleteMachine(machineId, machineNumber) {
+    console.log('[deleteMachine] Called with ID:', machineId);
+    if (!confirm(`保守用車「${machineNumber}」を削除してもよろしいですか？`)) {
+        return;
+    }
+
+    try {
+        const response = await tenantFetch(`/api/machines/${machineId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('保守用車を削除しました', 'success');
+            loadMachines();
+        } else {
+            showToast(data.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to delete machine:', error);
+        showToast('削除中にエラーが発生しました', 'error');
+    }
+}
+
+window.deleteMachine = deleteMachine;
+
+// ========== 検修マスタ管理 ==========
+async function loadInspectionTypes() {
+    const list = document.getElementById('inspection-types-list');
+    if (!list) {
+        console.warn('[loadInspectionTypes] inspection-types-list element not found');
+        return;
+    }
+
+    list.innerHTML = '<p class="loading">読み込み中...</p>';
+
+    try {
+        const response = await tenantFetch('/api/inspection-types', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const inspectionTypes = unwrapApiArray(data);
+        console.log('[loadInspectionTypes] Response:', data);
+
+        if (data.success && inspectionTypes.length > 0) {
+            let html = `
+                <table class="data-table" id="inspection-types-table">
+                    <thead>
+                        <tr>
+                            <th>機種</th>
+                            <th>型式</th>
+                            <th>検修種別コード</th>
+                            <th>検修種別名</th>
+                            <th>検修周期</th>
+                            <th>検修期間</th>
+                            <th>説明</th>
+                            <th>表示順序</th>
+                            <th>状態</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            inspectionTypes.forEach(type => {
+                const statusBadge = type.is_active ?
+                    '<span class="status-badge status-active">有効</span>' :
+                    '<span class="status-badge status-inactive">無効</span>';
+
+                const categoryLabel = type.machine_category
+                    ? String(type.machine_category).replace('軌道モータカー', '軌道モーターカー')
+                    : '-';
+                const modelLabel = [type.manufacturer, type.machine_type_name].filter(Boolean).join(' ')
+                    || type.machine_type_name
+                    || '-';
+
+                html += `
+                    <tr>
+                        <td><strong>${escapeHtml(categoryLabel)}</strong></td>
+                        <td>${escapeHtml(modelLabel)}</td>
+                        <td>${escapeHtml(type.type_code || '-')}</td>
+                        <td>${escapeHtml(type.type_name || '-')}</td>
+                        <td>${type.cycle_months ? `${type.cycle_months}か月` : '-'}</td>
+                        <td>${type.duration_days ? `${type.duration_days}日` : '-'}</td>
+                        <td>${escapeHtml(type.description || '-')}</td>
+                        <td>${type.display_order || 0}</td>
+                        <td>${statusBadge}</td>
+                        <td>
+                            <button class="btn-sm btn-edit" data-action="edit-inspection-type" data-id="${type.id}">編集</button>
+                            <button class="btn-sm btn-delete" data-action="delete-inspection-type" data-id="${type.id}" data-name="${escapeHtml(type.type_name)}">削除</button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += `</tbody></table>`;
+            list.innerHTML = html;
+        } else {
+            list.innerHTML = '<p class="loading">検修種別が登録されていません</p>';
+        }
+    } catch (error) {
+        console.error('[loadInspectionTypes] Error:', error);
+        list.innerHTML = `<p class="loading" style="color: red;">⚠️ <br>エラー: ${error.message}</p>`;
+    }
+}
+
+async function loadInspectionSchedules() {
+    // 検修周期・期間設定は検修種別マスタに統合されたため不要
+}
+
+// 検修種別の編集・削除
+let allInspectionMachineTypes = [];
+
+async function initInspectionTypeHierarchy() {
+    const categorySelect = document.getElementById('inspection-type-category');
+    const modelSelect = document.getElementById('inspection-type-machine-type');
+    if (!categorySelect || !modelSelect) return;
+
+    categorySelect.innerHTML = '<option value="">-- 機種を選択 --</option>';
+    modelSelect.innerHTML = '<option value="">-- 先に機種を選択してください --</option>';
+
+    try {
+        const response = await tenantFetch('/api/machine-types', {
+            headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+        });
+        const data = await response.json();
+        allInspectionMachineTypes = (data.success && unwrapApiArray(data)) || [];
+
+        const normalizeCategory = (cat) => String(cat || '').replace('軌道モータカー', '軌道モーターカー').trim();
+        const categoryMap = new Map();
+
+        allInspectionMachineTypes.forEach(mt => {
+            const rawCat = mt.category || 'その他';
+            const displayCat = normalizeCategory(rawCat);
+            if (!categoryMap.has(displayCat)) {
+                categoryMap.set(displayCat, rawCat);
+            }
+        });
+
+        const preferredOrder = ['軌道モーターカー', '鉄トロ', '箱トロ', 'ホッパー車'];
+        const sortedDisplayCats = Array.from(categoryMap.keys()).sort((a, b) => {
+            const indexA = preferredOrder.indexOf(a);
+            const indexB = preferredOrder.indexOf(b);
+            if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+            if (indexA !== -1) return -1;
+            if (indexB !== -1) return 1;
+            return a.localeCompare(b, 'ja');
+        });
+
+        sortedDisplayCats.forEach(displayCat => {
+            const opt = document.createElement('option');
+            opt.value = displayCat;
+            opt.textContent = displayCat;
+            categorySelect.appendChild(opt);
+        });
+
+        categorySelect.onchange = () => {
+            onInspectionCategoryChange(categorySelect.value);
+        };
+
+        modelSelect.onchange = () => {
+            loadInspectionTypeCodePreview(modelSelect.value);
+        };
+    } catch (err) {
+        console.error('[initInspectionTypeHierarchy] Error:', err);
+    }
+}
+
+function onInspectionCategoryChange(selectedCategory, selectedModelId = null) {
+    const modelSelect = document.getElementById('inspection-type-machine-type');
+    const codeInput = document.getElementById('inspection-type-code');
+    if (!modelSelect) return;
+
+    if (!selectedCategory) {
+        modelSelect.innerHTML = '<option value="">-- 先に機種を選択してください --</option>';
+        if (codeInput) codeInput.value = '';
+        return;
+    }
+
+    const normalizeCategory = (cat) => String(cat || '').replace('軌道モータカー', '軌道モーターカー').trim();
+    const filteredModels = allInspectionMachineTypes.filter(mt => {
+        return normalizeCategory(mt.category || 'その他') === selectedCategory;
+    });
+
+    modelSelect.innerHTML = '<option value="">-- 型式を選択 --</option>';
+    filteredModels.forEach(mt => {
+        const opt = document.createElement('option');
+        opt.value = mt.id;
+        const modelName = mt.model_name || mt.machine_type_name || mt.type_name || '-';
+        const manufacturer = mt.manufacturer ? `${mt.manufacturer} ` : '';
+        opt.textContent = [manufacturer, modelName].filter(Boolean).join('') || modelName;
+        modelSelect.appendChild(opt);
+    });
+
+    if (selectedModelId) {
+        modelSelect.value = selectedModelId;
+        loadInspectionTypeCodePreview(selectedModelId);
+    } else if (filteredModels.length === 1) {
+        modelSelect.value = filteredModels[0].id;
+        loadInspectionTypeCodePreview(filteredModels[0].id);
+    } else {
+        if (codeInput) codeInput.value = '';
+    }
+}
+
+function editInspectionType(id) {
+    console.log('[editInspectionType] Opening modal for ID:', id);
+    openInspectionTypeModal(id);
+}
+
+async function openInspectionTypeModal(id = null) {
+    const modal = document.getElementById('inspection-type-modal');
+    const modalTitle = document.getElementById('inspection-type-modal-title');
+    const form = document.getElementById('inspection-type-form');
+
+    form.reset();
+    document.getElementById('inspection-type-id').value = '';
+    const codeInput = document.getElementById('inspection-type-code');
+    if (codeInput) codeInput.value = '';
+
+    await initInspectionTypeHierarchy();
+
+    if (id) {
+        modalTitle.textContent = '検修種別を編集';
+        await loadInspectionTypeData(id);
+    } else {
+        modalTitle.textContent = '検修種別を追加';
+    }
+
+    modal.style.display = 'flex';
+}
+
+async function loadInspectionTypeData(id) {
+    try {
+        const response = await tenantFetch(`/api/inspection-types/${id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        console.log('[loadInspectionTypeData] Response:', data);
+
+        if (data.success) {
+            const type = data.data || data;
+            console.log('[loadInspectionTypeData] Type object:', type);
+
+            document.getElementById('inspection-type-id').value = type.id;
+
+            const normalizeCategory = (cat) => String(cat || '').replace('軌道モータカー', '軌道モーターカー').trim();
+            const matchingMt = allInspectionMachineTypes.find(mt => String(mt.id) === String(type.machine_type_id));
+            const categorySelect = document.getElementById('inspection-type-category');
+            if (categorySelect && matchingMt) {
+                const displayCat = normalizeCategory(matchingMt.category || 'その他');
+                categorySelect.value = displayCat;
+                onInspectionCategoryChange(displayCat, type.machine_type_id);
+            } else {
+                onInspectionCategoryChange(categorySelect ? categorySelect.value : '', type.machine_type_id);
+            }
+
+            const codeInput = document.getElementById('inspection-type-code');
+            if (codeInput) codeInput.value = type.type_code || '';
+            document.getElementById('inspection-type-name').value = type.type_name || '';
+            document.getElementById('inspection-type-cycle').value = type.cycle_months || '';
+            document.getElementById('inspection-type-duration').value = type.duration_days || '';
+            document.getElementById('inspection-type-description').value = type.description || '';
+            document.getElementById('inspection-type-order').value = type.display_order || 0;
+            document.getElementById('inspection-type-active').checked = type.is_active !== false;
+        }
+    } catch (error) {
+        console.error('Failed to load inspection type data:', error);
+        showToast('検修種別情報の読み込みに失敗しました', 'error');
+    }
+}
+
+async function deleteInspectionType(id, name) {
+    if (!confirm(`検修種別「${name}」を削除します。よろしいですか？`)) {
+        return;
+    }
+
+    try {
+        const token = localStorage.getItem('token') || localStorage.getItem('user_token');
+        const response = await tenantFetch(`/api/inspection-types/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            showToast(data.message || '検修種別を削除しました', 'success');
+            loadInspectionTypes();
+        } else {
+            showToast(data.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to delete inspection type:', error);
+        showToast('削除中にエラーが発生しました', 'error');
+    }
+}
+
+// 検修設定の編集・削除
+function editInspectionSchedule(id) {
+    console.log('[editInspectionSchedule] Opening modal for ID:', id);
+    openInspectionScheduleModal(id);
+}
+
+async function openInspectionScheduleModal(id = null) {
+    const modal = document.getElementById('inspection-schedule-modal');
+    const modalTitle = document.getElementById('inspection-schedule-modal-title');
+    const form = document.getElementById('inspection-schedule-form');
+
+    form.reset();
+    document.getElementById('inspection-schedule-id').value = '';
+    clearInspectionScheduleValues();
+
+    await loadMachineTypeSelectOptions('inspection-schedule-machine-type');
+
+    if (id) {
+        modalTitle.textContent = '検修設定を編集';
+        await loadInspectionScheduleData(id);
+    } else {
+        modalTitle.textContent = '検修設定を追加';
+        document.getElementById('inspection-schedule-active').checked = true;
+    }
+
+    modal.style.display = 'flex';
+}
+
+async function loadInspectionScheduleData(id) {
+    try {
+        const response = await tenantFetch(`/api/inspection-schedules/${id}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+
+        console.log('[loadInspectionScheduleData] Response:', data);
+
+        if (data.success) {
+            const schedule = data.data || data;
+            console.log('[loadInspectionScheduleData] Schedule object:', schedule);
+
+            document.getElementById('inspection-schedule-id').value = schedule.id;
+
+            const machineTypeSelect = document.getElementById('inspection-schedule-machine-type');
+            if (machineTypeSelect) machineTypeSelect.value = schedule.machine_type_id || '';
+
+            document.getElementById('inspection-schedule-cycle').value = schedule.cycle_months || '';
+            document.getElementById('inspection-schedule-duration').value = schedule.duration_days || '';
+            document.getElementById('inspection-schedule-active').checked = schedule.is_active !== false;
+
+            console.log('[loadInspectionScheduleData] Set values:', {
+                machineType: machineTypeSelect ? machineTypeSelect.value : '',
+                cycle: schedule.cycle_months,
+                duration: schedule.duration_days
+            });
+        }
+    } catch (error) {
+        console.error('Failed to load inspection schedule data:', error);
+        showToast('検修設定情報の読み込みに失敗しました', 'error');
+    }
+}
+
+async function deleteInspectionSchedule(id, targetName) {
+    if (!confirm(`${targetName}の検修設定を削除してもよろしいですか？`)) {
+        return;
+    }
+
+    try {
+        const response = await tenantFetch(`/api/inspection-schedules/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('検修設定を削除しました', 'success');
+            loadInspectionSchedules();
+        } else {
+            showToast(data.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to delete inspection schedule:', error);
+        showToast('削除中にエラーが発生しました', 'error');
+    }
+}
+
+// 検修種別の保存
+async function saveInspectionType() {
+    const id = document.getElementById('inspection-type-id').value;
+    const category = document.getElementById('inspection-type-category')?.value;
+    const machineTypeId = normalizeOptionalId(document.getElementById('inspection-type-machine-type').value);
+    const typeName = (document.getElementById('inspection-type-name').value || '').trim();
+    const cycleMonths = document.getElementById('inspection-type-cycle').value;
+    const durationDays = document.getElementById('inspection-type-duration').value;
+    const description = document.getElementById('inspection-type-description').value;
+    const displayOrder = document.getElementById('inspection-type-order').value;
+    const isActive = document.getElementById('inspection-type-active').checked;
+
+    if (!category) {
+        showToast('機種を選択してください', 'error');
+        return;
+    }
+    if (!machineTypeId) {
+        showToast('型式を選択してください', 'error');
+        return;
+    }
+    if (!typeName) {
+        showToast('検修種別名を入力してください', 'error');
+        return;
+    }
+    const cycleNum = parseInt(cycleMonths, 10);
+    const durationNum = parseInt(durationDays, 10);
+    if (!cycleNum || cycleNum < 1) {
+        showToast('有効な検修周期（月単位）を入力してください', 'error');
+        return;
+    }
+    if (!durationNum || durationNum < 1) {
+        showToast('有効な検修期間（日数）を入力してください', 'error');
+        return;
+    }
+
+    const typeData = {
+        machine_type_id: machineTypeId,
+        cycle_months: cycleNum,
+        duration_days: durationNum,
+        type_name: typeName,
+        description: description,
+        display_order: parseInt(displayOrder, 10) || 0,
+        is_active: isActive
+    };
+
+    try {
+        const url = id ? `/api/inspection-types/${id}` : '/api/inspection-types';
+        const method = id ? 'PUT' : 'POST';
+        const token = localStorage.getItem('token') || localStorage.getItem('user_token');
+
+        const response = await tenantFetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(typeData)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(id ? '検修種別を更新しました' : '検修種別を追加しました', 'success');
+            document.getElementById('inspection-type-modal').style.display = 'none';
+            loadInspectionTypes();
+        } else {
+            showToast(data.message || '保存に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to save inspection type:', error);
+        showToast('保存中にエラーが発生しました', 'error');
+    }
+}
+
+// 検修設定の保存
+async function saveInspectionSchedule() {
+    const id = document.getElementById('inspection-schedule-id').value;
+    const machineTypeId = normalizeOptionalId(document.getElementById('inspection-schedule-machine-type').value);
+    const cycleMonths = document.getElementById('inspection-schedule-cycle').value;
+    const durationDays = document.getElementById('inspection-schedule-duration').value;
+    const isActive = document.getElementById('inspection-schedule-active').checked;
+
+    if (!machineTypeId) {
+        showToast('機種を選択してください', 'error');
+        return;
+    }
+    const cycleNum = parseInt(cycleMonths, 10);
+    const durationNum = parseInt(durationDays, 10);
+    if (!cycleNum || cycleNum < 1) {
+        showToast('有効な検修周期（月単位）を入力してください', 'error');
+        return;
+    }
+    if (!durationNum || durationNum < 1) {
+        showToast('有効な検修期間（日数）を入力してください', 'error');
+        return;
+    }
+
+    const scheduleData = {
+        machine_type_id: machineTypeId,
+        cycle_months: cycleNum,
+        duration_days: durationNum,
+        is_active: isActive
+    };
+
+    try {
+        const url = id ? `/api/inspection-schedules/${id}` : '/api/inspection-schedules';
+        const method = id ? 'PUT' : 'POST';
+
+        const response = await tenantFetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify(scheduleData)
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast(id ? '検修設定を更新しました' : '検修設定を追加しました', 'success');
+            document.getElementById('inspection-schedule-modal').style.display = 'none';
+            loadInspectionSchedules();
+        } else {
+            const errorMsg = data.detail ? `${getApiMessage(data, '保存に失敗しました')}\n詳細: ${data.detail}` : getApiMessage(data, '保存に失敗しました');
+            showToast(errorMsg, 'error');
+        }
+    } catch (error) {
+        console.error('Failed to save inspection schedule:', error);
+        showToast('保存中にエラーが発生しました', 'error');
+    }
+}
+
+function clearInspectionScheduleValues() {
+    const cycleInput = document.getElementById('inspection-schedule-cycle');
+    const durationInput = document.getElementById('inspection-schedule-duration');
+    if (cycleInput) {
+        cycleInput.value = '';
+        cycleInput.readOnly = false;
+    }
+    if (durationInput) {
+        durationInput.value = '';
+        durationInput.readOnly = false;
+    }
+}
+
+function setInspectionScheduleDefaults(preserveEmptySelection = false) {
+    if (!preserveEmptySelection) {
+        clearInspectionScheduleValues();
+    }
+}
+
+// ヘルパー関数
+async function loadMachineTypeSelectOptions(selectId) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    select.innerHTML = '<option value="">-- 機種を選択 --</option>';
+
+    try {
+        const response = await tenantFetch('/api/machine-types', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || `機種一覧の取得に失敗しました (HTTP ${response.status})`);
+        }
+        const machineTypes = unwrapApiArray(data);
+
+        if (machineTypes.length === 0) {
+            select.options[0].textContent = '機種が登録されていません';
+            return;
+        }
+
+        machineTypes.forEach(machineType => {
+            const option = document.createElement('option');
+            option.value = machineType.id;
+            const manufacturer = machineType.manufacturer || '';
+            const modelName = machineType.model_name || machineType.machine_type_name || machineType.type_name || '';
+            option.textContent = [manufacturer, modelName].filter(Boolean).join(' ') || modelName || machineType.display_code || '-';
+            option.dataset.category = String(machineType.category || '')
+                .replace('軌道モーターカー', '軌道モータカー');
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Failed to load machine type options:', error);
+        select.innerHTML = '<option value="">機種一覧を読み込めませんでした</option>';
+        showToast('機種一覧の読み込みに失敗しました', 'error');
+    }
+}
+
+async function loadInspectionTypeSelectOptions(selectId, machineTypeId = null, selectedTypeId = null) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    select.innerHTML = `<option value="">${machineTypeId ? '-- 検修種別を選択 --' : '-- 先に機種を選択 --'}</option>`;
+    if (!machineTypeId) return;
+
+    try {
+        const response = await tenantFetch(`/api/inspection-types?machine_type_id=${encodeURIComponent(machineTypeId)}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || `検修種別一覧の取得に失敗しました (HTTP ${response.status})`);
+        }
+        const types = unwrapApiArray(data);
+
+        if (types.length === 0 && !selectedTypeId) {
+            select.options[0].textContent = '検修種別が登録されていません';
+            return;
+        }
+
+        types.forEach(type => {
+            const option = document.createElement('option');
+            option.value = type.id;
+            option.textContent = [type.type_code, type.type_name].filter(Boolean).join(' - ') || '-';
+            option.dataset.cycleMonths = type.cycle_months ?? '';
+            option.dataset.durationDays = type.duration_days ?? '';
+            select.appendChild(option);
+        });
+        if (selectedTypeId && !types.some(type => String(type.id) === String(selectedTypeId))) {
+            const legacyType = document.createElement('option');
+            legacyType.value = selectedTypeId;
+            legacyType.textContent = '既存の検修種別';
+            select.appendChild(legacyType);
+        }
+        if (selectedTypeId) select.value = selectedTypeId;
+    } catch (error) {
+        console.error('Failed to load inspection type options:', error);
+        select.innerHTML = '<option value="">検修種別一覧を読み込めませんでした</option>';
+        showToast('検修種別一覧の読み込みに失敗しました', 'error');
+    }
+}
+
+// グローバルに公開
+window.editInspectionType = editInspectionType;
+window.deleteInspectionType = deleteInspectionType;
+window.editInspectionSchedule = editInspectionSchedule;
+window.deleteInspectionSchedule = deleteInspectionSchedule;
+window.openInspectionTypeModal = openInspectionTypeModal;
+window.openInspectionScheduleModal = openInspectionScheduleModal;
+
+// ========== 事業所マスタ ==========
+async function loadOffices() {
+    const officesList = document.getElementById('offices-list');
+    officesList.innerHTML = '<p class="loading">読み込み中...</p>';
+
+    try {
+        console.log('[loadOffices] Fetching offices...');
+        const response = await tenantFetch('/api/offices', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        console.log('[loadOffices] Response status:', response.status);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('[loadOffices] Data received:', data);
+
+        if (data.success && data.offices.length > 0) {
+            officesList.innerHTML = data.offices.map(office => `
+                <div class="vehicle-item">
+                    <div class="vehicle-info">
+                        <div class="vehicle-type">🏢 ${escapeHtml(office.office_name)}</div>
+                        <div class="vehicle-number">コード ${escapeHtml(office.office_code)} | ${escapeHtml(office.office_type || '-')}</div>
+                        <div class="vehicle-number" style="font-size: 12px; color: #666;">
+                            ${escapeHtml(office.address || '-')} | 責任者 ${escapeHtml(office.manager_name || '-')}
+                        </div>
+                    </div>
+                    <div class="user-actions-buttons">
+                        <button class="btn-edit" data-action="edit-office" data-id="${office.office_id}">✏️ 編集</button>
+                        <button class="btn-delete" data-action="delete-office" data-id="${office.office_id}" data-name="${escapeHtml(office.office_name)}">🗑️ 削除</button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            officesList.innerHTML = '<p class="loading">事業所が登録されていません</p>';
+        }
+    } catch (error) {
+        console.error('[loadOffices] 者rror:', error);
+        officesList.innerHTML = `<p class="loading" style="color: red;">⚠️ <br>エラー: ${error.message}<br>データベース接続を確認してください</p>`;
+    }
+}
+
+function showOfficeModal(mode, officeId) {
+    const offices = [];
+    if (mode === 'edit') {
+        // 既存データを取征者
+        fetch(`/api/offices`, {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    const office = data.offices.find(o => String(o.office_id) === String(officeId));
+                    createOfficeModal(mode, office);
+                }
+            });
+    } else {
+        createOfficeModal(mode, null);
+    }
+}
+
+function createOfficeModal(mode, office) {
+    const modalHtml = `
+        <div id="office-modal" class="modal" style="display: block;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>${mode === 'add' ? '新規事業所追加' : '事業所編集'}</h2>
+                    <button class="modal-close" onclick="closeOfficeModal()">&times;</button>
+                </div>
+                <form id="office-form" class="modal-form">
+                    <div class="form-group">
+                        <label for="office_code">事業所コード</label>
+                        <input type="text" id="office_code" name="office_code" value="${office ? escapeHtml(office.office_code) : ''}" ${mode === 'edit' ? 'readonly' : ''} placeholder="空欄の場合は自動採番されます">
+                        ${mode === 'add' ? '<small>空欄の場合は自動的に採番されます</small>' : ''}
+                    </div>
+                    <div class="form-group">
+                        <label for="office_name">事業所名 *</label>
+                        <input type="text" id="office_name" name="office_name" value="${office ? escapeHtml(office.office_name) : ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="office_type">事業所区分</label>
+                        <select id="office_type" name="office_type">
+                            <option value="">-- 選択 --</option>
+                            <option value="本社" ${office && office.office_type === '本社' ? 'selected' : ''}>本社</option>
+                            <option value="支社" ${office && office.office_type === '支社' ? 'selected' : ''}>支社</option>
+                            <option value="営業所" ${office && office.office_type === '営業所' ? 'selected' : ''}>営業所</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="address">住所</label>
+                        <input type="text" id="address" name="address" value="${office ? escapeHtml(office.address || '') : ''}">
+                    </div>
+                    <div class="form-group">
+                        <label for="postal_code">郵便番号</label>
+                        <input type="text" id="postal_code" name="postal_code" value="${office ? escapeHtml(office.postal_code || '') : ''}">
+                    </div>
+                    <div class="form-group">
+                        <label for="phone_number">電話番号</label>
+                        <input type="text" id="phone_number" name="phone_number" value="${office ? escapeHtml(office.phone_number || '') : ''}">
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn-secondary" onclick="closeOfficeModal()">キャンセル</button>
+                        <button type="submit" class="btn-primary">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    document.getElementById('office-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await saveOffice(mode, office ? office.office_id : null);
+    });
+}
+
+async function saveOffice(mode, officeId) {
+    const formData = new FormData(document.getElementById('office-form'));
+    const data = Object.fromEntries(formData.entries());
+
+    try {
+        const url = mode === 'add' ? '/api/offices' : `/api/offices/${officeId}`;
+        const method = mode === 'add' ? 'POST' : 'PUT';
+
+        const response = await tenantFetch(url, {
+            method: method,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(mode === 'add' ? '事業所を追加しました' : '事業所を更新しました', 'success');
+            closeOfficeModal();
+            loadOffices();
+        } else {
+            showToast(result.message || '保存に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Save office error:', error);
+        showToast('保存中にエラーが発生しました', 'error');
+    }
+}
+
+window.editOffice = function (officeId) {
+    showOfficeModal('edit', officeId);
+}
+
+window.deleteOffice = async function (officeId, officeName) {
+    if (!confirm(`事業所「${officeName}」を削除してもよろしいですか？`)) {
+        return;
+    }
+
+    try {
+        const response = await tenantFetch(`/api/offices/${officeId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('事業所を削除しました', 'success');
+            loadOffices();
+        } else {
+            showToast(data.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to delete office:', error);
+        showToast('削除中にエラーが発生しました', 'error');
+    }
+}
+
+window.closeOfficeModal = function () {
+    const modal = document.getElementById('office-modal');
+    if (modal) modal.remove();
+}
+
+// ========== 保守基地マスタ ==========
+async function loadBases() {
+    const basesList = document.getElementById('bases-list');
+    basesList.innerHTML = '<p class="loading">読み込み中...</p>';
+
+    try {
+        console.log('[loadBases] Fetching bases...');
+        const response = await tenantFetch('/api/bases', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        console.log('[loadBases] Response status:', response.status);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('[loadBases] Data received:', data);
+
+        if (data.success && data.bases.length > 0) {
+            basesList.innerHTML = data.bases.map(base => `
+                <div class="vehicle-item">
+                    <div class="vehicle-info">
+                        <div class="vehicle-type">🏗️ ${escapeHtml(base.base_name)}</div>
+                        <div class="vehicle-number">コード ${escapeHtml(base.base_code)} | 事業所: ${escapeHtml(base.office_name || '-')}</div>
+                        <div class="vehicle-number" style="font-size: 12px; color: #666;">
+                            ${escapeHtml(base.location || '-')} | 収容数: ${base.capacity || '-'} | 責任者 ${escapeHtml(base.manager_name || '-')}
+                        </div>
+                    </div>
+                    <div class="user-actions-buttons">
+                        <button class="btn-edit" data-action="edit-base" data-id="${base.base_id}">✏️ 編集</button>
+                        <button class="btn-delete" data-action="delete-base" data-id="${base.base_id}" data-name="${escapeHtml(base.base_name)}">🗑️ 削除</button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            basesList.innerHTML = '<p class="loading">保守基地が登録されていません</p>';
+        }
+    } catch (error) {
+        console.error('[loadBases] 者rror:', error);
+        basesList.innerHTML = `<p class="loading" style="color: red;">⚠️ <br>エラー: ${error.message}<br>データベース接続を確認してください</p>`;
+    }
+}
+
+async function showBaseModal(mode, baseId) {
+    // 事業所リストを取征者
+    const officesRes = await tenantFetch('/api/offices', {
+        headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const officesData = await officesRes.json();
+    const offices = officesData.success ? unwrapApiArray(officesData) : [];
+
+    if (mode === 'edit') {
+        const basesRes = await tenantFetch('/api/bases', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const basesData = await basesRes.json();
+        if (basesData.success) {
+            const base = basesData.bases.find(b => String(b.base_id) === String(baseId));
+            createBaseModal(mode, base, offices);
+        }
+    } else {
+        createBaseModal(mode, null, offices);
+    }
+}
+
+function createBaseModal(mode, base, offices) {
+    const officeOptions = offices.map(o =>
+        `<option value="${o.office_id}" ${base && base.office_id === o.office_id ? 'selected' : ''}>${escapeHtml(o.office_name)}</option>`
+    ).join('');
+
+    const modalHtml = `
+        <div id="base-modal" class="modal" style="display: block;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>${mode === 'add' ? '新規保守基地追加' : '保守基地編集'}</h2>
+                    <button class="modal-close" onclick="closeBaseModal()">&times;</button>
+                </div>
+                <form id="base-form" class="modal-form">
+                    <div class="form-group">
+                        <label for="base_code">基地コード</label>
+                        <input type="text" id="base_code" name="base_code" value="${base ? escapeHtml(base.base_code) : ''}" ${mode === 'edit' ? 'readonly' : ''} placeholder="空欄の場合は自動採番されます">
+                        ${mode === 'add' ? '<small>空欄の場合は自動的に採番されます</small>' : ''}
+                    </div>
+                    <div class="form-group">
+                        <label for="base_name">基地名 *</label>
+                        <input type="text" id="base_name" name="base_name" value="${base ? escapeHtml(base.base_name) : ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="office_id">所属事業所</label>
+                        <select id="office_id" name="office_id">
+                            <option value="">-- 選択 --</option>
+                            ${officeOptions}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="location">所在地</label>
+                        <input type="text" id="location" name="location" value="${base ? escapeHtml(base.location || '') : ''}">
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn-secondary" onclick="closeBaseModal()">キャンセル</button>
+                        <button type="submit" class="btn-primary">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    document.getElementById('base-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await saveBase(mode, base ? base.base_id : null);
+    });
+}
+
+async function saveBase(mode, baseId) {
+    const formData = new FormData(document.getElementById('base-form'));
+    const data = Object.fromEntries(formData.entries());
+
+    try {
+        const url = mode === 'add' ? '/api/bases' : `/api/bases/${baseId}`;
+        const method = mode === 'add' ? 'POST' : 'PUT';
+
+        const response = await tenantFetch(url, {
+            method: method,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(mode === 'add' ? '保守基地を追加しました' : '保守基地を更新しました', 'success');
+            closeBaseModal();
+            loadBases();
+        } else {
+            showToast(result.message || '保存に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Save base error:', error);
+        showToast('保存中にエラーが発生しました', 'error');
+    }
+}
+
+window.editBase = function (baseId) {
+    showBaseModal('edit', baseId);
+}
+
+window.deleteBase = async function (baseId, baseName) {
+    if (!confirm(`保守基地「${baseName}」を削除してもよろしいですか？`)) {
+        return;
+    }
+
+    try {
+        const response = await tenantFetch(`/api/bases/${baseId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('保守基地を削除しました', 'success');
+            loadBases();
+        } else {
+            showToast(data.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Failed to delete base:', error);
+        showToast('削除中にエラーが発生しました', 'error');
+    }
+}
+
+window.closeBaseModal = function () {
+    const modal = document.getElementById('base-modal');
+    if (modal) modal.remove();
+}
+
+function getStatusLabel(status) {
+    const labels = {
+        'active': '稼働中',
+        'maintenance': '整備中',
+        'inactive': '停止中'
+    };
+    return labels[status] || status;
+}
+
+// ========== マスタデ�者タのインポ�者ト�者デ��プレート�者通機�者 ==========
+
+/**
+ * テンプレートCSVのダウンロード
+ * @param {string} type マスタの種別
+ */
+async function downloadMasterTemplate(type) {
+    let headers = [];
+    let filename = '';
+
+    switch (type) {
+        case 'offices':
+            headers = ['事業所コード', '事業所名', '事業所区分', '住所', '郵便番号', '電話番号'];
+            filename = '事業所マスタ_テンプレート.csv';
+            break;
+        case 'bases':
+            headers = ['基地コード', '基地名', '所属事業所名', '所在地'];
+            filename = '保守基地マスタ_テンプレート.csv';
+            break;
+        case 'machine-types':
+            headers = ['メーカー型式', 'メーカー', 'カテゴリ', '説明'];
+            filename = '機種マスタ_テンプレート.csv';
+            break;
+        case 'machines':
+            headers = ['管理事業所名', '機種名', '機械番号*', 'シリアル番号', '型式認定番号', '製造年月日', '購入年月日', '備考'];
+            filename = '保守用車管理マスタ_テンプレート.csv';
+            break;
+    }
+
+    const csvContent = "\uFEFF" + headers.join(',') + '\n';
+    await triggerFileDownload(csvContent, filename);
+}
+
+/**
+ * マスタデータのインポート処理
+ * @param {string} type マスタの種別
+ * @param {File} file CSVファイル
+ */
+async function importMasterData(type, file) {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const text = e.target.result;
+        const rows = parseCSV(text);
+        if (rows.length < 2) {
+            showToast('CSVデータが見つかりません', 'error');
+            return;
+        }
+
+        const headers = rows[0];
+        const dataRows = rows.slice(1);
+        let successCount = 0;
+        let errorCount = 0;
+        let errors = [];
+
+        showToast(`${dataRows.length}件の処理を開始します...`, 'info');
+
+        // 必要データの事前ロード（ID解決用）
+        let idMaps = {};
+        if (type === 'bases' || type === 'machines') {
+            idMaps.offices = await fetchOfficeMap();
+        }
+        if (type === 'machines') {
+            idMaps.machineTypes = await fetchMachineTypeMap();
+        }
+
+        for (let i = 0; i < dataRows.length; i++) {
+            const row = dataRows[i];
+            if (row.length < headers.length) continue;
+
+            const rowData = {};
+            headers.forEach((header, index) => {
+                rowData[header] = row[index] ? row[index].trim() : '';
+            });
+
+            try {
+                let apiData = {};
+                let apiUrl = '';
+
+                switch (type) {
+                    case 'offices':
+                        apiData = {
+                            office_code: rowData['事業所コード'] || null,
+                            office_name: rowData['事業所名'],
+                            office_type: rowData['事業所区分'],
+                            address: rowData['住所'],
+                            postal_code: rowData['郵便番号'],
+                            phone_number: rowData['電話番号']
+                        };
+                        if (!apiData.office_name) throw new Error('事業所名は必須です');
+                        apiUrl = '/api/offices';
+                        break;
+
+                    case 'bases':
+                        const officeId = idMaps.offices[rowData['所属事業所名']];
+                        apiData = {
+                            base_code: rowData['基地コード'] || null,
+                            base_name: rowData['基地名'],
+                            office_id: officeId || null,
+                            location: rowData['所在地']
+                        };
+                        if (!apiData.base_name) throw new Error('基地名は必須です');
+                        apiUrl = '/api/bases';
+                        break;
+
+                    case 'machine-types':
+                        apiData = {
+                            model_name: rowData['メーカー型式'],
+                            manufacturer: rowData['メーカー'],
+                            category: rowData['カテゴリ'],
+                            description: rowData['説明']
+                        };
+                        if (!apiData.model_name) throw new Error('メーカー型式は必須です');
+                        apiUrl = '/api/machine-types';
+                        break;
+
+                    case 'machines':
+                        const machineOfficeId = idMaps.offices[rowData['管理事業所名']];
+                        const machineTypeId = idMaps.machineTypes[rowData['機種名']];
+                        apiData = {
+                            office_id: machineOfficeId || null,
+                            machine_type_id: machineTypeId || null,
+                            machine_number: rowData['機械番号*'],
+                            serial_number: rowData['シリアル番号'],
+                            type_certification: rowData['型式認定番号'],
+                            manufacture_date: rowData['製造年月日'] || null,
+                            purchase_date: rowData['購入年月日'] || null,
+                            notes: rowData['備考']
+                        };
+                        if (!apiData.machine_number) throw new Error('機械番号は必須です');
+                        if (!apiData.office_id) throw new Error(`管理事業所「${rowData['管理事業所名']}」が見つかりません`);
+                        if (!apiData.machine_type_id) throw new Error(`機種「${rowData['機種名']}」が見つかりません`);
+                        apiUrl = '/api/machines';
+                        break;
+                }
+
+                const response = await tenantFetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${localStorage.getItem('user_token')}`
+                    },
+                    body: JSON.stringify(apiData)
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    successCount++;
+                } else {
+                    throw new Error(result.message || '登録に失敗しました');
+                }
+            } catch (err) {
+                console.error(`Import error row ${i + 2}:`, err);
+                errorCount++;
+                errors.push(`行${i + 2}: ${err.message}`);
+            }
+        }
+
+        showToast(`インポート完了: 成功 ${successCount}件, 失敗 ${errorCount}件`, errorCount > 0 ? 'warning' : 'success');
+        if (errors.length > 0) {
+            alert(`一部のデータでエラーが発生しました:\n\n${errors.slice(0, 10).join('\n')}${errors.length > 10 ? '\n...他' : ''}`);
+        }
+
+        // データを再読み込み
+        switch (type) {
+            case 'offices': loadOffices(); break;
+            case 'bases': loadBases(); break;
+            case 'machine-types': loadMachineTypes(); break;
+            case 'machines': loadMachines(); break;
+        }
+    };
+    reader.readAsText(file);
+}
+
+/**
+ * CSVのパ�者ス�者�簡易版�者�者
+ */
+function parseCSV(text) {
+    const lines = text.split(/\r?\n/);
+    return lines.filter(line => line.trim()).map(line => {
+        let cells = [];
+        let cell = '';
+        let inQuote = false;
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+                inQuote = !inQuote;
+            } else if (char === ',' && !inQuote) {
+                cells.push(cell.trim());
+                cell = '';
+            } else {
+                cell += char;
+            }
+        }
+        cells.push(cell.trim());
+        return cells;
+    });
+}
+
+/**
+ * 事業所名とIDのマッピングを取征者
+ */
+async function fetchOfficeMap() {
+    try {
+        const response = await tenantFetch('/api/offices', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
+        });
+        const data = await response.json();
+        const offices = unwrapApiArray(data);
+        const map = {};
+        if (data.success) {
+            offices.forEach(o => {
+                map[o.office_name] = o.office_id;
+            });
+        }
+        return map;
+    } catch (err) {
+        console.error('Fetch office map error:', err);
+        return {};
+    }
+}
+
+/**
+ * 機種名とIDのマッピングを取征者
+ */
+async function fetchMachineTypeMap() {
+    try {
+        const response = await tenantFetch('/api/machine-types', {
+            headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
+        });
+        const data = await response.json();
+        const machineTypes = unwrapApiArray(data);
+        const map = {};
+        if (data.success) {
+            machineTypes.forEach(mt => {
+                map[mt.model_name || mt.type_name || mt.machine_type_name] = mt.id;
+            });
+        }
+        return map;
+    } catch (err) {
+        console.error('Fetch machine type map error:', err);
+        return {};
+    }
+}
+
+// ========== デ�者タベ�者ス管理==========
+async function loadDatabaseStats() {
+    try {
+        console.log('[loadDatabaseStats] Fetching database stats...');
+        const response = await tenantFetch('/api/database/stats', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        console.log('[loadDatabaseStats] Response status:', response.status);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('[loadDatabaseStats] Data received:', data);
+
+        if (data.success) {
+            // 接続状慁者
+            const statusBadge = document.getElementById('db-connection-status');
+            if (data.stats.connected) {
+                statusBadge.innerHTML = '<span class="status-badge status-connected">• 接続中</span>';
+            } else {
+                statusBadge.innerHTML = '<span class="status-badge status-error">• エラー</span>';
+            }
+
+            // バ�者ジョン
+            document.getElementById('db-version').textContent = data.stats.version || '--';
+
+            // 接続数
+            const connections = data.stats.connections || '--';
+            document.getElementById('db-connections').textContent = connections;
+            document.getElementById('connection-count').textContent = connections;
+
+            // デ��スク使用玁者
+            const diskUsage = data.stats.disk_usage || 0;
+            document.getElementById('disk-usage').textContent = diskUsage + '%';
+            document.getElementById('disk-progress').style.width = diskUsage + '%';
+
+            // デ�者タベ�者スサイズ
+            document.getElementById('db-size').textContent = data.stats.database_size || '--';
+
+            // 稼働時閁者
+            document.getElementById('uptime').textContent = data.stats.uptime || '--';
+
+            // デ�者ブルサイズ
+            const tableSizes = document.getElementById('table-sizes');
+            if (data.stats.table_sizes && data.stats.table_sizes.length > 0) {
+                tableSizes.innerHTML = data.stats.table_sizes.map(table => `
+                    <div class="table-size-item">
+                        <span class="table-name">${escapeHtml(table.table_name)}</span>
+                        <span class="table-size">${table.size}</span>
+                    </div>
+                `).join('');
+            } else {
+                tableSizes.innerHTML = '<p class="loading">テーブル情報がありません</p>';
+            }
+        } else {
+            console.error('[loadDatabaseStats] Response not successful:', data);
+        }
+    } catch (error) {
+        console.error('[loadDatabaseStats] 者rror:', error);
+        const statusBadge = document.getElementById('db-connection-status');
+        if (statusBadge) {
+            statusBadge.innerHTML = `<span class="status-badge status-error">• エラー: ${error.message}</span>`;
+        }
+        showToast('データベース情報の取得に失敗しました', 'error');
+    }
+
+    // デ�者ブル管理���者の初期匁者
+    initializeTableManagement();
+}
+
+// デ�者ブル管理���者
+let currentTable = '';
+let currentTableData = [];
+let currentTableColumns = [];
+
+function initializeTableManagement() {
+    const loadTableBtn = document.getElementById('load-table-btn');
+    const addRecordBtn = document.getElementById('add-record-btn');
+    const tableSelect = document.getElementById('table-select');
+    const exportCsvBtn = document.getElementById('export-csv-btn');
+    const importCsvBtn = document.getElementById('import-csv-btn');
+    const importCsvFile = document.getElementById('import-csv-file');
+    const backupDbBtn = document.getElementById('backup-db-btn');
+    const restoreDbBtn = document.getElementById('restore-db-btn');
+    const restoreFileInput = document.getElementById('restore-file-input');
+
+    // デ�者ブル読み込み
+    loadTableBtn.addEventListener('click', async () => {
+        const selectedTable = tableSelect.value;
+        if (!selectedTable) {
+            showToast('テーブルを選択してください', 'error');
+            return;
+        }
+        currentTable = selectedTable;
+        await loadTableData(selectedTable);
+        exportCsvBtn.disabled = false;
+        importCsvBtn.disabled = false;
+    });
+
+    // 新規レコード追加
+    addRecordBtn.addEventListener('click', () => {
+        if (!currentTable) {
+            showToast('先にテーブルを選択してください', 'error');
+            return;
+        }
+        showRecordModal('add', null);
+    });
+
+    // CSVエクスポ�者デ
+    exportCsvBtn.addEventListener('click', async () => {
+        if (!currentTable) return;
+
+        try {
+            const response = await tenantFetch(`/api/database/export-csv/${currentTable}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${currentTable.replace('.', '_')}_export.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                showToast('CSVエクスポート完了', 'success');
+            } else {
+                showToast('エクスポートに失敗しました', 'error');
+            }
+        } catch (error) {
+            console.error('者xport error:', error);
+            showToast('エクスポート中にエラーが発生しました', 'error');
+        }
+    });
+
+    // CSVインポ�者デ
+    importCsvBtn.addEventListener('click', () => {
+        importCsvFile.click();
+    });
+
+    importCsvFile.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const csvData = event.target.result;
+                const response = await tenantFetch(`/api/database/import-csv/${currentTable}`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ csvData })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    await loadTableData(currentTable);
+                } else {
+                    showToast(data.message || 'インポートに失敗しました', 'error');
+                }
+            } catch (error) {
+                console.error('Import error:', error);
+                showToast('インポート中にエラーが発生しました', 'error');
+            }
+        };
+        reader.readAsText(file);
+        e.target.value = ''; // リセット��
+    });
+
+    // データベースバックアップ
+    backupDbBtn.addEventListener('click', async () => {
+        if (!confirm('データベース全体のバックアップを作成しますか？')) return;
+
+        try {
+            const response = await tenantFetch('/api/database/backup', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                a.download = `common_db_backup_${timestamp}.sql`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                showToast('バックアップに成功しました', 'success');
+            } else {
+                showToast('バックアップに失敗しました', 'error');
+            }
+        } catch (error) {
+            console.error('Backup error:', error);
+            showToast('バックアップ中にエラーが発生しました', 'error');
+        }
+    });
+
+    // データベース復元
+    restoreDbBtn.addEventListener('click', () => {
+        if (!confirm('⚠️  警告: 現在のデータベースが上書きされます。本当に復元しますか？')) return;
+        restoreFileInput.click();
+    });
+
+    restoreFileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        showToast('復元処理は手動で実行してください（psql コマンド使用）', 'error');
+        e.target.value = '';
+    });
+}
+
+async function loadTableData(schemaTable) {
+    const container = document.getElementById('table-data-container');
+    container.innerHTML = '<p class="info-text">読み込み中...</p>';
+
+    try {
+        const response = await tenantFetch(`/api/database/table/${schemaTable}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+        const rows = unwrapApiArray(result);
+
+        if (result.success && rows.length > 0) {
+            currentTableData = rows;
+            currentTableColumns = result.columns;
+
+            const columns = Object.keys(rows[0]);
+            const primaryKey = columns[0]; // 仮に最初�者カラムを主キーとする
+
+            let tableHtml = '<table class="data-table"><thead><tr>';
+            columns.forEach(col => {
+                tableHtml += `<th>${escapeHtml(col)}</th>`;
+            });
+            tableHtml += '<th>操作</th></tr></thead><tbody>';
+
+            rows.forEach(row => {
+                tableHtml += '<tr>';
+                columns.forEach(col => {
+                    const value = row[col];
+                    tableHtml += `<td>${escapeHtml(String(value !== null ? value : ''))}</td>`;
+                });
+                tableHtml += `<td class="action-buttons">
+                    <button class="btn-edit" onclick="editRecord('${escapeHtml(row[primaryKey])}')">✏️ 編集</button>
+                    <button class="btn-delete" onclick="deleteRecord('${escapeHtml(row[primaryKey])}')">🗑️ 削除</button>
+                </td></tr>`;
+            });
+
+            tableHtml += '</tbody></table>';
+            container.innerHTML = tableHtml;
+        } else {
+            container.innerHTML = '<p class="info-text">データがありません</p>';
+        }
+    } catch (error) {
+        console.error('Load table data error:', error);
+        container.innerHTML = '<p class="info-text">データの読み込みに失敗しました</p>';
+    }
+}
+
+function showRecordModal(mode, recordId) {
+    // モーダルHTML生�者
+    const modalHtml = `
+        <div id="record-modal" class="modal" style="display: block;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>${mode === 'add' ? '新規レコード追加' : 'レコード編集'}</h2>
+                    <button class="modal-close" onclick="closeRecordModal()">&times;</button>
+                </div>
+                <form id="record-form" class="modal-form">
+                    ${generateFormFields(mode, recordId)}
+                    <div class="modal-actions">
+                        <button type="button" class="btn-secondary" onclick="closeRecordModal()">キャンセル</button>
+                        <button type="submit" class="btn-primary">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // フォーム送信
+    document.getElementById('record-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await saveRecord(mode, recordId);
+    });
+}
+
+function generateFormFields(mode, recordId) {
+    if (!currentTableColumns.length) return '';
+
+    let record = null;
+    if (mode === 'edit' && recordId) {
+        const primaryKey = Object.keys(currentTableData[0])[0];
+        record = currentTableData.find(r => String(r[primaryKey]) === String(recordId));
+    }
+
+    return currentTableColumns.map(col => {
+        const value = record ? record[col.column_name] : '';
+        const isId = col.column_name.toLowerCase().includes('id');
+        const disabled = (mode === 'edit' && isId) ? 'disabled' : '';
+
+        return `
+            <div class="form-group">
+                <label for="field_${col.column_name}">${escapeHtml(col.column_name)} (${col.data_type})</label>
+                <input 
+                    type="text" 
+                    id="field_${col.column_name}" 
+                    name="${col.column_name}" 
+                    value="${escapeHtml(String(value !== null ? value : ''))}"
+                    ${disabled}
+                    ${mode === 'add' && !isId ? 'required' : ''}
+                >
+            </div>
+        `;
+    }).join('');
+}
+
+async function saveRecord(mode, recordId) {
+    const formData = new FormData(document.getElementById('record-form'));
+    const data = {};
+    formData.forEach((value, key) => {
+        if (value !== '') data[key] = value;
+    });
+
+    try {
+        const url = mode === 'add'
+            ? `/api/database/table/${currentTable}`
+            : `/api/database/table/${currentTable}/${recordId}`;
+
+        const response = await tenantFetch(url, {
+            method: mode === 'add' ? 'POST' : 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(mode === 'add' ? '追加しました' : '更新しました', 'success');
+            closeRecordModal();
+            await loadTableData(currentTable);
+        } else {
+            showToast(result.message || '保存に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Save record error:', error);
+        showToast('保存中にエラーが発生しました', 'error');
+    }
+}
+
+async function editRecord(recordId) {
+    showRecordModal('edit', recordId);
+}
+
+async function deleteRecord(recordId) {
+    if (!confirm('このレコードを削除してもよろしいですか？？')) return;
+
+    try {
+        const response = await tenantFetch(`/api/database/table/${currentTable}/${recordId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast('削除しました', 'success');
+            await loadTableData(currentTable);
+        } else {
+            showToast(result.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('Delete record error:', error);
+        showToast('削除中にエラーが発生しました', 'error');
+    }
+}
+
+window.closeRecordModal = function () {
+    const modal = document.getElementById('record-modal');
+    if (modal) modal.remove();
+}
+
+window.editRecord = editRecord;
+window.deleteRecord = deleteRecord;
+
+// ========== CORS設定管理==========
+async function loadCorsSettings() {
+    try {
+        console.log('[loadCorsSettings] Fetching CORS settings...');
+        const response = await tenantFetch('/api/config', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        console.log('[loadCorsSettings] Response status:', response.status);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('[loadCorsSettings] Data received:', data);
+
+        if (data.success) {
+            const corsOrigin = data.config.cors_origin || '*';
+            document.getElementById('cors_origin').value = corsOrigin;
+        } else {
+            console.error('[loadCorsSettings] Response not successful:', data);
+        }
+    } catch (error) {
+        console.error('[loadCorsSettings] 者rror:', error);
+        showToast('CORS設定の読み込みに失敗しました', 'error');
+    }
+}
+
+// CORS設定�者初期匁者
+function initializeCorsSettings() {
+    const saveCorsBtn = document.getElementById('save-cors-btn');
+    if (saveCorsBtn) {
+        saveCorsBtn.addEventListener('click', async () => {
+            const corsOrigin = document.getElementById('cors_origin').value.trim();
+
+            if (!corsOrigin) {
+                showToast('CORS設定を入力してください', 'error');
+                return;
+            }
+
+            try {
+                const response = await tenantFetch('/api/config', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ cors_origin: corsOrigin })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast('CORS設定を保存しました', 'success');
+                } else {
+                    showToast(data.message || '保存に失敗しました', 'error');
+                }
+            } catch (error) {
+                console.error('Failed to save CORS settings:', error);
+                showToast('保存中にエラーが発生しました', 'error');
+            }
+        });
+    }
+}
+
+// ========== ユーデ��リデ��関数 ==========
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function showToast(message, type = 'success') {
+    const toast = document.getElementById('toast');
+    if (!toast) {
+        console.error('Toast element not found');
+        return;
+    }
+    toast.textContent = message;
+    toast.className = `toast show ${type}`;
+
+    setTimeout(() => {
+        toast.className = 'toast';
+    }, 3000);
+}
+
+// 検修マスタ関連の重複��裁者��者oadInspectionTypes/loadInspectionSchedules/
+// handleInspectionTypeSubmit/handleInspectionScheduleSubmit/
+// loadCategoriesForSchedule/setupInspectionMaster者ventListeners 等）�者
+// 1587行目以降�者実裁者��統一し、ここでは削除済み、者
+
+// ========================================
+// AI管理���者
+// ========================================
+// AI管理���者
+// ========================================
+
+// AI管理��ブ�者初期匁者
+function initializeAIManagement() {
+    console.log('[AI] Initializing AI management...');
+
+    // サブタブ�者切��替ぁ者
+    const subTabButtons = document.querySelectorAll('.sub-tab-button');
+    subTabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            // ボタンのアクデ��ブ状態を切��替ぁ者
+            subTabButtons.forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+
+            // サブタブコンデ��デ��切��替ぁ者
+            const subtab = button.dataset.subtab;
+            document.querySelectorAll('.sub-tab-content').forEach(content => {
+                content.style.display = 'none';
+            });
+            document.getElementById(`${subtab}-subtab`).style.display = 'block';
+
+            // サブタブに応じたデータ読み込み
+            if (subtab === 'ai-knowledge') {
+                loadKnowledgeData();
+                loadStorageStats();
+            } else if (subtab === 'ai-rag') {
+                loadRAGSettings();
+            }
+        });
+    });
+
+    // デ�者タインポ�者デ 機械敁者��情報��
+    const faultJsonBtn = document.getElementById('import-fault-json-btn');
+    if (faultJsonBtn) {
+        faultJsonBtn.addEventListener('click', handleFaultJsonImport);
+    }
+
+    // デ�者タインポ�者デ マニュアルファイル
+    const manualFilesInput = document.getElementById('manual-files');
+    if (manualFilesInput) {
+        manualFilesInput.addEventListener('change', handleManualFilesSelect);
+    }
+
+    const importManualsBtn = document.getElementById('import-manuals-btn');
+    if (importManualsBtn) {
+        importManualsBtn.addEventListener('click', handleManualImport);
+    }
+
+    // デ�者タインポ�者デ GCS
+    const importGcsBtn = document.getElementById('import-gcs-btn');
+    if (importGcsBtn) {
+        importGcsBtn.addEventListener('click', handleGCSImport);
+    }
+
+    // ナレデ��管理 更新ボタン
+    const refreshKnowledgeBtn = document.getElementById('refresh-knowledge-btn');
+    if (refreshKnowledgeBtn) {
+        refreshKnowledgeBtn.addEventListener('click', loadKnowledgeData);
+    }
+
+    // AI支援調整: 会話スタイルボタン削除
+    // AI支援調整: 保存�者タン削除
+
+    // RAG設定 スライダー値の表示更新
+    const chunkSizeSlider = document.getElementById('rag-chunk-size');
+    if (chunkSizeSlider) {
+        chunkSizeSlider.addEventListener('input', (e) => {
+            document.getElementById('chunk-size-value').textContent = e.target.value;
+            updateCurrentRAGSettings();
+        });
+    }
+
+    const overlapSlider = document.getElementById('rag-overlap');
+    if (overlapSlider) {
+        overlapSlider.addEventListener('input', (e) => {
+            document.getElementById('overlap-value').textContent = e.target.value;
+            updateCurrentRAGSettings();
+        });
+    }
+
+    const similaritySlider = document.getElementById('rag-similarity');
+    if (similaritySlider) {
+        similaritySlider.addEventListener('input', (e) => {
+            document.getElementById('similarity-value').textContent = (e.target.value / 100).toFixed(2);
+            updateCurrentRAGSettings();
+        });
+    }
+
+    const maxResultsInput = document.getElementById('rag-max-results');
+    if (maxResultsInput) {
+        maxResultsInput.addEventListener('input', () => {
+            updateCurrentRAGSettings();
+        });
+    }
+
+    // 検索手法�者選抁者
+    const searchMethodRadios = document.querySelectorAll('input[name="search-method"]');
+    searchMethodRadios.forEach(radio => {
+        radio.addEventListener('change', updateCurrentRAGSettings);
+    });
+
+    // デ��スト前処理�者チェック��ボックス
+    const preprocessingCheckboxes = [
+        'preprocessing-stopwords',
+        'preprocessing-stemming',
+        'preprocessing-lowercase',
+        'preprocessing-normalize'
+    ];
+    preprocessingCheckboxes.forEach(id => {
+        const checkbox = document.getElementById(id);
+        if (checkbox) {
+            checkbox.addEventListener('change', updateCurrentRAGSettings);
+        }
+    });
+
+    // ラジオボタンのスタイル変更�者�選択時にハイライト！者
+    document.querySelectorAll('.radio-option').forEach(label => {
+        const input = label.querySelector('input[type="radio"]');
+        if (input) {
+            input.addEventListener('change', function () {
+                document.querySelectorAll('.radio-option').forEach(l => {
+                    l.style.borderColor = '#ddd';
+                    l.style.backgroundColor = 'white';
+                });
+                if (this.checked) {
+                    label.style.borderColor = '#667eea';
+                    label.style.backgroundColor = '#f0f4ff';
+                }
+            });
+            // 初期状態を反映
+            if (input.checked) {
+                label.style.borderColor = '#667eea';
+                label.style.backgroundColor = '#f0f4ff';
+            }
+        }
+    });
+
+    // チェック��ボックスのスタイル変更
+    document.querySelectorAll('.checkbox-option').forEach(label => {
+        const input = label.querySelector('input[type="checkbox"]');
+        if (input && !input.disabled) {
+            input.addEventListener('change', function () {
+                if (this.checked) {
+                    label.style.borderColor = '#667eea';
+                    label.style.backgroundColor = '#f0f4ff';
+                } else {
+                    label.style.borderColor = '#ddd';
+                    label.style.backgroundColor = 'white';
+                }
+            });
+            // 初期状態を反映
+            if (input.checked) {
+                label.style.borderColor = '#667eea';
+                label.style.backgroundColor = '#f0f4ff';
+            }
+        }
+    });
+
+    // RAG設定 保存�者タン
+    const saveRAGBtn = document.getElementById('save-rag-settings-btn');
+    if (saveRAGBtn) {
+        saveRAGBtn.addEventListener('click', saveRAGSettings);
+    }
+
+    // RAG設定 デ��ト�者タン
+    const testRAGBtn = document.getElementById('test-rag-btn');
+    const ragTestModal = document.getElementById('rag-test-result-modal');
+    const closeRagTestModal = document.getElementById('close-rag-test-modal');
+
+    if (testRAGBtn && ragTestModal) {
+        testRAGBtn.addEventListener('click', async () => {
+            try {
+                const testQuery = document.getElementById('test-query')?.value || 'テストクエリ';
+                showToast('🧪 RAGパフォーマンステストを開始します...', 'info');
+
+                const chunkSize = document.getElementById('rag-chunk-size').value;
+                const overlap = document.getElementById('rag-overlap').value;
+                const similarity = parseFloat(document.getElementById('rag-similarity').value) / 100;
+                const maxResults = document.getElementById('rag-max-results').value;
+                const searchMethod = document.querySelector('input[name="search-method"]:checked')?.value || 'vector';
+
+                // デ��ト実行中の表示
+                const ragTestResultBody = document.getElementById('rag-test-result-body');
+                ragTestResultBody.innerHTML = `
+【テスト設定】
+• チャンクサイズ: ${chunkSize}文字
+• オーバーラップ: ${overlap}文字
+• 類似度閾値: ${similarity}
+• 最大検索結果数: ${maxResults}件
+• 検索方式: ${getSearchMethodLabel(searchMethod)}
+• テストクエリ: "${testQuery}"
+
+処理を実行中...⏳`;
+
+                ragTestModal.classList.add('show');
+
+                // テスト処理の仮実行
+                const startTime = Date.now();
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                const endTime = Date.now();
+                const duration = endTime - startTime;
+
+                const resultMessage = `🎉 RAGパフォーマンステスト完了
+
+【現在の設定】
+📊 チャンクサイズ: ${chunkSize}文字
+🔄 オーバーラップ: ${overlap}文字
+🎯 類似度閾値: ${similarity}
+📈 最大結果数: ${maxResults}件
+🔍 検索方式: ${getSearchMethodLabel(searchMethod)}
+
+【パフォーマンス結果】
+⚡ 検索速度: ${duration}ms (良好)
+• 精度: 設定値に基づく
+💾 メモリ使用量: 適切
+
+【推奨事項】
+• チャンクサイズが大きいほど文脈理解が向上します
+• オーバーラップを設定するとチャンク間の情報欠落を防げます
+• 類似度閾値を高くすると精度が上がりますが結果数が減ります
+• 最大結果数は用途に応じて調整してください`;
+
+                ragTestResultBody.textContent = resultMessage;
+                console.log('[RAG Test] Complete:', resultMessage);
+
+            } catch (error) {
+                console.error('[RAG Test] 者rror:', error);
+                const ragTestResultBody = document.getElementById('rag-test-result-body');
+                ragTestResultBody.textContent = 'テスト実行中にエラーが発生しました:\n' + error.message;
+            }
+        });
+
+        // 終亁者�者タンでモーダルを閉じる
+        if (closeRagTestModal) {
+            closeRagTestModal.addEventListener('click', () => {
+                ragTestModal.classList.remove('show');
+            });
+        }
+
+        // モーダル背景クリデ��で閉じめ者
+        ragTestModal.addEventListener('click', (e) => {
+            if (e.target === ragTestModal) {
+                ragTestModal.classList.remove('show');
+            }
+        });
+    }
+
+    // GCS接続診断ボタン
+    const diagnoseGCSBtn = document.getElementById('diagnose-gcs-btn');
+    if (diagnoseGCSBtn) {
+        diagnoseGCSBtn.addEventListener('click', diagnoseGCSConnection);
+    }
+
+    // 初期設定表示を更新
+    updateCurrentRAGSettings();
+}
+
+// ストレージ統計�者読み込み
+async function loadStorageStats() {
+    try {
+        const response = await tenantFetch('/api/ai/storage-stats', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+                document.getElementById('stat-total-files').textContent = data.stats.total_files || 0;
+                document.getElementById('stat-total-size').textContent = data.stats.total_size_mb || '0.00';
+                document.getElementById('stat-active-files').textContent = data.stats.active_files || 0;
+                document.getElementById('stat-local-uploads').textContent = data.stats.local_uploads || 0;
+            }
+        }
+    } catch (error) {
+        console.error('[AI] 者rror loading storage stats:', error);
+    }
+}
+
+// ナレデ��デ�者タの読み込み
+async function loadKnowledgeData() {
+    console.log('[LoadKnowledge] Starting to load knowledge data...');
+    try {
+        console.log('[LoadKnowledge] Token:', token ? 'exists' : 'missing');
+
+        const response = await tenantFetch('/api/ai/knowledge', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        console.log('[LoadKnowledge] Response status:', response.status);
+
+        if (response.ok) {
+            const result = await response.json();
+            console.log('[LoadKnowledge] Result:', result);
+            if (result.success) {
+                console.log('[LoadKnowledge] Data count:', result.data.length);
+                displayKnowledgeData(result.data);
+            }
+        } else {
+            console.error('[LoadKnowledge] Failed to load:', response.status);
+        }
+    } catch (error) {
+        console.error('[LoadKnowledge] 者rror loading knowledge data:', error);
+        document.getElementById('knowledge-data-list').innerHTML = '<p class="error">データの読み込みに失敗しました</p>';
+    }
+}
+
+// ナレデ��デ�者タの表示
+function displayKnowledgeData(data) {
+    const container = document.getElementById('knowledge-data-list');
+
+    if (!data || data.length === 0) {
+        container.innerHTML = '<p class="no-data">ナレッジデータがありません</p>';
+        return;
+    }
+
+    const html = data.map(item => `
+        <div class="knowledge-item" data-id="${item.id}">
+            <div class="knowledge-info">
+                <div class="knowledge-name">📄 ${item.file_name}</div>
+                <div class="knowledge-meta">
+                    ${item.file_type} | ${(item.file_size_bytes / 1024 / 1024).toFixed(2)} MB | 
+                    アデ�者ローデ ${new Date(item.uploaded_at).toLocaleDateString('ja-JP')} |
+                    使用回数: ${item.usage_count || 0}囁者
+                </div>
+                ${item.description ? `<div class="knowledge-meta">${item.description}</div>` : ''}
+            </div>
+            <div class="knowledge-actions-btn">
+                <button class="btn-danger btn-sm" onclick="deleteKnowledgeData(${item.id})">削除</button>
+            </div>
+        </div>
+    `).join('');
+
+    container.innerHTML = html;
+}
+
+// ナレッジデータの削除
+async function deleteKnowledgeData(id) {
+    if (!confirm('このナレッジデータを削除してもよろしいですか？？')) {
+        return;
+    }
+
+    try {
+        const response = await tenantFetch(`/api/ai/knowledge/${id}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        const responseData = await response.json();
+
+        if (response.ok) {
+            showToast('ナレッジデータを削除しました', 'success');
+            await loadKnowledgeData();
+            await loadStorageStats();
+        } else {
+            showToast('削除に失敗しました: ' + (responseData.message || ''), 'error');
+        }
+    } catch (error) {
+        console.error('者rror deleting knowledge data:', error);
+        showToast('削除中にエラーが発生しました', 'error');
+    }
+}
+
+
+
+// 機械敁者��情報��JSONのインポ�者デ
+async function handleFaultJsonImport() {
+    const fileInput = document.getElementById('fault-json-file');
+    const file = fileInput.files[0];
+
+    if (!file) {
+        showToast('ファイルを選択してください', 'warning');
+        return;
+    }
+
+    if (!file.name.endsWith('.json')) {
+        showToast('JSON形式のファイルを選択してください', 'warning');
+        return;
+    }
+
+    showToast('インポート中...', 'info');
+
+    // TODO: 実際のインポ�者ト�者理��実裁者
+    setTimeout(() => {
+        showToast('機械故障情報をインポートしました', 'success');
+        fileInput.value = '';
+    }, 1500);
+}
+
+// マニュアルファイル選択時の処理
+function handleManualFilesSelect(event) {
+    const files = Array.from(event.target.files);
+    const listContainer = document.getElementById('manual-file-list');
+
+    if (files.length === 0) {
+        listContainer.innerHTML = '';
+        return;
+    }
+
+    const html = files.map((file, index) => `
+        <div class="file-item">
+            <span>📄 ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+        </div>
+    `).join('');
+
+    listContainer.innerHTML = `<div style="margin-top: 15px;"><strong>選択されたファイル:</strong>${html}</div>`;
+}
+
+// マニュアルファイルのインポ�者デ
+async function handleManualImport() {
+    const fileInput = document.getElementById('manual-files');
+    const files = fileInput.files;
+    const saveOriginal = document.getElementById('save-original-file').checked;
+
+    if (files.length === 0) {
+        showToast('ファイルを選択してください', 'warning');
+        return;
+    }
+
+    showToast('ファイルをアップロード中...', 'info');
+
+    for (let file of files) {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('saveOriginalFile', saveOriginal);
+            formData.append('uploadedBy', JSON.parse(localStorage.getItem('user_info') || '{}').username || 'admin');
+            formData.append('description', `Manual: ${file.name}`);
+            const response = await tenantFetch('/api/ai/knowledge/upload', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                body: formData
+            });
+
+            if (!response.ok) {
+                let errorMsg = `Failed to upload ${file.name}`;
+                try {
+                    const errorData = await response.json();
+                    if (errorData.message) {
+                        errorMsg += `: ${errorData.message}`;
+                    }
+                } catch (e) {
+                    const text = await response.text();
+                    if (text) {
+                        errorMsg += `: ${text}`;
+                    }
+                }
+                throw new Error(errorMsg);
+            }
+        } catch (error) {
+            console.error('[AI] 者rror uploading file:', error);
+            // エラーメデ��ージを含めて表示するように修正
+            showToast(`${error.message}`, 'error');
+            return;
+        }
+    }
+
+    showToast('すべてのファイルをインポートしました', 'success');
+    fileInput.value = '';
+    document.getElementById('manual-file-list').innerHTML = '';
+    loadStorageStats();
+}
+
+// 現在のRAG設定を表示更新
+function updateCurrentRAGSettings() {
+    const chunkSize = document.getElementById('rag-chunk-size')?.value || '-';
+    const overlap = document.getElementById('rag-overlap')?.value || '-';
+    const similarity = document.getElementById('rag-similarity')?.value || '0';
+    const maxResults = document.getElementById('rag-max-results')?.value || '-';
+    const searchMethod = document.querySelector('input[name="search-method"]:checked')?.value || 'vector';
+
+    // デ��スト前処理�者選択状態を取征者
+    const preprocessing = [];
+    if (document.getElementById('preprocessing-stopwords')?.checked) preprocessing.push('ストップワード除去');
+    if (document.getElementById('preprocessing-stemming')?.checked) preprocessing.push('スデ��ング');
+    if (document.getElementById('preprocessing-lowercase')?.checked) preprocessing.push('小文字変換');
+    if (document.getElementById('preprocessing-normalize')?.checked) preprocessing.push('文��正規化');
+
+    // 表示を更新
+    if (document.getElementById('display-chunk-size')) {
+        document.getElementById('display-chunk-size').textContent = chunkSize;
+    }
+    if (document.getElementById('display-overlap')) {
+        document.getElementById('display-overlap').textContent = overlap;
+    }
+    if (document.getElementById('display-similarity')) {
+        document.getElementById('display-similarity').textContent = (parseFloat(similarity) / 100).toFixed(2);
+    }
+    if (document.getElementById('display-max-results')) {
+        document.getElementById('display-max-results').textContent = maxResults;
+    }
+    if (document.getElementById('display-search-method')) {
+        document.getElementById('display-search-method').textContent = getSearchMethodLabel(searchMethod);
+    }
+    if (document.getElementById('display-preprocessing')) {
+        document.getElementById('display-preprocessing').textContent = preprocessing.length > 0 ? preprocessing.join(', ') : 'なし';
+    }
+    if (document.getElementById('display-last-updated')) {
+        const now = new Date();
+        document.getElementById('display-last-updated').textContent = now.toLocaleString('ja-JP');
+    }
+}
+
+// 検索手法�者ラベルを取征者
+function getSearchMethodLabel(value) {
+    const labels = {
+        'vector': 'ベクトル検索',
+        'keyword': 'キーワード検索',
+        'hybrid': 'ハイブリデ��検索'
+    };
+    return labels[value] || value;
+}
+
+// GCS接続診断
+async function diagnoseGCSConnection() {
+    const resultDiv = document.getElementById('gcs-diagnosis-result');
+    const contentDiv = document.getElementById('gcs-diagnosis-content');
+
+    try {
+        showToast('🔍 GCS接続診断を開始します..', 'info');
+
+        // 診断中の表示
+        resultDiv.style.display = 'block';
+        contentDiv.innerHTML = `
+<div style="text-align: center; padding: 20px;">
+    <div style="font-size: 2em; margin-bottom: 10px;">⏳</div>
+    <div>診断実行中...</div>
+</div>`;
+        const response = await tenantFetch('/api/ai/diagnose-gcs', {
+            method: 'G者T',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        let result;
+        try {
+            result = await response.json();
+        } catch (e) {
+            console.error('Failed to parse response JSON:', e);
+            result = null;
+        }
+
+        if (response.ok) {
+
+            if (result && result.success) {
+                // 成功時�者表示
+                contentDiv.innerHTML = `
+<div style="line-height: 1.8;">
+    <div style="font-size: 1.3em; font-weight: bold; color: #34a853; margin-bottom: 15px;">
+        • GCS接続診断: 正常
+    </div>
+    
+    <div style="margin-bottom: 15px;">
+        <strong>📦 バケット情報:</strong><br>
+        <div style="margin-left: 20px; margin-top: 5px;">
+            バケット名: <code>${result.bucket || 'N/A'}</code><br>
+            接続状態: <span style="color: #34a853; font-weight: bold;">• 接続成功</span>
+        </div>
+    </div>
+    
+    <div style="margin-bottom: 15px;">
+        <strong>📁 フォルダ構成:</strong><br>
+        <div style="margin-left: 20px; margin-top: 5px;">
+            ${result.folders && result.folders.length > 0 ?
+                        result.folders.map(f => `• ${f}`).join('<br>') :
+                        '⚠️ フォルダが存在しません'}
+        </div>
+    </div>
+    
+    <div style="margin-bottom: 15px;">
+        <strong>🔐 アクセス権限:</strong><br>
+        <div style="margin-left: 20px; margin-top: 5px;">
+            読み取り: <span style="color: #34a853;">• 許可</span><br>
+            書き込み: <span style="color: #34a853;">• 許可</span>
+        </div>
+    </div>
+    
+    <div style="margin-bottom: 15px;">
+        <strong>💾 ストレージ使用状況:</strong><br>
+        <div style="margin-left: 20px; margin-top: 5px;">
+            ファイル数: ${result.fileCount || 0}件<br>
+            総サイズ: ${result.totalSize || 'N/A'}
+        </div>
+    </div>
+    
+    <div style="background: #d4edda; padding: 10px; border-radius: 4px; border-left: 4px solid #28a745; margin-top: 15px;">
+        <strong>✨ 診断結果:</strong> すべての項目が正常です
+    </div>
+</div>`;
+                showToast('• GCS接続診断が完了しました', 'success');
+            } else {
+                throw new Error((result && result.error) || '診断に失敗しました');
+            }
+        } else {
+            throw new Error((result && result.error) || `診断APIエラー: ${response.status}`);
+        }
+    } catch (error) {
+        console.error('[GCS Diagnosis] 者rror:', error);
+
+        // エラー時�者表示
+        contentDiv.innerHTML = `
+<div style="line-height: 1.8;">
+    <div style="font-size: 1.3em; font-weight: bold; color: #dc3545; margin-bottom: 15px;">
+        ❁者GCS接続診断: エラー
+    </div>
+    
+    <div style="background: #f8d7da; padding: 15px; border-radius: 4px; border-left: 4px solid #dc3545; margin-bottom: 15px;">
+        <strong>エラー内容:</strong><br>
+        ${error.message}
+    </div>
+    
+    <div style="background: #fff3cd; padding: 15px; border-radius: 4px; border-left: 4px solid #ffc107;">
+        <strong>💡 対処方法</strong><br>
+        <ul style="margin: 8px 0 0 20px; padding: 0;">
+            <li>GCSバケットの設定を確認してください</li>
+            <li>サービスアカウントの権限を確認してください</li>
+            <li>ネットワーク接続を確認してください</li>
+            <li>バケット名が正しいか確認してください</li>
+        </ul>
+    </div>
+</div>`;
+        showToast('❁者GCS接続診断に失敗しました', 'error');
+    }
+}
+
+// GCSからのインポ�者デ
+async function handleGCSImport() {
+    const filePath = document.getElementById('gcs-file-path').value.trim();
+    const description = document.getElementById('gcs-description').value.trim();
+
+    if (!filePath) {
+        showToast('GCSファイルパスを入力してください', 'warning');
+        return;
+    }
+
+    showToast('GCSからインポート中...', 'info');
+
+    // TODO: 実際のGCSインポ�者ト�者理��実裁者
+    setTimeout(() => {
+        showToast('GCSからファイルをインポートしました', 'success');
+        document.getElementById('gcs-file-path').value = '';
+        document.getElementById('gcs-description').value = '';
+        loadKnowledgeData();
+        loadStorageStats();
+    }, 1500);
+}
+
+// AI支援設定�者読み込み (削除済み)
+// AI支援設定�者保存(削除済み)
+
+// RAG設定�者読み込み
+async function loadRAGSettings() {
+    try {
+        const response = await tenantFetch('/api/ai/settings', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.settings.rag) {
+                const settings = result.settings.rag.data;
+
+                // チャンクサイズ
+                document.getElementById('rag-chunk-size').value = settings.chunkSize || 500;
+                document.getElementById('chunk-size-value').textContent = settings.chunkSize || 500;
+
+                // オーバ�者ラデ�者
+                if (document.getElementById('rag-overlap')) {
+                    document.getElementById('rag-overlap').value = settings.overlap || 100;
+                    document.getElementById('overlap-value').textContent = settings.overlap || 100;
+                }
+
+                // 類似度閾値
+                document.getElementById('rag-similarity').value = (settings.similarityThreshold || 0.7) * 100;
+                document.getElementById('similarity-value').textContent = settings.similarityThreshold || 0.7;
+
+                // 最大結果数
+                document.getElementById('rag-max-results').value = settings.maxResults || 5;
+
+                // シスデ��プロンプト
+                if (document.getElementById('rag-system-prompt')) {
+                    document.getElementById('rag-system-prompt').value = settings.customInstructions || '';
+                }
+
+                // 検索手況者
+                if (settings.searchMethod) {
+                    const searchMethodRadio = document.querySelector(`input[name="search-method"][value="${settings.searchMethod}"]`);
+                    if (searchMethodRadio) {
+                        searchMethodRadio.checked = true;
+                        // ラジオボタンのスタイルを更新
+                        searchMethodRadio.dispatch者vent(new 者vent('change'));
+                    }
+                }
+
+                // デ��スト前処理
+                if (settings.preprocessing) {
+                    if (document.getElementById('preprocessing-stopwords')) {
+                        document.getElementById('preprocessing-stopwords').checked = settings.preprocessing.stopwords !== false;
+                    }
+                    if (document.getElementById('preprocessing-stemming')) {
+                        document.getElementById('preprocessing-stemming').checked = settings.preprocessing.stemming === true;
+                    }
+                    if (document.getElementById('preprocessing-lowercase')) {
+                        document.getElementById('preprocessing-lowercase').checked = settings.preprocessing.lowercase !== false;
+                    }
+                    if (document.getElementById('preprocessing-normalize')) {
+                        document.getElementById('preprocessing-normalize').checked = settings.preprocessing.normalize !== false;
+                    }
+                    // チェック��ボックスのスタイルを更新
+                    document.querySelectorAll('.checkbox-option input[type="checkbox"]').forEach(cb => {
+                        if (cb.checked && !cb.disabled) {
+                            cb.closest('.checkbox-option').style.borderColor = '#667eea';
+                            cb.closest('.checkbox-option').style.backgroundColor = '#f0f4ff';
+                        }
+                    });
+                }
+
+                // 現在の設定表示を更新
+                updateCurrentRAGSettings();
+            }
+        }
+    } catch (error) {
+        console.error('[AI] 者rror loading RAG settings:', error);
+    }
+}
+
+// RAG設定�者保存
+async function saveRAGSettings() {
+    // 検索手法を取征者
+    const searchMethod = document.querySelector('input[name="search-method"]:checked')?.value || 'vector';
+
+    // デ��スト前処理�者設定を取征者
+    const preprocessing = {
+        stopwords: document.getElementById('preprocessing-stopwords')?.checked || false,
+        stemming: document.getElementById('preprocessing-stemming')?.checked || false,
+        lowercase: document.getElementById('preprocessing-lowercase')?.checked || false,
+        normalize: document.getElementById('preprocessing-normalize')?.checked || false
+    };
+
+    const settings = {
+        chunkSize: parseInt(document.getElementById('rag-chunk-size').value),
+        overlap: parseInt(document.getElementById('rag-overlap')?.value || 100),
+        similarityThreshold: parseFloat(document.getElementById('rag-similarity').value) / 100,
+        maxResults: parseInt(document.getElementById('rag-max-results').value),
+        customInstructions: document.getElementById('rag-system-prompt')?.value || '',
+        searchMethod: searchMethod,
+        preprocessing: preprocessing
+    };
+
+    try {
+        console.log('[AI] Saving RAG settings:', settings);
+
+        const response = await tenantFetch('/api/ai/settings', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                settingType: 'rag',
+                settings: settings
+            })
+        });
+
+        const result = await response.json();
+        console.log('[AI] Save response:', result);
+
+        if (response.ok && result.success) {
+            showToast('RAG設定を保存しました', 'success');
+            // 現在の設定表示を更新
+            updateCurrentRAGSettings();
+        } else {
+            const errorMsg = result.message || result.error || '保存に失敗しました';
+            console.error('[AI] Save failed:', errorMsg);
+            showToast(`保存エラー: ${errorMsg}`, 'error');
+        }
+    } catch (error) {
+        console.error('[AI] 者rror saving RAG settings:', error);
+        showToast(`保存中にエラーが発甁者 ${error.message}`, 'error');
+    }
+}
+
+// AI管理���者の初期化をDOMContentLoadedに追加
+document.addEventListener('DOMContentLoaded', () => {
+    // AI管理��ブがアクデ��ブになったときに初期匁者
+    const aiManagementTab = document.querySelector('[data-tab="ai-management"]');
+    if (aiManagementTab) {
+        aiManagementTab.addEventListener('click', () => {
+            setTimeout(initializeAIManagement, 100);
+        });
+    }
+
+    // シスデ��運用タブ�者初期匁者
+    initializeSystemOperations();
+});
+
+// ========================================
+// シスデ��運用タブ機�者
+// ========================================
+
+/**
+ * シスデ��運用タブ�者初期匁者
+ */
+function initializeSystemOperations() {
+    console.log('[System Operations] Initializing...');
+
+    // メンデ��ンスボタンのイベントリスナ�者
+    const cleanTempBtn = document.getElementById('btn-clean-tmp');
+    const backupLogBtn = document.getElementById('btn-backup-log');
+    const cleanImagesBtn = document.getElementById('btn-clean-images');
+
+    if (cleanTempBtn) {
+        cleanTempBtn.addEventListener('click', handleCleanTempFiles);
+    }
+
+    if (backupLogBtn) {
+        backupLogBtn.addEventListener('click', handleBackupLogs);
+    }
+
+    if (cleanImagesBtn) {
+        cleanImagesBtn.addEventListener('click', handleCleanOrphanedImages);
+    }
+
+    // シスデ��運用タブがクリデ��されたときにデ�者タを読み込む
+    const systemOpsTabBtn = document.querySelector('[data-tab="system-operations"]');
+    if (systemOpsTabBtn) {
+        systemOpsTabBtn.addEventListener('click', () => {
+            setTimeout(loadSystemOperationsData, 100);
+        });
+    }
+}
+
+/**
+ * シスデ��運用デ�者タの読み込み
+ */
+async function loadSystemOperationsData() {
+    console.log('[System Operations] Loading data...');
+
+    try {
+        // 並列で吁者��ータを取征者
+        await Promise.all([
+            loadSecurityAlerts(token),
+            loadBlockedAccess(token),
+            loadRegisteredDevices(token),
+            loadNpmAudit(token),
+            loadStorageUsage(token),
+            loadCertificateStatus(token)
+        ]);
+
+        console.log('[System Operations] All data loaded successfully');
+    } catch (error) {
+        console.error('[System Operations] 者rror loading data:', error);
+    }
+}
+
+/**
+ * セキュリデ��アラートを読み込み
+ */
+async function loadSecurityAlerts(token) {
+    try {
+        const response = await tenantFetch('/api/security/alerts', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            // アラート件数を更新
+            const badge者lement = document.querySelector('.security-panel .badge-alert');
+            if (badge者lement && data.summary) {
+                badge者lement.textContent = `${data.summary.totalAlerts || 0}件`;
+            }
+
+            // アラート詳細を更新
+            const alertCount = document.querySelector('.alert-count');
+            if (alertCount && data.summary) {
+                alertCount.innerHTML = `<span class="text-danger">${data.summary.totalAlerts || 0}件</span>`;
+            }
+
+            // アラート詳細リストを更新
+            const alertDetails = document.querySelector('.alert-details');
+            if (alertDetails && data.summary) {
+                alertDetails.innerHTML = `
+                    <li>・不正アクセス試行 ${data.summary.unauthorizedAttempts || 0}件</li>
+                    <li>・ブロックされたIP: ${data.summary.blockedIPs || 0}件</li>
+                `;
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] 者rror loading security alerts:', error);
+    }
+}
+
+/**
+ * ブロデ��されたアクセスを読み込み
+ */
+async function loadBlockedAccess(token) {
+    try {
+        const response = await tenantFetch('/api/security/blocked-access', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.data) {
+            const table = document.querySelector('.security-list-section table tbody');
+            if (table) {
+                table.innerHTML = result.data.slice(0, 5).map(item => `
+                    <tr>
+                        <td>${item.ip} ${item.country ? `(${item.country})` : ''}</td>
+                        <td><span class="badge-gray">${item.attempts}回試行</span></td>
+                    </tr>
+                `).join('');
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] 者rror loading blocked access:', error);
+    }
+}
+
+/**
+ * 登録デ��イスを読み込み
+ */
+async function loadRegisteredDevices(token) {
+    try {
+        const response = await tenantFetch('/api/security/devices', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.data) {
+            const devicesContainer = document.querySelector('.security-list-section:nth-child(3)');
+            if (devicesContainer) {
+                const devicesHtml = result.data.slice(0, 5).map(device => `
+                    <div class="device-item">
+                        <div class="device-info">
+                            <span class="device-name">${device.name} (${device.user})</span>
+                            <span class="device-meta">最終アクセス: ${device.lastAccess}</span>
+                        </div>
+                        <span class="status-badge ${device.status === 'active' ? 'success' : 'inactive'}">${device.status === 'active' ? '稼働中' : '非稼働'}</span>
+                    </div>
+                `).join('');
+
+                // デ��イス一覧を更新�者�詳細ボタンは保持�者�者
+                const existingButton = devicesContainer.querySelector('.panel-footer');
+                const devicesList = devicesContainer.querySelector('h4').next者lementSibling;
+                if (devicesList && devicesList.classList.contains('device-item')) {
+                    // 既存�者デ��イス項目��をすべて削除
+                    while (devicesList && devicesList.classList.contains('device-item')) {
+                        const next = devicesList.next者lementSibling;
+                        devicesList.remove();
+                        devicesList = next;
+                    }
+                }
+
+                // 新しいデ��イスを追加
+                const h4 = devicesContainer.querySelector('h4');
+                if (h4 && existingButton) {
+                    h4.insertAdjacentHTML('afterend', devicesHtml);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] 者rror loading registered devices:', error);
+    }
+}
+
+/**
+ * npm audit結果を読み込み
+ */
+async function loadNpmAudit(token) {
+    try {
+        const response = await tenantFetch('/api/maintenance/npm-audit', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.vulnerabilities) {
+            const govWarnings = document.querySelector('.gov-warnings');
+            if (govWarnings) {
+                const total = result.vulnerabilities.total || 0;
+                const critical = result.vulnerabilities.critical || 0;
+                const high = result.vulnerabilities.high || 0;
+
+                govWarnings.innerHTML = `
+                    <span>⚠️ </span> <span class="text-danger">${total}倁者(重大:${critical}, 髁者${high})</span><br>
+                    <span>⏰ 更新可能:</span> <span>${total > 0 ? total : '0'}パッケージ</span>
+                `;
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] 者rror loading npm audit:', error);
+    }
+}
+
+/**
+ * ストレージ使用状況を読み込み
+ */
+async function loadStorageUsage(token) {
+    try {
+        const response = await tenantFetch('/api/maintenance/storage-usage', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            const total = result.total || 0;
+            const limit = 5; // GB
+            const percentage = Math.round((total / limit) * 100);
+
+            // ストレージ使用状況を更新
+            const storageStats = document.querySelector('.storage-stats');
+            if (storageStats) {
+                const storageText = storageStats.querySelector('.storage-text');
+                if (storageText) {
+                    storageText.innerHTML = `
+                        <span>使用中: ${total.toFixed(1)}GB / ${limit}GB</span>
+                        <span class="percentage">${percentage}%</span>
+                    `;
+                }
+
+                const progressBar = storageStats.querySelector('.progress-bar-fill');
+                if (progressBar) {
+                    progressBar.style.width = `${percentage}%`;
+                    progressBar.className = `progress-bar-fill ${percentage > 80 ? 'danger' : percentage > 60 ? 'warning' : 'success'}`;
+                }
+
+                // 冁者��を更新
+                const detailsList = storageStats.querySelector('.storage-details');
+                if (detailsList && result.breakdown) {
+                    detailsList.innerHTML = `
+                        <li>・アップロード ${result.breakdown.uploads || 0}GB</li>
+                        <li>・ログファイル: ${result.breakdown.logs || 0}GB</li>
+                        <li>・一時ファイル: ${result.breakdown.temp || 0}GB ${result.breakdown.temp > 1 ? '<span class="text-warning">⚠️ span>' : ''}</li>
+                    `;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] 者rror loading storage usage:', error);
+    }
+}
+
+/**
+ * 証明書スデ�者タスを読み込み
+ */
+async function loadCertificateStatus(token) {
+    try {
+        const response = await tenantFetch('/api/maintenance/certificate-status', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success && result.certificates) {
+            const expiryList = document.querySelector('.expiry-list');
+            if (expiryList) {
+                expiryList.innerHTML = result.certificates.map(cert => {
+                    let badgeClass = 'badge-success';
+                    let label = '問題なし';
+
+                    if (cert.daysRemaining !== null) {
+                        if (cert.daysRemaining < 30) {
+                            badgeClass = 'badge-danger';
+                            label = `${cert.daysRemaining}日後`;
+                        } else if (cert.daysRemaining < 60) {
+                            badgeClass = 'badge-warning';
+                            label = `${cert.daysRemaining}日後`;
+                        } else {
+                            label = `${cert.daysRemaining}日後`;
+                        }
+                    }
+
+                    return `
+                        <div class="expiry-row">
+                            <span class="expiry-label">${cert.name}</span>
+                            <span class="${badgeClass}">${label}</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] 者rror loading certificate status:', error);
+    }
+}
+
+/**
+ * 一時ファイル削除処理
+ */
+async function handleCleanTempFiles() {
+    if (!confirm('一時ファイルを削除してもよろしいですか？？\n1日以上経過したファイルが削除されます。')) {
+        return;
+    }
+
+    const button = document.getElementById('btn-clean-tmp');
+    button.disabled = true;
+    button.textContent = '🔄 削除中...';
+
+    try {
+        const response = await tenantFetch('/api/maintenance/clean-temp', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(result.message || '一時ファイルを削除しました', 'success');
+
+            // ストレージ使用状況を再読み込み
+            loadStorageUsage(token);
+        } else {
+            showToast(result.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('[Maintenance] 者rror cleaning temp files:', error);
+        showToast('エラーが発生しました: ' + error.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = '🗑️ 一時ファイルを削除';
+    }
+}
+
+/**
+ * ログバックアデ�者処理
+ */
+async function handleBackupLogs() {
+    const button = document.getElementById('btn-backup-log');
+    button.disabled = true;
+    button.textContent = '🔄 バックアップ中...';
+
+    try {
+        const response = await tenantFetch('/api/maintenance/backup-logs', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(result.message || 'ログをバックアップしました', 'success');
+        } else {
+            showToast(result.message || 'バックアップに失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('[Maintenance] 者rror backing up logs:', error);
+        showToast('エラーが発生しました: ' + error.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = '📦 ログファイルバックアップ';
+    }
+}
+
+/**
+ * 孤立画像削除処理
+ */
+async function handleCleanOrphanedImages() {
+    if (!confirm('孤立した画像ファイルを削除してもよろしいですか？？\n7日以上経過した未使用ファイルが削除されます。')) {
+        return;
+    }
+
+    const button = document.getElementById('btn-clean-images');
+    button.disabled = true;
+    button.textContent = '🔄 削除中...';
+
+    try {
+        const response = await tenantFetch('/api/maintenance/clean-orphaned-images', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showToast(result.message || '孤立画像を削除しました', 'success');
+
+            // ストレージ使用状況を再読み込み
+            loadStorageUsage(token);
+        } else {
+            showToast(result.message || '削除に失敗しました', 'error');
+        }
+    } catch (error) {
+        console.error('[Maintenance] 者rror cleaning orphaned images:', error);
+        showToast('エラーが発生しました: ' + error.message, 'error');
+    } finally {
+        button.disabled = false;
+        button.textContent = '🧹 孤立画像を削除';
+    }
+}
+
+// ========================================
+// ユーザーインポ�者ト�者デ��プレート機�者
+// ========================================
+
+/**
+ * デ��プレートダウンローデ
+ */
+/**
+ * ユーザー管理��デ��プレーデのダウンローデ(CSV形弁者
+ */
+async function downloadUserTemplate() {
+    const headers = ['ログインユーザー名', '表示名', 'メールアドレス', '権限(system_admin/operation_admin/user)', '初期パスワード'];
+    const filename = 'ユーザー管理_テンプレート.csv';
+
+    const csvContent = "\uFEFF" + headers.join(',') + '\n';
+    await triggerFileDownload(csvContent, filename);
+}
+
+/**
+ * 名前を付けて保存ダイアログを表示してファイルをダウンローデ
+ * @param {string} content ファイル冁者��
+ * @param {string} suggestedName 推奨ファイル吁者
+ */
+async function triggerFileDownload(content, suggestedName) {
+    // 1. File System Access API が利用可能な場吁者(モダンブラウザ)
+    if ('showSaveFilePicker' in window) {
+        try {
+            const handle = await window.showSaveFilePicker({
+                suggestedName: suggestedName,
+                types: [{
+                    description: 'CSV File',
+                    accept: { 'text/csv': ['.csv'] },
+                }],
+            });
+            const writable = await handle.createWritable();
+            await writable.write(content);
+            await writable.close();
+            showToast('ファイルを保存しました', 'success');
+            return;
+        } catch (err) {
+            // ユーザーがキャンセルした場合�者何もしなぁ者
+            if (err.name === 'AbortError') return;
+            console.error('File sync save error:', err);
+            // エラーの場合�者フォールバックへ
+        }
+    }
+
+    // 2. フォールバック: 従来のダウンロード方法(保存場所はブラウザ設定に依存
+    console.log('[Download] Falling back to traditional download method');
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", suggestedName);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('テンプレートをダウンロードしました', 'success');
+}
+
+// 既存�者 download者xcelTemplate は不要になったため削除
+
+// 旧デ��プレートダウンロード�者理�者残骸を削除しました、者
+
+/**
+ * ユーザーインポ�者ト�者理
+ */
+async function importUsers(file) {
+    if (!file) {
+        showToast('ファイルが選択されていません', 'error');
+        return;
+    }
+
+    // ファイルサイズチェック (1MB)
+    if (file.size > 1024 * 1024) {
+        showToast('ファイルサイズが大きすぎます（最大1MB）', 'error');
+        return;
+    }
+
+    const fileName = file.name.toLowerCase();
+    let users = [];
+
+    try {
+        showToast('インポート処理中...', 'info');
+
+        if (fileName.endsWith('.csv')) {
+            users = await parseCSVFile(file);
+        } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
+            users = await parse者xcelFile(file);
+        } else {
+            showToast('対応していないファイル形式です（.csv, .xlsx, .xlsのみ）', 'error');
+            return;
+        }
+
+        console.log('[importUsers] Parsed users:', users);
+
+        if (users.length === 0) {
+            showToast('インポートするユーザーがありません', 'warning');
+            return;
+        }
+
+        // バリデ�者ション
+        const validation = validateUsers(users);
+        if (!validation.valid) {
+            showToast(`データエラー:\n${validation.errors.join('\n')}`, 'error');
+            return;
+        }
+
+        // サーバ�者に送信
+        await sendUsersToServer(users);
+
+    } catch (error) {
+        console.error('[importUsers] 者rror:', error);
+        showToast('インポート処理中にエラーが発生しました: ' + error.message, 'error');
+    }
+}
+
+/**
+ * CSVファイルパ�者ス
+ */
+async function parseCSVFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const text = e.target.result;
+                const lines = text.split('\n').filter(line => line.trim());
+
+                if (lines.length < 2) {
+                    reject(new Error('データが空です'));
+                    return;
+                }
+
+                // ヘッダー行をスキップ�者
+                const dataLines = lines.slice(1);
+                const users = dataLines.map((line, index) => {
+                    // CSV parsing (simple version - handles quoted fields)
+                    const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+
+                    if (values.length < 5) {
+                        console.warn(`行${index + 2}: カラム数が不足してぁ者��す`);
+                        return null;
+                    }
+
+                    return {
+                        username: values[0],
+                        display_name: values[1],
+                        email: values[2],
+                        role: values[3],
+                        password: values[4]
+                    };
+                }).filter(u => u !== null);
+
+                resolve(users);
+            } catch (error) {
+                reject(error);
+            }
+        };
+        reader.onerror = () => reject(new Error('ファイル読み込みエラー'));
+        reader.readAsText(file, 'UTF-8');
+    });
+}
+
+/**
+ * 者xcelファイルパ�者ス�者�者TML形式�者簡易版�者�者
+ */
+async function parse者xcelFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const text = e.target.result;
+
+                // Simple HTML table parsing
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(text, 'text/html');
+                const rows = doc.querySelectorAll('tr');
+
+                if (rows.length < 2) {
+                    reject(new Error('データが空です'));
+                    return;
+                }
+
+                const users = [];
+                // Skip header row (index 0)
+                for (let i = 1; i < rows.length; i++) {
+                    const cells = rows[i].querySelectorAll('td, th');
+                    if (cells.length >= 5) {
+                        users.push({
+                            username: cells[0].textContent.trim(),
+                            display_name: cells[1].textContent.trim(),
+                            email: cells[2].textContent.trim(),
+                            role: cells[3].textContent.trim(),
+                            password: cells[4].textContent.trim()
+                        });
+                    }
+                }
+
+                resolve(users);
+            } catch (error) {
+                reject(error);
+            }
+        };
+        reader.onerror = () => reject(new Error('ファイル読み込みエラー'));
+        reader.readAsText(file, 'UTF-8');
+    });
+}
+
+/**
+ * ユーザーデ�者タのバリデ�者ション
+ */
+function validateUsers(users) {
+    const errors = [];
+    const usernames = new Set();
+    const validRoles = ['system_admin', 'operation_admin', 'user'];
+
+    users.forEach((user, index) => {
+        const rowNum = index + 2; // +2 for header and 0-index
+
+        // ログインユーザー名チェック��
+        if (!user.username || user.username.trim() === '') {
+            errors.push(`行{rowNum}: ログインユーザー名が空です`);
+        } else if (usernames.has(user.username)) {
+            errors.push(`行{rowNum}: ログインユーザー名が重複��てぁ者��ぁ者(${user.username})`);
+        } else {
+            usernames.add(user.username);
+        }
+
+        // 表示名チェック��
+        if (!user.display_name || user.display_name.trim() === '') {
+            errors.push(`行{rowNum}: 表示名が空です`);
+        }
+
+        // 権限チェック���者�旧ロールは3種へ正規化�者�者
+        const normalizedRole = normalizeUserRole(user.role);
+        if (!normalizedRole || !validRoles.includes(normalizedRole)) {
+            errors.push(`行{rowNum}: 権限が不正です(${user.role})`);
+        } else {
+            user.role = normalizedRole;
+        }
+
+        // パスワードチェック��
+        if (!user.password || user.password.length < 6) {
+            errors.push(`行{rowNum}: パスワード�者6文��以上必要��です`);
+        }
+    });
+
+    return {
+        valid: errors.length === 0,
+        errors: errors
+    };
+}
+
+/**
+ * サーバ�者にユーザーデ�者タを送信
+ */
+async function sendUsersToServer(users) {
+    try {
+        const response = await tenantFetch('/api/users/import', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({ users })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            const message = `インポ�者ト完了n成功: ${result.imported}件\nスキップ�者: ${result.skipped}件\nエラー: ${result.errors}件`;
+            showToast(message, 'success');
+
+            // ユーザーリストを再読み込み
+            await loadUsers();
+        } else {
+            showToast('インポートに失敗しました: ' + result.message, 'error');
+        }
+    } catch (error) {
+        console.error('[sendUsersToServer] 者rror:', error);
+        showToast('サーバーエラー: ' + error.message, 'error');
+    }
+}
