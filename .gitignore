@@ -6,7 +6,18 @@ yarn-error.log
 # Environment variables
 .env
 .env.*
+.env*.local
 !.env.example
+!.env.*.example
+
+# Secrets & Credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*credentials*.json
+*-key.json
 
 # Local database backups
 backups/
