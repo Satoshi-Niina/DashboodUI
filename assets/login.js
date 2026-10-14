@@ -4,32 +4,19 @@ function getTenantIdFromLocation() {
     const excludedPaths = new Set(['api', 'assets', 'admin.html', 'index.html', 'login', 'login.html']);
 
     if (!firstSegment || excludedPaths.has(firstSegment) || firstSegment.endsWith('.html')) {
-        return 'demo';
+        return '';
     }
 
     return firstSegment;
 }
 
 function getTenantPathFromLocation() {
-    const pathSegments = window.location.pathname.split('/').filter(Boolean);
-    const firstSegment = String(pathSegments[0] ?? '').trim().toLowerCase();
-    if (firstSegment === 'demo') {
-        return '/demo';
-    }
     const tenantId = getTenantIdFromLocation();
-    return tenantId === 'demo' ? '/' : `/${tenantId}`;
+    return tenantId ? `/${tenantId}` : '';
 }
 
 function getTenantKeyFromCurrentPath() {
-    const segments = window.location.pathname.split('/').filter(Boolean);
-    const firstSegment = String(segments[0] ?? '').trim().toLowerCase();
-    const excludedPaths = new Set(['api', 'assets', 'admin.html', 'index.html', 'login', 'login.html']);
-
-    if (!firstSegment || excludedPaths.has(firstSegment) || firstSegment.endsWith('.html')) {
-        return '';
-    }
-
-    return firstSegment;
+    return getTenantIdFromLocation();
 }
 
 function getRedirectTargetFromLocation() {
@@ -131,18 +118,35 @@ document.addEventListener('DOMContentLoaded', () => {
             : getTenantPathFromLocation();
         const tenantKey = getTenantKeyFromCurrentPath();
         try {
-            // APIリクエスト送信に実コンテキストのテナントIDを明示的にのせる
-            console.log(`[Login] Logging in to tenant: ${tenantId}`);
-            const loginApiPath = window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
+            const explicitTenant = tenantId || tenantKey;
+            console.log(`[Login] Logging in... (explicitTenant: ${explicitTenant || 'none (integrated)'})`);
+            const loginApiPath = (tenantPath && window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function')
                 ? window.TenantContext.buildPathForTenant('/api/login', tenantPath)
                 : '/api/login';
-            const response = await fetch(`${loginApiPath}?tenant_id=${encodeURIComponent(tenantId)}`, {
+            const queryString = explicitTenant ? `?tenant_id=${encodeURIComponent(explicitTenant)}` : '';
+
+            const headers = { 'Content-Type': 'application/json' };
+            if (explicitTenant) {
+                headers['X-Tenant-Key'] = explicitTenant;
+                headers['X-Tenant-Id'] = explicitTenant;
+            }
+            if (tenantPath) {
+                headers['X-Tenant-Path'] = tenantPath;
+            }
+
+            const bodyPayload = { username, password };
+            if (explicitTenant) {
+                bodyPayload.tenantKey = explicitTenant;
+                bodyPayload.tenant_id = explicitTenant;
+            }
+            if (tenantPath) {
+                bodyPayload.tenant_path = tenantPath;
+            }
+
+            const response = await fetch(`${loginApiPath}${queryString}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Tenant-Key': tenantKey || tenantId
-                },
-                body: JSON.stringify({ username, password, tenantKey: tenantKey || tenantId, tenant_id: tenantId, tenant_path: tenantPath })
+                headers,
+                body: JSON.stringify(bodyPayload)
             });
 
             const data = await response.json();
@@ -156,12 +160,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 認証成功
                 console.log('[Login] User data:', data.user);
 
+                // レスポンスの JWT トークンや所属情報をブラウザストレージに保存
+                if (data.token) {
+                    try {
+                        localStorage.setItem('auth_token', data.token);
+                        sessionStorage.setItem('auth_token', data.token);
+                        localStorage.setItem('dashboard_token', data.token);
+                    } catch (_) {}
+                }
+                if (data.user?.tenant_id) {
+                    try {
+                        localStorage.setItem('tenant_id', data.user.tenant_id);
+                        if (data.user.tenant_key) localStorage.setItem('tenant_key', data.user.tenant_key);
+                    } catch (_) {}
+                }
+
                 // 成功アニメーションを表示してから遷移
                 btnText.textContent = 'リダイレクト中...';
                 setTimeout(() => {
-                    const targetPath = window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
-                        ? window.TenantContext.buildPathForTenant('/index.html', tenantPath)
-                        : buildIndexPathForTenant(tenantPath);
+                    const targetPath = redirectTarget
+                        || (tenantPath
+                            ? (window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
+                                ? window.TenantContext.buildPathForTenant('/index.html', tenantPath)
+                                : buildIndexPathForTenant(tenantPath))
+                            : '/index.html');
                     window.location.href = targetPath;
                 }, 800);
             } else {

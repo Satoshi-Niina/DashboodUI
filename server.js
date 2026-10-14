@@ -2342,15 +2342,16 @@ async function resolveSessionTenant(pool, session) {
 app.post('/api/login', async (req, res) => {
   const username = String(req.body?.username || '').trim();
   const password = String(req.body?.password || '');
-  const tenantKey = mapTenantSegment(req.body?.tenantKey || req.headers['x-tenant-key'] || '', true);
-  if (!username || !password || !tenantKey) {
-    return res.status(400).json({ success: false, message: 'ユーザー名、パスワード、テナントが必要です' });
+  if (!username || !password) {
+    return res.status(400).json({ success: false, message: 'ユーザー名とパスワードを入力してください' });
   }
-  if (tenantKey === INVALID_TENANT_KEY) {
+
+  const requestedTenantKey = mapTenantSegment(req.body?.tenantKey || req.headers['x-tenant-key'] || '', true);
+  if (requestedTenantKey === INVALID_TENANT_KEY) {
     return res.status(403).json({ success: false, message: 'このURLではテナントを指定できません' });
   }
   const urlTenantKey = getTenantKeyFromPath(req.originalUrl || req.url || '/', true);
-  if (urlTenantKey !== 'demo_env' && urlTenantKey !== tenantKey) {
+  if (urlTenantKey && urlTenantKey !== 'demo_env' && requestedTenantKey && urlTenantKey !== requestedTenantKey) {
     return res.status(403).json({
       success: false,
       message: 'URLで指定されたテナントとログイン先が一致しません'
@@ -2358,76 +2359,140 @@ app.post('/api/login', async (req, res) => {
   }
 
   try {
-    const runtime = await resolveTenantRuntime(tenantKey, {
-      tenantPath: String(req.headers['x-tenant-path'] || req.body?.tenant_path || '').trim(),
-      fullUrl: String(req.headers['x-tenant-full-url'] || '').trim(),
-      referer: String(req.headers.referer || '').trim(),
-      originalUrl: String(req.originalUrl || req.url || '').trim()
-    }).catch(() => null);
+    const cpPool = getControlPlanePool();
 
-    if (runtime && runtime.pool) {
-      const tenantUserResult = await runtime.pool.query(
-        'SELECT * FROM public.users WHERE username = $1 AND is_active = true LIMIT 1',
-        [username]
-      );
-      const tenantUser = tenantUserResult.rows[0];
-      if (tenantUser) {
-        const tenantPasswordHash = tenantUser.password_hash || tenantUser.password || '';
-        if (!tenantPasswordHash) {
-          return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+    // 1. 方式 C: common_db による統合認証 & 所属テナント自動判定
+    const commonUserRes = await cpPool.query(`
+      SELECT
+        u.id AS user_id,
+        u.username,
+        u.password_hash,
+        COALESCE(u.display_name, u.username) AS display_name,
+        COALESCE(u.role, 'operator') AS role,
+        t.id::text AS tenant_id,
+        t.tenant_key,
+        t.tenant_name
+      FROM public.users u
+      LEFT JOIN public.user_tenants ut ON ut.user_id = u.id AND ut.is_active = true
+      LEFT JOIN public.tenants t ON t.id = ut.tenant_id AND t.is_active = true
+      WHERE u.username = $1 AND u.is_active = true
+      ORDER BY (CASE WHEN t.tenant_key = $2 THEN 0 ELSE 1 END), t.tenant_key
+      LIMIT 1
+    `, [username, requestedTenantKey || '']);
+
+    const commonUser = commonUserRes.rows[0];
+    if (commonUser && commonUser.password_hash) {
+      const compareCandidate = async () => {
+        if (String(commonUser.password_hash).startsWith('$2')) {
+          return bcrypt.compare(password, commonUser.password_hash);
         }
+        return String(password) === String(commonUser.password_hash);
+      };
 
-        const compareCandidate = async () => {
-          if (String(tenantPasswordHash).startsWith('$2')) {
-            return bcrypt.compare(password, tenantPasswordHash);
+      const matched = await compareCandidate();
+      if (matched) {
+        const resolvedTenantKey = commonUser.tenant_key || requestedTenantKey || 'demo';
+        const officialTenantId = commonUser.tenant_id || resolvedTenantKey;
+        const companyName = commonUser.tenant_name || resolvedTenantKey;
+
+        const token = commonAuth.issueSession(res, {
+          userId: commonUser.user_id,
+          username: commonUser.username,
+          tenantId: officialTenantId,
+          tenantKey: resolvedTenantKey,
+          authSource: 'common',
+          role: commonUser.role || 'operator',
+          permissions: []
+        });
+
+        return res.json({
+          success: true,
+          token,
+          user: {
+            id: commonUser.user_id,
+            username: commonUser.username,
+            displayName: commonUser.display_name,
+            role: commonUser.role || 'operator',
+            tenant_id: officialTenantId,
+            tenant_key: resolvedTenantKey,
+            tenant_path: `/${resolvedTenantKey}`,
+            company_name: companyName
           }
-          return String(password) === String(tenantPasswordHash);
-        };
+        });
+      }
+    }
 
-        const tenantPasswordMatches = await compareCandidate();
-        if (tenantPasswordMatches) {
-          // tenantsテーブルから正規のテナント情報を取得
-          const tenantInfoRes = await getControlPlanePool().query(
-            `SELECT id, tenant_key, tenant_name FROM public.tenants WHERE tenant_key = $1 OR id::text = $1 LIMIT 1`,
-            [tenantKey]
-          ).catch(() => ({ rows: [] }));
-          const officialTenant = tenantInfoRes.rows[0];
-          const officialTenantId = officialTenant ? officialTenant.id : (runtime.resolvedTenantId || tenantKey);
+    // 2. フォールバック: 各テナントDB直接認証（テナントキーが指定されている場合）
+    const effectiveTenantKey = requestedTenantKey || (urlTenantKey !== 'demo_env' ? urlTenantKey : '');
+    if (effectiveTenantKey) {
+      const runtime = await resolveTenantRuntime(effectiveTenantKey, {
+        tenantPath: String(req.headers['x-tenant-path'] || req.body?.tenant_path || '').trim(),
+        fullUrl: String(req.headers['x-tenant-full-url'] || '').trim(),
+        referer: String(req.headers.referer || '').trim(),
+        originalUrl: String(req.originalUrl || req.url || '').trim()
+      }).catch(() => null);
 
-          commonAuth.issueSession(res, {
-            userId: tenantUser.id,
-            username: tenantUser.username,
-            tenantId: officialTenantId,
-            tenantKey,
-            authSource: 'tenant',
-            role: tenantUser.role || 'operator',
-            permissions: []
-          });
+      if (runtime && runtime.pool) {
+        const tenantUserResult = await runtime.pool.query(
+          'SELECT * FROM public.users WHERE username = $1 AND is_active = true LIMIT 1',
+          [username]
+        );
+        const tenantUser = tenantUserResult.rows[0];
+        if (tenantUser) {
+          const tenantPasswordHash = tenantUser.password_hash || tenantUser.password || '';
+          if (tenantPasswordHash) {
+            const compareCandidate = async () => {
+              if (String(tenantPasswordHash).startsWith('$2')) {
+                return bcrypt.compare(password, tenantPasswordHash);
+              }
+              return String(password) === String(tenantPasswordHash);
+            };
 
-          return res.json({
-            success: true,
-            user: {
-              id: tenantUser.id,
-              username: tenantUser.username,
-              displayName: tenantUser.display_name || tenantUser.username,
-              role: tenantUser.role || 'operator',
-              tenant_id: officialTenantId,
-              tenant_key: tenantKey,
-              tenant_path: runtime.tenantPath || `/${tenantKey}`,
-              company_name: officialTenant?.tenant_name || runtime.companyName || tenantKey
+            const tenantPasswordMatches = await compareCandidate();
+            if (tenantPasswordMatches) {
+              const tenantInfoRes = await cpPool.query(
+                `SELECT id, tenant_key, tenant_name FROM public.tenants WHERE tenant_key = $1 OR id::text = $1 LIMIT 1`,
+                [effectiveTenantKey]
+              ).catch(() => ({ rows: [] }));
+              const officialTenant = tenantInfoRes.rows[0];
+              const officialTenantId = officialTenant ? officialTenant.id : (runtime.resolvedTenantId || effectiveTenantKey);
+
+              const token = commonAuth.issueSession(res, {
+                userId: tenantUser.id,
+                username: tenantUser.username,
+                tenantId: officialTenantId,
+                tenantKey: effectiveTenantKey,
+                authSource: 'tenant',
+                role: tenantUser.role || 'operator',
+                permissions: []
+              });
+
+              return res.json({
+                success: true,
+                token,
+                user: {
+                  id: tenantUser.id,
+                  username: tenantUser.username,
+                  displayName: tenantUser.display_name || tenantUser.username,
+                  role: tenantUser.role || 'operator',
+                  tenant_id: officialTenantId,
+                  tenant_key: effectiveTenantKey,
+                  tenant_path: runtime.tenantPath || `/${effectiveTenantKey}`,
+                  company_name: officialTenant?.tenant_name || runtime.companyName || effectiveTenantKey
+                }
+              });
             }
-          });
+          }
         }
       }
     }
-    // common_db への一般ユーザー認証フォールバックは廃止
-    // 認証・パスワード・所属・権限はすべて対象テナントDB側で完結する
+
     return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
   } catch (err) {
-      console.error('[TenantAuth] Login failed:', err.message);
-      return res.status(500).json({ success: false, message: 'ログイン処理に失敗しました' });
-    }
-  });
+    console.error('[TenantAuth] Login failed:', err.message);
+    return res.status(500).json({ success: false, message: 'ログイン処理に失敗しました' });
+  }
+});
 
 // NOTE: このエンドポイントは以前重複定義されており、旧ハンドラは
 // UUID型カラムに対して厳格な JOIN (t.id = $2 など) を行っていたため、

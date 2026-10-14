@@ -37,7 +37,7 @@ function issueSession(res, session) {
     sub: String(session.userId),
     username: session.username ? String(session.username) : undefined,
     tenant_id: String(session.tenantId),
-    tenant_key: String(session.tenantKey || ''),
+    tenant_key: String(session.tenantKey || session.tenantId || ''),
     auth_source: String(session.authSource || 'common'),
     role: String(session.role),
     permissions: Array.isArray(session.permissions) ? session.permissions : []
@@ -47,6 +47,7 @@ function issueSession(res, session) {
     expiresIn: Math.floor(SESSION_MAX_AGE_MS / 1000)
   });
   res.cookie(COOKIE_NAME, token, cookieOptions());
+  return token;
 }
 
 function readSession(req) {
