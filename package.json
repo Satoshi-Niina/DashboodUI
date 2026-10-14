@@ -2,11 +2,16 @@
   "name": "dashboodui",
   "version": "1.0.0",
   "description": "",
-  "main": "app.js",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test",
     "start": "node server.js",
-    "dev": "start http://localhost:3000 && node server.js"
+    "dev": "start http://localhost:3000 && node server.js",
+    "db:migrate": "node scripts/db-migrate.js",
+    "db:baseline": "node scripts/db-migrate.js --baseline",
+    "db:status": "node scripts/db-migrate.js --status",
+    "db:register-tenant": "node scripts/db-migrate.js",
+    "test:db-workflow": "node scripts/db-workflow-check.js"
   },
   "keywords": [],
   "author": "",

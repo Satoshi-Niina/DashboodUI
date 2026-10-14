@@ -25,6 +25,12 @@ const routingColumnCache = new Map();
 const physicalTableColumnCache = new Map();
 const CACHE_TTL = 60000; // 1分
 
+// app_resource_routing に登録されておらず動的解決が不要な論理名の固定マッピング。
+// ここに載せた名前は app_resource_routing への問い合わせ自体をスキップする。
+const FIXED_TABLE_MAP = {
+    app_config: { schema: 'public', table: 'app_config' }
+};
+
 /**
  * ルーティングテーブルのカラム情報を取得
  * @returns {Promise<Set<string>>} カラム名のセット
@@ -217,7 +223,24 @@ async function getTablePath(logicalResourceName, appIdOrOptions = 'dashboard-ui'
     const { appId, options } = parseGatewayArgs(appIdOrOptions, maybeOptions);
     const routingContext = getGatewayRoutingContext(options);
     const cacheKey = `${routingContext.tenantId}:${appId}:${logicalResourceName}`;
-    
+
+    // 固定マッピング対象は app_resource_routing への問い合わせを行わず即座に解決する
+    const fixed = FIXED_TABLE_MAP[logicalResourceName];
+    if (fixed) {
+        const resolved = {
+            fullPath: `${fixed.schema}."${fixed.table}"`,
+            schema: fixed.schema,
+            table: fixed.table,
+            logicalName: logicalResourceName,
+            appId,
+            tenantId: routingContext.tenantId,
+            source: 'fixed-map',
+            timestamp: Date.now()
+        };
+        routingCache.set(cacheKey, resolved);
+        return resolved;
+    }
+
     // キャッシュチェック
     const cached = routingCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {

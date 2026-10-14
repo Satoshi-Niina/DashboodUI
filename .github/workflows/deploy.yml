@@ -163,6 +163,7 @@ jobs:
             --labels=deploy_mode=clean,commit_sha=${SHORT_SHA},deploy_ts=${TIMESTAMP} \
             --add-cloudsql-instances=${{ secrets.CLOUD_SQL_INSTANCE }} \
             --env-vars-file=cloudrun-env.yaml \
+            --update-secrets=SHARED_SSO_SECRET=ops-shared-sso-secret:latest \
             --min-instances=0 \
             --max-instances=10 \
             --memory=2Gi \

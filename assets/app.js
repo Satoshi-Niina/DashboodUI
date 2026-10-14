@@ -4,14 +4,41 @@
  */
 let apps = [];
 
+function getTenantApiPath(targetPath) {
+    if (window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function') {
+        return window.TenantContext.buildPathForTenant(targetPath);
+    }
+    const pathSegments = window.location.pathname.split('/').filter(Boolean);
+    const firstSegment = String(pathSegments[0] ?? '').trim().toLowerCase();
+    const excludedPaths = new Set(['api', 'assets', 'admin.html', 'index.html', 'login', 'login.html']);
+    if (firstSegment && !excludedPaths.has(firstSegment) && !firstSegment.endsWith('.html')) {
+        const normalized = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
+        return `/${firstSegment}${normalized}`;
+    }
+    return targetPath;
+}
+
 // アプリ情報をデフォルト画像にマッピング（後方互換性のため）
+// キーは DB (public.tenant_app_routings) の app_key と一致させる
 const defaultAppImages = {
     'planning': 'assets/img/Operation Planning to Performance Management.png',
-    'equipment': 'assets/img/Inspection Checklist.jpeg',
+    'inspection': 'assets/img/Inspection Checklist.jpeg',
     'emergency': 'assets/img/recovery.png',
-    'failure': 'assets/img/Machinery Failure Management.png',
-    'vehicle': 'assets/img/Inspection Checklist.jpeg' // ★ vehicle（保守用車管理システム）のデフォルト画像をセットしてリンク切れを防ぐ
+    'failure': 'assets/img/Machinery Failure Management.png'
 };
+
+// 画像読み込み失敗時のフォールバック処理。
+// default-app.png も読めない場合（未配置・削除等）は404を繰り返さず、画像自体を非表示にして
+// 隣接する app-icon-floating の絵文字/アイコン表示のみでカードを成立させる。
+function handleAppImageError(imgEl) {
+    if (imgEl.dataset.fallbackApplied === 'true') {
+        imgEl.onerror = null;
+        imgEl.style.display = 'none';
+        return;
+    }
+    imgEl.dataset.fallbackApplied = 'true';
+    imgEl.src = 'assets/img/default-app.png';
+}
 
 /**
  * テナントに紐づくアプリ情報を取得
@@ -22,47 +49,28 @@ const defaultAppImages = {
  */
 async function loadTenantApps() {
     try {
-        console.log('[App] Fetching tenant apps from /api/tenant-apps...');
-        const response = await fetch('/api/tenant-apps');
+        console.log('[App] Fetching authorized apps from /api/apps...');
+        const response = await fetch(getTenantApiPath('/api/apps'), { credentials: 'same-origin' });
         
         if (!response.ok) {
-            console.warn(`[App] API request failed with status ${response.status}, using fallback`);
-            return loadFallbackApps();
+            throw new Error(`App API request failed with status ${response.status}`);
         }
         
         const data = await response.json();
         console.log('[App] API response:', data);
         
         // APIレスポンスの検証
-        if (!data) {
-            console.warn('[App] Empty API response, using fallback');
-            return loadFallbackApps();
-        }
-        
-        if (!data.success) {
-            console.warn('[App] API returned success=false, using fallback. Error:', data.error);
-            return loadFallbackApps();
-        }
-        
-        if (!Array.isArray(data.apps)) {
-            console.warn('[App] API response does not contain apps array, using fallback');
-            return loadFallbackApps();
-        }
-        
-        if (data.apps.length === 0) {
-            console.warn('[App] API returned empty apps array (tenant may have no apps configured), using fallback');
-            return loadFallbackApps();
-        }
+        if (!data || !Array.isArray(data.apps)) throw new Error('App API response is invalid');
         
         // APIから取得したアプリ情報を内部形式に変換
         // DBから取得したデータ（id, name, url, icon, iconClass, description）を
         // フロントエンドの形式（id, title, url, icon, iconClass, description, image）に変換
         apps = data.apps.map(app => ({
-            id: app.id,
-            title: app.name,
+            id: app.app_key,
+            title: app.app_name,
             description: app.description || '',
-            image: defaultAppImages[app.id] || 'assets/img/default-app.png',
-            url: app.url,
+            image: defaultAppImages[app.app_key] || 'assets/img/default-app.png',
+            url: app.app_url,
             icon: app.icon || '📱',
             iconClass: app.iconClass || null  // Bootstrap Icons等のクラス名（例: 'bi-truck', 'bi-calendar'）
         }));
@@ -71,14 +79,15 @@ async function loadTenantApps() {
         
         // AppConfig.endpointsにも反映（後方互換性のため）
         data.apps.forEach(app => {
-            AppConfig.endpoints[app.id] = app.url;
+            AppConfig.endpoints[app.app_key] = app.app_url;
         });
         
         return true;
     } catch (error) {
         console.error('[App] Error loading tenant apps:', error);
         console.error('[App] Stack trace:', error.stack);
-        return loadFallbackApps();
+        apps = [];
+        return false;
     }
 }
 
@@ -103,26 +112,26 @@ function loadFallbackApps() {
     apps = [
         {
             id: 'planning',
-            title: '計画・運用管理',
-            description: '保守用車の運用計画作成から運用の実績を管理できます。',
+            title: '運用計画実績管理',
+            description: '保守用車の運用計画・実績を管理します',
             image: 'assets/img/Operation Planning to Performance Management.png',
             url: '#planning',
             icon: '📅',
             iconClass: 'bi-calendar-check'
         },
         {
-            id: 'equipment',
-            title: '保守用車管理',
-            description: '仕業点検簿の表示から実績を記録します。',
+            id: 'inspection',
+            title: '仕業点検管理',
+            description: '保守用車の仕業点検・点検記録を管理します',
             image: 'assets/img/Inspection Checklist.jpeg',
-            url: '#equipment',
+            url: '#inspection',
             icon: '🚛',
             iconClass: 'bi-truck'
         },
         {
             id: 'emergency',
-            title: '応急復旧支援',
-            description: '機械故障等の技術支援します。',
+            title: '応急処置支援',
+            description: '機械故障等の技術支援を行います',
             image: 'assets/img/recovery.png',
             url: '#emergency',
             icon: '🛠️',
@@ -131,7 +140,7 @@ function loadFallbackApps() {
         {
             id: 'failure',
             title: '機械故障管理',
-            description: '機械故障の原因分析と対策策定、発生状況と対応履歴を管理します。',
+            description: '機械故障の原因分析と対策、発生状況を管理します',
             image: 'assets/img/Machinery Failure Management.png',
             url: '#failure',
             icon: '⚠️',
@@ -146,7 +155,7 @@ function loadFallbackApps() {
 // 動的設定の読み込み
 async function loadDynamicConfig() {
     try {
-        const response = await fetch('/api/config');
+        const response = await fetch(getTenantApiPath('/api/config'));
         if (!response.ok) throw new Error('Failed to load config');
         const config = await response.json();
         
@@ -193,9 +202,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         await window.TenantContext.init();
     }
 
-    const token = localStorage.getItem('user_token');
-    if (!token) {
-        sessionStorage.setItem('clearLoginForm', 'true');
+    const authResponse = await fetch(getTenantApiPath('/api/auth/me'), { credentials: 'same-origin' });
+    if (!authResponse.ok) {
         const redirectTarget = `${window.location.pathname}${window.location.search}${window.location.hash}`;
         const loginTarget = `/login?redirect=${encodeURIComponent(redirectTarget)}`;
         const loginPath = window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
@@ -204,6 +212,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.location.replace(loginPath);
         return;
     }
+    const authData = await authResponse.json();
+    const userInfo = authData.user;
 
     // 設定をサーバーから読み込む
     await loadDynamicConfig();
@@ -213,14 +223,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const tenantEnvironmentLabel = document.getElementById('tenant-environment-label');
     if (tenantEnvironmentLabel) {
-        const userInfo = readStoredUserInfo() || {};
         const pathTenantId = window.location.pathname.split('/').filter(Boolean)[0] || '';
-        const tenantId = normalizeExternalTenantId(
-            pathTenantId || userInfo.tenant_id || userInfo.tenantId
-                || (window.TenantContext && typeof window.TenantContext.getTenantId === 'function'
-                    ? window.TenantContext.getTenantId()
-                    : '')
-        );
+        const tenantId = pathTenantId || userInfo.tenant_key || 'demo';
         const contextCompanyName = window.TenantContext && typeof window.TenantContext.getCompanyName === 'function'
             ? String(window.TenantContext.getCompanyName() || '').trim()
             : '';
@@ -245,12 +249,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     const closeBtn = document.getElementById('close-tooltip');
 
     // ユーザー情報の反映
-    const userInfoStr = localStorage.getItem('user_info');
-    console.log('[App] Raw user_info from localStorage:', userInfoStr);
-
-    if (userInfoStr) {
-        const userInfo = JSON.parse(userInfoStr);
-        console.log('[App] Parsed user info:', userInfo);
+    if (userInfo) {
+        console.log('[App] Authenticated user:', userInfo.username);
         console.log('[App] User role:', userInfo.role);
         console.log('[App] Role type:', typeof userInfo.role);
 
@@ -335,8 +335,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (headerAvatar) {
             headerAvatar.src = `https://ui-avatars.com/api/?name=${userInfo.username}&background=random`;
         }
-    } else {
-        console.warn('[App] No user_info found in localStorage');
     }
 
     let currentApp = null;
@@ -386,7 +384,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <h3>${app.title}</h3>
             </div>
             <div class="app-image-container">
-                <img src="${app.image}" alt="${app.title}" class="app-image" onerror="this.src='assets/img/default-app.png'; this.onerror=null;">
+                <img src="${app.image}" alt="${app.title}" class="app-image" data-fallback-applied="false" onerror="handleAppImageError(this)">
                 <div class="app-icon-floating">${iconDisplay}</div>
             </div>
             <div class="app-card-info">
@@ -438,146 +436,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         overlay.classList.add('hidden');
     }
 
-    function dispatchExternalAuthContext(targetWindow, targetOrigin, authContext) {
-        if (!targetWindow || targetWindow.closed || !targetOrigin || !authContext) {
-            return;
-        }
-
-        const payload = {
-            type: 'EXTERNAL_AUTH_CONTEXT',
-            token: authContext.token,
-            external_token: authContext.token,
-            tenantId: authContext.tenantId,
-            tenant: authContext.tenantId,
-            company_id: authContext.tenantId,
-            tenant_id: authContext.tenantId,
-            tenant_path: authContext.tenantPath,
-            role: authContext.role,
-            external_role: authContext.externalRole
-        };
-
-        const payloadToken = {
-            type: 'EXTERNAL_AUTH_TOKEN',
-            token: authContext.token,
-            external_token: authContext.token,
-            tenantId: authContext.tenantId,
-            tenant: authContext.tenantId,
-            company_id: authContext.tenantId,
-            tenant_id: authContext.tenantId,
-            tenant_path: authContext.tenantPath,
-            role: authContext.role,
-            external_role: authContext.externalRole
-        };
-
-        let attempts = 0;
-        const maxAttempts = 5;
-        const sendPayload = () => {
-            if (!targetWindow || targetWindow.closed) {
-                return;
-            }
-
-            // 互換性のため両方のイベントタイプを送信する
-            targetWindow.postMessage(payload, targetOrigin);
-            targetWindow.postMessage(payloadToken, targetOrigin);
-            attempts += 1;
-
-            if (attempts < maxAttempts) {
-                window.setTimeout(sendPayload, 300);
-            }
-        };
-
-        sendPayload();
-    }
-
-    function normalizeExternalTenantId(tenantId) {
-        const normalized = String(tenantId || '').trim().toLowerCase();
-        if (!normalized || normalized === 'demo_env') {
-            return 'demo';
-        }
-        return normalized;
-    }
-
-    function readStoredUserInfo() {
-        try {
-            const rawUserInfo = localStorage.getItem('user_info');
-            return rawUserInfo ? JSON.parse(rawUserInfo) : null;
-        } catch (error) {
-            console.warn('[App] Failed to parse stored user info:', error);
-            return null;
-        }
-    }
-
-    function getConfirmedTenantContext() {
-        const userInfo = readStoredUserInfo() || {};
-        const loginContext = window.TenantContext && typeof window.TenantContext.getLoginTenantContext === 'function'
-            ? window.TenantContext.getLoginTenantContext()
-            : null;
-        const currentContext = window.TenantContext && typeof window.TenantContext.getContext === 'function'
-            ? window.TenantContext.getContext()
-            : null;
-
-        let tenantId = userInfo.tenant_id || userInfo.tenantId
-            || (loginContext && (loginContext.tenant_id || loginContext.tenantId))
-            || (currentContext && currentContext.tenantId)
-            || 'demo';
-        tenantId = normalizeExternalTenantId(tenantId);
-
-        const storedTenantPath = userInfo.tenant_path || userInfo.tenantPath
-            || (loginContext && (loginContext.tenant_path || loginContext.tenantPath))
-            || (currentContext && currentContext.tenantPath)
-            || '/';
-        const dashboardTenantPath = tenantId === 'demo'
-            ? '/'
-            : (storedTenantPath && storedTenantPath !== '/' ? storedTenantPath : `/${tenantId}`);
-        const tenantPath = tenantId === 'demo' ? '/demo' : dashboardTenantPath;
-        const role = userInfo.role || (loginContext && loginContext.role) || '';
-        const externalRole = userInfo.externalRole || userInfo.external_role || role;
-
-        return { tenantId, tenantPath, dashboardTenantPath, role, externalRole };
-    }
-
-    function buildExternalAuthPayload() {
-        const token = localStorage.getItem('user_token') || '';
-        const tenantContext = getConfirmedTenantContext();
-        const userInfo = readStoredUserInfo() || {};
-
-        return {
-            token,
-            jwt: token,
-            tenantId: tenantContext.tenantId,
-            tenantPath: tenantContext.tenantPath,
-            role: tenantContext.role || userInfo.role || '',
-            externalRole: tenantContext.externalRole || userInfo.externalRole || userInfo.external_role || tenantContext.role || userInfo.role || '',
-            userInfo
-        };
-    }
-
-    function appendTenantLaunchParams(urlObj, tenantContext) {
-        const tenantId = normalizeExternalTenantId(tenantContext.tenantId);
-
-        urlObj.searchParams.set('tenant_id', tenantId);
-    }
-
-    function getExternalAppPathId(appId) {
-        const normalizedAppId = String(appId || '').trim().toLowerCase();
-        return normalizedAppId === 'equipment' ? 'vehicle' : normalizedAppId;
-    }
-
-    function applyTenantPathToExternalUrl(urlObj, tenantContext, appId) {
-        // urlObjが有効でなければ何もしない
-        if (!urlObj || !urlObj.pathname) return;
-
-        const tenantId = normalizeExternalTenantId(tenantContext.tenantId);
-        const externalAppId = getExternalAppPathId(appId);
-
-        if (!externalAppId) return;
-        urlObj.pathname = `/${tenantId}/${externalAppId}`;
-    }
-
-
-    launchBtn.addEventListener('click', () => {
+    launchBtn.addEventListener('click', async () => {
         const currentAppId = currentApp && currentApp.id;
-        const externalAppId = getExternalAppPathId(currentAppId);
+        // ダッシュボード配下の4アプリ（01運用計画/02仕業点検/03応急処置/04機械故障）は
+        // いずれもポップアップでSSOトークンをpostMessage経由で引き継ぐ必要がある。
+        const SSO_HANDSHAKE_APP_KEYS = new Set(['equipment', 'vehicle', 'inspection', 'planning', 'emergency', 'failure']);
+        const usesSsoHandshake = SSO_HANDSHAKE_APP_KEYS.has(currentAppId);
         console.log('currentAppId:', currentAppId);
         console.log('AppConfig.endpoints:', AppConfig.endpoints);
 
@@ -585,11 +449,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             ? currentApp.url
             : '';
         const baseUrl = selectedAppUrl
-            || AppConfig.endpoints[currentAppId]
-            || AppConfig.endpoints[externalAppId];
+            || AppConfig.endpoints[currentAppId];
         console.log('baseUrl:', baseUrl);
 
-        if (!baseUrl || !externalAppId) {
+        if (!baseUrl || !currentAppId) {
             alert('接続先URLが設定されていません。管理者にお問い合わせください。');
             return;
         }
@@ -608,63 +471,96 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        // ローカルストレージから認証情報を取得
-        const authPayload = buildExternalAuthPayload();
-        const token = authPayload.token;
-        const shouldUseExternalAuthBridge = true; // ★ すべてのアプリで共通ブリッジ及びパス組立を行う
-        let popupOrigin = '';
-        let authContext = null;
-
-        const urlObj = new URL(baseUrl, window.location.origin);
-        const confirmedTenantContext = {
-            tenantId: authPayload.tenantId,
-            tenantPath: authPayload.tenantPath,
-            role: authPayload.role,
-            externalRole: authPayload.externalRole
-        };
-        const externalTenantId = normalizeExternalTenantId(confirmedTenantContext.tenantId);
-
-        if (shouldUseExternalAuthBridge) {
-            applyTenantPathToExternalUrl(urlObj, confirmedTenantContext, externalAppId);
+        if (!usesSsoHandshake) {
+            const urlObj = new URL(baseUrl, window.location.origin);
+            urlObj.search = '';
+            window.open(urlObj.toString(), '_blank');
+            hideTooltip();
+            return;
         }
 
-        // 外部アプリが必要とする認証情報だけを新たに組み立てる。
-        urlObj.search = '';
-        if (token) {
-            urlObj.searchParams.set('token', token);
+        const appTitle = (currentApp && currentApp.title) || 'アプリ';
+        const launchTab = window.open('about:blank', '_blank');
+        if (!launchTab) {
+            alert(`${appTitle}を開けませんでした。ブラウザーのポップアップ設定をご確認ください。`);
+            return;
         }
-        appendTenantLaunchParams(urlObj, { tenantId: externalTenantId });
 
-        if (shouldUseExternalAuthBridge && token) {
-            authContext = {
-                token,
-                tenantId: externalTenantId,
-                tenantPath: confirmedTenantContext.tenantPath,
-                role: confirmedTenantContext.role,
-                externalRole: confirmedTenantContext.externalRole
+        try {
+            const response = await fetch(getTenantApiPath(`/api/apps/${encodeURIComponent(currentAppId)}/launch-token`), {
+                method: 'POST',
+                credentials: 'same-origin'
+            });
+            const launchContext = await response.json();
+            if (!response.ok || !launchContext.success || !launchContext.token) {
+                throw new Error(launchContext.message || '起動用の認証情報を取得できませんでした');
+            }
+
+            // 起動先URLは public.tenant_app_routings に登録された実際の待受先をそのまま使用する
+            const urlObj = new URL(baseUrl, window.location.origin);
+            urlObj.search = '';
+            const launchTenantId = launchContext.publicTenantId || launchContext.tenantKey;
+            urlObj.searchParams.set('tenant_id', launchTenantId);
+            urlObj.searchParams.set('tenant_path', `/${launchTenantId}`);
+            urlObj.searchParams.set('token', launchContext.token);
+
+            const externalContext = {
+                type: 'EXTERNAL_AUTH_CONTEXT',
+                token: launchContext.token,
+                tenantId: launchTenantId,
+                tenantPath: `/${launchTenantId}`,
+                role: launchContext.role
             };
+            const contextAcknowledged = new Promise((resolve, reject) => {
+                let contextSent = false;
+                const checkClosedInterval = window.setInterval(() => {
+                    if (launchTab.closed) {
+                        cleanup();
+                        reject(new Error(`${appTitle}の起動画面が閉じられました。\n再試行方法: 「${appTitle}」ボタンをもう一度押してアプリを起動してください。`));
+                    }
+                }, 400);
+
+                const timeoutId = window.setTimeout(() => {
+                    cleanup();
+                    reject(new Error(`${appTitle}との認証連携がタイムアウトしました。\n原因: アプリ画面（${urlObj.origin}）の応答がないか仕業点検API(3001)が停止しています。\n再試行方法: 画面を更新のうえ仕業点検ボタンを再押下してください。`));
+                }, 15000);
+
+                const cleanup = () => {
+                    window.clearInterval(checkClosedInterval);
+                    window.clearTimeout(timeoutId);
+                    window.removeEventListener('message', handleAuthMessage);
+                };
+
+                const handleAuthMessage = (event) => {
+                    if (event.source !== launchTab || event.origin !== urlObj.origin) return;
+
+                    const messageType = String(event.data && event.data.type || '');
+                    if (messageType === 'EXTERNAL_AUTH_READY' && !contextSent) {
+                        contextSent = true;
+                        launchTab.postMessage(externalContext, urlObj.origin);
+                    } else if (messageType === 'EXTERNAL_AUTH_ACK' && contextSent) {
+                        cleanup();
+                        resolve(true);
+                    } else if (messageType === 'EXTERNAL_AUTH_FAILED' && contextSent) {
+                        cleanup();
+                        reject(new Error(`${appTitle}で認証またはテナントDB確認に失敗しました。\n再試行方法: ダッシュボードから再ログインし、もう一度お試しください。`));
+                    }
+                };
+
+                window.addEventListener('message', handleAuthMessage);
+                launchTab.location.replace(urlObj.toString());
+            });
+
+            console.log('[App] Launching application:', urlObj.origin, currentAppId);
+            await contextAcknowledged;
+            hideTooltip();
+        } catch (error) {
+            if (!launchTab.closed) {
+                launchTab.close();
+            }
+            console.error('[App] Application launch failed:', error);
+            alert(error instanceof Error ? error.message : 'アプリを起動できませんでした');
         }
-
-        popupOrigin = urlObj.origin;
-        const finalUrl = urlObj.toString();
-
-        // 新しいタブで開く
-        console.log('[App] Launch auth payload:', {
-            url: finalUrl,
-            tenantId: authPayload.tenantId,
-            tenantPath: authPayload.tenantPath,
-            role: authPayload.role,
-            externalRole: authPayload.externalRole,
-            hasJwt: !!authPayload.token,
-            includesJwtParam: finalUrl.includes('jwt=') || finalUrl.includes('auth_token=') || finalUrl.includes('token=')
-        });
-        const openedWindow = window.open(finalUrl, '_blank');
-
-        if (shouldUseExternalAuthBridge && openedWindow && authContext && popupOrigin) {
-            dispatchExternalAuthContext(openedWindow, popupOrigin, authContext);
-        }
-
-        hideTooltip();
     });
 
     closeBtn.addEventListener('click', hideTooltip);
@@ -675,16 +571,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (logoutBtn) {
         logoutBtn.addEventListener('click', () => {
             if (confirm('ログアウトしますか？')) {
-                // ローカルストレージをクリア
-                localStorage.removeItem('user_token');
-                localStorage.removeItem('user_info');
-                // ログインフォームをクリアするフラグを設定
-                sessionStorage.setItem('clearLoginForm', 'true');
-                const confirmedTenantContext = getConfirmedTenantContext();
-                const loginPath = window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
-                    ? window.TenantContext.buildPathForTenant('/login.html', confirmedTenantContext.dashboardTenantPath)
-                    : '/login.html';
-                window.location.href = loginPath;
+                fetch(getTenantApiPath('/api/logout'), { method: 'POST', credentials: 'same-origin' })
+                    .finally(() => { window.location.href = '/login.html'; });
             }
         });
     }

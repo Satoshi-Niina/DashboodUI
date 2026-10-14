@@ -11,6 +11,11 @@ function getTenantIdFromLocation() {
 }
 
 function getTenantPathFromLocation() {
+    const pathSegments = window.location.pathname.split('/').filter(Boolean);
+    const firstSegment = String(pathSegments[0] ?? '').trim().toLowerCase();
+    if (firstSegment === 'demo') {
+        return '/demo';
+    }
     const tenantId = getTenantIdFromLocation();
     return tenantId === 'demo' ? '/' : `/${tenantId}`;
 }
@@ -44,6 +49,9 @@ function getTenantInfoFromRedirectTarget(redirectTarget) {
 
     try {
         const url = new URL(redirectTarget, window.location.origin);
+        if (url.origin !== window.location.origin) {
+            return null;
+        }
         const pathSegments = url.pathname.split('/').filter(Boolean);
         const firstSegment = String(pathSegments[0] ?? '').trim().toLowerCase();
         const excludedPaths = new Set(['api', 'assets', 'admin.html', 'index.html', 'login', 'login.html']);
@@ -122,60 +130,38 @@ document.addEventListener('DOMContentLoaded', () => {
             ? (redirectTenantInfo && redirectTenantInfo.tenantPath) || window.TenantContext.getTenantPath()
             : getTenantPathFromLocation();
         const tenantKey = getTenantKeyFromCurrentPath();
-        const loginTenantContext = window.TenantContext && typeof window.TenantContext.persistLoginTenant === 'function'
-            ? window.TenantContext.persistLoginTenant({ tenant_id: tenantId, tenant_path: tenantPath })
-            : { tenant_id: tenantId, tenant_path: tenantPath };
-
         try {
             // APIリクエスト送信に実コンテキストのテナントIDを明示的にのせる
             console.log(`[Login] Logging in to tenant: ${tenantId}`);
-            const response = await fetch(`/api/login?tenant_id=${encodeURIComponent(tenantId)}`, {
+            const loginApiPath = window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
+                ? window.TenantContext.buildPathForTenant('/api/login', tenantPath)
+                : '/api/login';
+            const response = await fetch(`${loginApiPath}?tenant_id=${encodeURIComponent(tenantId)}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Tenant-ID': tenantKey
+                    'X-Tenant-Key': tenantKey || tenantId
                 },
-                body: JSON.stringify({ username, password, tenantKey: tenantKey, tenant_id: tenantId, tenant_path: tenantPath })
+                body: JSON.stringify({ username, password, tenantKey: tenantKey || tenantId, tenant_id: tenantId, tenant_path: tenantPath })
             });
 
             const data = await response.json();
             console.log('[Login] Response:', {
                 success: !!data.success,
-                hasToken: !!data.token,
-                tenant_id: data.tenant_id || (data.user && data.user.tenant_id),
-                tenant_path: data.tenant_path || (data.user && data.user.tenant_path),
-                role: data.role || (data.user && data.user.role)
+                tenant_id: data.user && data.user.tenant_id,
+                role: data.user && data.user.role
             });
 
             if (data.success) {
                 // 認証成功
-                console.log('[Login] Token:', data.token ? 'exists' : 'missing');
                 console.log('[Login] User data:', data.user);
-                
-                localStorage.setItem('user_token', data.token);
-                localStorage.setItem('user_info', JSON.stringify(data.user));
-                const confirmedTenantContext = window.TenantContext && typeof window.TenantContext.persistLoginTenant === 'function'
-                    ? window.TenantContext.persistLoginTenant({
-                        tenant_id: data.tenant_id || (data.user && data.user.tenant_id) || loginTenantContext.tenant_id,
-                        tenant_path: data.tenant_path || (data.user && data.user.tenant_path) || loginTenantContext.tenant_path,
-                        role: data.role || (data.user && data.user.role),
-                        company_name: data.company_name || (data.user && data.user.company_name) || '',
-                        tenant_name: data.tenant_name || (data.user && data.user.tenant_name) || '',
-                        company_code: data.company_code || (data.user && data.user.company_code) || '',
-                        roles: data.roles || (data.user && data.user.roles) || []
-                    })
-                    : loginTenantContext;
-                
-                console.log('[Login] Saved to localStorage');
-                console.log('[Login] Token check:', localStorage.getItem('user_token') ? 'OK' : 'FAILED');
-                console.log('[Login] User info check:', localStorage.getItem('user_info') ? 'OK' : 'FAILED');
 
                 // 成功アニメーションを表示してから遷移
                 btnText.textContent = 'リダイレクト中...';
                 setTimeout(() => {
-                    const targetPath = redirectTarget || (window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
-                        ? window.TenantContext.buildPathForTenant('/index.html', confirmedTenantContext.tenant_path)
-                        : buildIndexPathForTenant(confirmedTenantContext.tenant_path));
+                    const targetPath = window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
+                        ? window.TenantContext.buildPathForTenant('/index.html', tenantPath)
+                        : buildIndexPathForTenant(tenantPath);
                     window.location.href = targetPath;
                 }, 800);
             } else {

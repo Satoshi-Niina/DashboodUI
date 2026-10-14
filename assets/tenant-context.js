@@ -91,6 +91,11 @@
 
     function tenantPathFromUrl(fullUrl) {
         const tenantId = tenantIdFromPath(fullUrl);
+        const pathname = normalizePath(fullUrl);
+        const firstSegment = pathname.split('/').filter(Boolean)[0] || '';
+        if (tenantId === 'demo' && firstSegment === 'demo') {
+            return '/demo';
+        }
         return tenantId === 'demo' ? '/' : `/${tenantId}`;
     }
 
@@ -160,13 +165,8 @@
     function buildRequestHeaders(existingHeaders) {
         const headers = new Headers(existingHeaders || {});
         const requestTenantContext = getRequestTenantContext();
-        const token = localStorage.getItem('user_token');
-
-        if (token) {
-            headers.set('Authorization', `Bearer ${token}`);
-        }
-
-        headers.set('X-Tenant-ID', requestTenantContext.tenantId);
+        headers.delete('authorization');
+        headers.set('X-Tenant-Id', requestTenantContext.tenantId);
         headers.set('X-Tenant-Path', requestTenantContext.tenantPath);
         headers.set('X-Tenant-Full-Url', requestTenantContext.fullUrl);
 
@@ -233,8 +233,6 @@
     }
 
     function clearTenantAuthState() {
-        localStorage.removeItem('user_token');
-        localStorage.removeItem('user_info');
         localStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem(LOGIN_STORAGE_KEY);
     }
@@ -270,7 +268,9 @@
 
         return {
             tenantId,
-            tenantPath: tenantPathParam && tenantPathParam !== '/' ? tenantPathParam : (tenantId === 'demo' ? '/' : `/${tenantId}`)
+            tenantPath: tenantPathParam && tenantPathParam !== '/'
+                ? tenantPathParam
+                : tenantPathFromUrl(window.location.href)
         };
     }
 
@@ -402,7 +402,9 @@
         const dbName = routeRow ? (routeRow.db_name || '') : '';
         const storageBucketName = routeRow ? (routeRow.storage_bucket_name || '') : '';
         const resolvedTenantPath = currentUrlTenant.tenantId === 'demo'
-            ? (matchedTenantPath ? normalizePath(matchedTenantPath) : resolved.tenantPath)
+            ? (currentUrlTenant.tenantPath === '/demo'
+                ? '/demo'
+                : (matchedTenantPath ? normalizePath(matchedTenantPath) : resolved.tenantPath))
             : currentUrlTenant.tenantPath;
         const effectiveTenantId = currentUrlTenant.tenantId === 'demo'
             ? (routeTenantId || resolved.tenantId)
@@ -436,52 +438,42 @@
         return initPromise;
     }
 
-    function isApiRequest(urlLike) {
+    function getApiPath(urlLike) {
         try {
             const parsed = new URL(urlLike, window.location.origin);
-            return parsed.origin === window.location.origin && parsed.pathname.startsWith('/api');
+            if (parsed.origin !== window.location.origin) {
+                return '';
+            }
+            if (parsed.pathname === '/api') {
+                return '/api';
+            }
+            const apiPathIndex = parsed.pathname.indexOf('/api/');
+            return apiPathIndex >= 0 ? parsed.pathname.slice(apiPathIndex) : '';
         } catch (_) {
-            return false;
+            return '';
         }
+    }
+
+    function isApiRequest(urlLike) {
+        return Boolean(getApiPath(urlLike));
     }
 
     function isTenantBootstrapApi(urlLike) {
-        try {
-            const parsed = new URL(urlLike, window.location.origin);
-            if (parsed.origin !== window.location.origin) {
-                return false;
-            }
-            return parsed.pathname === '/api/tenant-routing' || parsed.pathname === '/api/tenant-context';
-        } catch (_) {
-            return false;
-        }
+        const apiPath = getApiPath(urlLike);
+        return apiPath === '/api/tenant-routing' || apiPath === '/api/tenant-context';
     }
 
     function isRefreshExcludedApi(urlLike) {
-        try {
-            const parsed = new URL(urlLike, window.location.origin);
-            if (parsed.origin !== window.location.origin) {
-                return true;
-            }
-
-            return parsed.pathname === '/api/login'
-                || parsed.pathname === '/api/logout'
-                || parsed.pathname === '/api/refresh-token'
-                || parsed.pathname === '/api/verify-token';
-        } catch (_) {
+        const apiPath = getApiPath(urlLike);
+        if (!apiPath) {
             return true;
         }
+
+        return ['/api/login', '/api/logout', '/api/refresh-token', '/api/verify-token'].includes(apiPath);
     }
 
     function shouldAttemptAutoRefresh() {
-        const hasUserInfo = !!localStorage.getItem('user_info');
-        const hasTokenMarker = !!localStorage.getItem('user_token');
-        if (!hasUserInfo && !hasTokenMarker) {
-            return false;
-        }
-
-        const elapsed = Date.now() - lastTokenRefreshAt;
-        return elapsed >= AUTO_REFRESH_INTERVAL_MS;
+        return false;
     }
 
     function scheduleSessionRefresh() {
@@ -495,28 +487,7 @@
 
         refreshInFlightPromise = (async () => {
             try {
-                const token = localStorage.getItem('user_token');
-                const payload = token && token !== 'session_active' ? { token } : {};
-                const headers = buildRequestHeaders({ 'Content-Type': 'application/json' });
-
-                const response = await nativeFetch('/api/refresh-token', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers,
-                    body: JSON.stringify(payload)
-                });
-
-                if (!response.ok) {
-                    return;
-                }
-
-                const data = await response.json().catch(() => null);
-                if (data && data.success) {
-                    if (typeof data.token === 'string' && data.token.trim()) {
-                        localStorage.setItem('user_token', data.token);
-                    }
-                    lastTokenRefreshAt = Date.now();
-                }
+                return;
             } catch (_) {
                 // ユーザー操作の本体リクエストを妨げないため、リフレッシュ失敗は握りつぶす
             } finally {
@@ -528,7 +499,7 @@
     if (axiosClient) {
         axiosClient.interceptors.request.use((config) => {
             const requestUrl = new URL(config.url || '', window.location.href);
-            if (requestUrl.origin !== window.location.origin || !requestUrl.pathname.startsWith('/api') || isTenantBootstrapApi(requestUrl.toString())) {
+            if (requestUrl.origin !== window.location.origin || !isApiRequest(requestUrl.toString()) || isTenantBootstrapApi(requestUrl.toString())) {
                 return config;
             }
 
@@ -594,8 +565,7 @@
                 return tenantContext.tenantPath;
             }
             // フォールバック: 現在のURLパスから動的に取得
-            const tenantId = getCurrentUrlTenantContext().tenantId;
-            return tenantId === 'demo' ? '/' : `/${tenantId}`;
+            return getCurrentUrlTenantContext().tenantPath;
         },
         getCompanyName: () => (tenantContext ? (tenantContext.companyName || tenantContext.tenantName || '') : ''),
         getTenantName: () => (tenantContext ? (tenantContext.tenantName || tenantContext.companyName || '') : ''),

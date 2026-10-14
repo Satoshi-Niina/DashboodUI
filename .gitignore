@@ -2,13 +2,29 @@
 node_modules/
 npm-debug.log
 yarn-error.log
-package-lock.json
 
 # Environment variables
 .env
-.env.local
-.env.*.local
-.env.production
+.env.*
+.env*.local
+!.env.example
+!.env.*.example
+
+# Secrets & Credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*credentials*.json
+*-key.json
+
+# Local database backups
+backups/
+*.dump
+
+# Generated deployment environment file
+cloudrun-env.yaml
 
 # Logs
 *.log
