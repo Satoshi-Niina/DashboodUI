@@ -34,7 +34,8 @@ test('tenant migrations are ordered and only baseline after verifying an existin
     '008_four_digit_machine_type_codes',
     '009_prefixed_machine_type_codes',
     '010_machine_specific_inspection_types',
-    '011_reorganize_tenant_auth_and_masters'
+    '011_reorganize_tenant_auth_and_masters',
+    '012_restore_machines_public_schema'
   ]);
   assert.match(migrations[0].baselineVerifySql, /data_type = 'uuid'/i);
   assert.match(migrations[1].verifySql, /inspection_schedules/i);

@@ -51,6 +51,7 @@ const PORT = Number(process.env.PORT) || 8080;
 const PUBLIC_DIR = path.join(__dirname, 'assets');
 let serverInstance;
 let dbReady = false;
+const tenantHealthMap = new Map();
 
 app.set('views', path.join(__dirname, 'views'));
 app.engine('jst', ejs.__express);
@@ -1061,6 +1062,11 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
     throw new Error('Tenant is not allowed for this URL');
   }
 
+  const tenantHealth = tenantHealthMap.get(expectedTenantKey) || tenantHealthMap.get(normalizedTenantId);
+  if (tenantHealth && !tenantHealth.healthy) {
+    throw new Error(`Tenant "${expectedTenantKey}" is temporarily unavailable: schema verification failed`);
+  }
+
   if (expectedTenantKey === 'demo_env') {
     if (!isDemoAliasEnabled()) {
       throw new Error('Tenant is not specified');
@@ -1492,6 +1498,60 @@ pool = new Proxy(controlPlanePool, {
   }
 });
 
+// ログインAPIまたはセッション確立系リクエストであるかを包括的に判定
+function isLoginApiRequest(req) {
+  if (!req) return false;
+  const rawTargets = [
+    req.path,
+    req.url,
+    req.originalUrl,
+    req.baseUrl ? `${req.baseUrl}${req.path}` : ''
+  ];
+
+  for (const raw of rawTargets) {
+    if (!raw) continue;
+    const clean = String(raw).split('?')[0].toLowerCase();
+    if (
+      clean === '/login' ||
+      clean === '/api/login' ||
+      clean.endsWith('/login') ||
+      clean.includes('/api/login') ||
+      clean.includes('/login')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isSessionBootstrapApiRequest(req) {
+  if (isLoginApiRequest(req)) return true;
+  const rawTargets = [
+    req.path,
+    req.url,
+    req.originalUrl,
+    req.baseUrl ? `${req.baseUrl}${req.path}` : ''
+  ];
+
+  for (const raw of rawTargets) {
+    if (!raw) continue;
+    const clean = String(raw).split('?')[0].toLowerCase();
+    if (
+      clean === '/logout' ||
+      clean === '/api/logout' ||
+      clean.endsWith('/logout') ||
+      clean.includes('/api/logout') ||
+      clean === '/tenant-context' ||
+      clean === '/api/tenant-context' ||
+      clean.endsWith('/tenant-context') ||
+      clean.includes('/api/tenant-context')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // APIリクエストのテナント文脈を解決し、以降のDB/GCS処理に引き継ぐ
 app.use('/api', async (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
@@ -1499,8 +1559,8 @@ app.use('/api', async (req, res, next) => {
   res.setHeader('Expires', '0');
   res.setHeader('Surrogate-Control', 'no-store');
 
-  const apiEndpointPath = req.path.startsWith('/api/') ? req.path : `/api${req.path}`;
-  const isSessionBootstrapRequest = ['/api/login', '/api/logout', '/api/tenant-context'].includes(apiEndpointPath);
+  const isLogin = isLoginApiRequest(req);
+  const isBootstrap = isLogin || isSessionBootstrapApiRequest(req);
 
   try {
     const requestedTenantId = extractTenantIdFromRequest(req) || req.requestedTenantId || 'demo_env';
@@ -1515,7 +1575,7 @@ app.use('/api', async (req, res, next) => {
         originalUrl: String(req.originalUrl || req.url || '').trim()
       });
     } catch (routingErr) {
-      if (isSessionBootstrapRequest) {
+      if (isBootstrap) {
         runtime = {
           requestedTenantId,
           resolvedTenantId: null,
@@ -1533,6 +1593,21 @@ app.use('/api', async (req, res, next) => {
       }
     }
 
+    if (isLogin && (!runtime || !runtime.pool)) {
+      runtime = {
+        requestedTenantId,
+        resolvedTenantId: runtime?.resolvedTenantId || null,
+        companyId: runtime?.companyId || null,
+        companyName: runtime?.companyName || '',
+        dbName: defaultDbName,
+        databaseUrl: null,
+        storageBucketName: getDefaultBucketName(),
+        tenantPath: runtime?.tenantPath || '',
+        pool: getControlPlanePool(),
+        isFallback: true
+      };
+    }
+
     req.tenantContext = runtime;
     req.tenantId = runtime.resolvedTenantId || requestedTenantId || 'demo_env';
     req.db = runtime.pool || getControlPlanePool();
@@ -1544,95 +1619,98 @@ app.use('/api', async (req, res, next) => {
       applyTenantErrorHeaders(res, runtime.tenantResolutionError);
     }
 
-    const normalizedRequestedTenantId = String(requestedTenantId || '').trim().toLowerCase();
-    const normalizedResolvedTenantId = String(runtime.resolvedTenantId || 'demo_env').trim().toLowerCase();
-    const normalizedResolvedDbName = String(runtime.dbName || '').trim().toLowerCase();
-    const normalizedDefaultDbName = String(defaultDbName || '').trim().toLowerCase();
-    const isDemoTenant = (tenantKey) => {
-      const key = String(tenantKey || '').trim().toLowerCase();
-      return !key || key === 'demo_env' || key === 'demo';
-    };
-    const requiresIsolation = !(isDemoTenant(normalizedRequestedTenantId) && isDemoTenant(normalizedResolvedTenantId));
+    // ログインまたはセッションブートストラップリクエストの場合は、テナントDB分離チェックおよびセッション権限チェックを完全にスキップ
+    if (!isBootstrap) {
+      const normalizedRequestedTenantId = String(requestedTenantId || '').trim().toLowerCase();
+      const normalizedResolvedTenantId = String(runtime.resolvedTenantId || 'demo_env').trim().toLowerCase();
+      const normalizedResolvedDbName = String(runtime.dbName || '').trim().toLowerCase();
+      const normalizedDefaultDbName = String(defaultDbName || '').trim().toLowerCase();
+      const isDemoTenant = (tenantKey) => {
+        const key = String(tenantKey || '').trim().toLowerCase();
+        return !key || key === 'demo_env' || key === 'demo';
+      };
+      const requiresIsolation = !(isDemoTenant(normalizedRequestedTenantId) && isDemoTenant(normalizedResolvedTenantId));
 
-    if (!isSessionBootstrapRequest && requiresIsolation && (!normalizedResolvedDbName || normalizedResolvedDbName === normalizedDefaultDbName)) {
-      const isolationError = new Error(`[TenantRouting] Isolation violation: requested=${normalizedRequestedTenantId || 'empty'}, resolved=${normalizedResolvedTenantId || 'empty'}, db=${runtime.dbName || 'empty'}, defaultDb=${defaultDbName}. Check public.tenant_app_routings (app_id='_config') for db_name and tenant_path.`);
-      applyTenantErrorHeaders(res, isolationError);
-      return res.status(503).json({
-        success: false,
-        message: 'Tenant DB isolation check failed',
-        error: isolationError.message,
-        requestedTenantId: normalizedRequestedTenantId || 'demo_env',
-        resolvedTenantId: normalizedResolvedTenantId || 'demo_env',
-        resolvedDbName: runtime.dbName || '',
-        defaultDbName
-      });
-    }
+      if (requiresIsolation && (!normalizedResolvedDbName || normalizedResolvedDbName === normalizedDefaultDbName)) {
+        const isolationError = new Error(`[TenantRouting] Isolation violation: requested=${normalizedRequestedTenantId || 'empty'}, resolved=${normalizedResolvedTenantId || 'empty'}, db=${runtime.dbName || 'empty'}, defaultDb=${defaultDbName}. Check public.tenant_app_routings (app_id='_config') for db_name and tenant_path.`);
+        applyTenantErrorHeaders(res, isolationError);
+        return res.status(503).json({
+          success: false,
+          message: 'Tenant DB isolation check failed',
+          error: isolationError.message,
+          requestedTenantId: normalizedRequestedTenantId || 'demo_env',
+          resolvedTenantId: normalizedResolvedTenantId || 'demo_env',
+          resolvedDbName: runtime.dbName || '',
+          defaultDbName
+        });
+      }
 
-    if (!isSessionBootstrapRequest && req.headers.cookie) {
-      let session = null;
-      try {
-        session = commonAuth.readSession(req);
-      } catch (_) { }
-      if (session) {
-        const sessionTenantKey = String(session.tenant_key || '').trim().toLowerCase();
-        let resolvedSessionTenantKey = sessionTenantKey;
-        if (!resolvedSessionTenantKey) {
-          const sessionTenant = await resolveSessionTenant(getControlPlanePool(), session);
-          resolvedSessionTenantKey = String(sessionTenant?.tenant_key || '').trim().toLowerCase();
-        }
-        const requestedRouteTenantKey = String(runtime.resolvedTenantId || '').trim().toLowerCase();
-        if (requestedRouteTenantKey && (!resolvedSessionTenantKey || resolvedSessionTenantKey !== requestedRouteTenantKey)) {
-          return res.status(403).json({
-            success: false,
-            message: 'ログインユーザーの所属テナントと要求先が一致しません',
-            requestedTenantId: requestedRouteTenantKey || 'unknown'
-          });
-        }
-        let sessionHasCurrentAccess = null;
+      if (req.headers.cookie) {
+        let session = null;
         try {
-          if (session.auth_source === 'tenant') {
-            sessionHasCurrentAccess = await runtime.pool.query(`
-                SELECT 1 FROM public.users
-                WHERE id::text = $1 AND is_active = true AND role = $2
-                LIMIT 1
-              `, [String(session.sub || ''), String(session.role || '')]);
-          } else {
-            sessionHasCurrentAccess = await getControlPlanePool().query(`
-                SELECT COALESCE(
-                  array_agg(DISTINCT p.permission_key) FILTER (WHERE p.permission_key IS NOT NULL),
-                  '{}'
-                ) AS permissions
-                FROM public.users u
-                JOIN public.user_tenants ut ON ut.user_id = u.id AND ut.is_active = true
-                JOIN public.tenants t ON t.id = ut.tenant_id AND t.is_active = true
-                JOIN public.user_roles ur ON ur.user_id = u.id AND ur.tenant_id = t.id
-                JOIN public.roles r ON r.id = ur.role_id
-                LEFT JOIN public.role_permissions rp ON rp.role_id = r.id
-                LEFT JOIN public.permissions p ON p.id = rp.permission_id
-                WHERE u.id::text = $1
-                  AND t.tenant_key = $2
-                  AND r.role_key = $3
-                  AND u.is_active = true
-                GROUP BY u.id, t.id, r.id
-                LIMIT 1
-              `, [String(session.sub || ''), requestedRouteTenantKey, String(session.role || '')]);
+          session = commonAuth.readSession(req);
+        } catch (_) { }
+        if (session) {
+          const sessionTenantKey = String(session.tenant_key || '').trim().toLowerCase();
+          let resolvedSessionTenantKey = sessionTenantKey;
+          if (!resolvedSessionTenantKey) {
+            const sessionTenant = await resolveSessionTenant(getControlPlanePool(), session);
+            resolvedSessionTenantKey = String(sessionTenant?.tenant_key || '').trim().toLowerCase();
           }
-        } catch (authErr) {
-          console.warn('[TenantRouting] Session permission check fallback:', authErr.code || authErr.message);
-        }
-
-        if (sessionHasCurrentAccess) {
-          const currentPermissions = (sessionHasCurrentAccess.rows[0]?.permissions || []).map(String).sort();
-          const sessionPermissions = (Array.isArray(session.permissions) ? session.permissions : []).map(String).sort();
-          const permissionsMatch = session.auth_source === 'tenant'
-            || (currentPermissions.length === sessionPermissions.length
-              && currentPermissions.every((permission, index) => permission === sessionPermissions[index]));
-          if (sessionHasCurrentAccess.rowCount !== 1 || !permissionsMatch) {
+          const requestedRouteTenantKey = String(runtime.resolvedTenantId || '').trim().toLowerCase();
+          if (requestedRouteTenantKey && (!resolvedSessionTenantKey || resolvedSessionTenantKey !== requestedRouteTenantKey)) {
             return res.status(403).json({
               success: false,
-              message: 'ログインユーザーの所属または利用権限が無効です',
+              message: 'ログインユーザーの所属テナントと要求先が一致しません',
               requestedTenantId: requestedRouteTenantKey || 'unknown'
             });
+          }
+          let sessionHasCurrentAccess = null;
+          try {
+            if (session.auth_source === 'tenant') {
+              sessionHasCurrentAccess = await runtime.pool.query(`
+                  SELECT 1 FROM public.users
+                  WHERE id::text = $1 AND is_active = true AND role = $2
+                  LIMIT 1
+                `, [String(session.sub || ''), String(session.role || '')]);
+            } else {
+              sessionHasCurrentAccess = await getControlPlanePool().query(`
+                  SELECT COALESCE(
+                    array_agg(DISTINCT p.permission_key) FILTER (WHERE p.permission_key IS NOT NULL),
+                    '{}'
+                  ) AS permissions
+                  FROM public.users u
+                  JOIN public.user_tenants ut ON ut.user_id = u.id AND ut.is_active = true
+                  JOIN public.tenants t ON t.id = ut.tenant_id AND t.is_active = true
+                  JOIN public.user_roles ur ON ur.user_id = u.id AND ur.tenant_id = t.id
+                  JOIN public.roles r ON r.id = ur.role_id
+                  LEFT JOIN public.role_permissions rp ON rp.role_id = r.id
+                  LEFT JOIN public.permissions p ON p.id = rp.permission_id
+                  WHERE u.id::text = $1
+                    AND t.tenant_key = $2
+                    AND r.role_key = $3
+                    AND u.is_active = true
+                  GROUP BY u.id, t.id, r.id
+                  LIMIT 1
+                `, [String(session.sub || ''), requestedRouteTenantKey, String(session.role || '')]);
+            }
+          } catch (authErr) {
+            console.warn('[TenantRouting] Session permission check fallback:', authErr.code || authErr.message);
+          }
+
+          if (sessionHasCurrentAccess) {
+            const currentPermissions = (sessionHasCurrentAccess.rows[0]?.permissions || []).map(String).sort();
+            const sessionPermissions = (Array.isArray(session.permissions) ? session.permissions : []).map(String).sort();
+            const permissionsMatch = session.auth_source === 'tenant'
+              || (currentPermissions.length === sessionPermissions.length
+                && currentPermissions.every((permission, index) => permission === sessionPermissions[index]));
+            if (sessionHasCurrentAccess.rowCount !== 1 || !permissionsMatch) {
+              return res.status(403).json({
+                success: false,
+                message: 'ログインユーザーの所属または利用権限が無効です',
+                requestedTenantId: requestedRouteTenantKey || 'unknown'
+              });
+            }
           }
         }
       }
@@ -1640,6 +1718,27 @@ app.use('/api', async (req, res, next) => {
 
     requestTenantContextStorage.run(runtime, () => next());
   } catch (err) {
+    if (isBootstrap) {
+      console.warn('[TenantRouting] Bypassing tenant resolution error for login/bootstrap request:', err.message);
+      const defaultDbName = getDefaultDbName();
+      const fallbackRuntime = {
+        requestedTenantId: req.requestedTenantId || 'demo_env',
+        resolvedTenantId: null,
+        companyId: null,
+        companyName: '',
+        dbName: defaultDbName,
+        databaseUrl: null,
+        storageBucketName: getDefaultBucketName(),
+        tenantPath: '',
+        pool: getControlPlanePool(),
+        isFallback: true
+      };
+      req.tenantContext = fallbackRuntime;
+      req.tenantId = req.requestedTenantId || 'demo_env';
+      req.db = getControlPlanePool();
+      return requestTenantContextStorage.run(fallbackRuntime, () => next());
+    }
+
     console.error('[TenantRouting] Middleware failed:', err.message);
     applyTenantErrorHeaders(res, err);
 
@@ -2524,210 +2623,146 @@ app.post('/api/login', async (req, res) => {
   try {
     const cpPool = getControlPlanePool();
 
-    // 1. 方式 C: common_db による統合認証 & 所属テナント自動判定
-    let commonUser = null;
+    // 1. テナント特定:
+    // (A) リクエスト（URLまたはヘッダー/body）でテナントが指定されている場合
+    let effectiveTenantKey = requestedTenantKey || (urlTenantKey && urlTenantKey !== 'demo_env' ? urlTenantKey : '');
+    let tenantInfo = null;
 
-    // 1-1) public.users + public.user_tenants + public.tenants を試行
-    try {
-      const commonUserRes = await cpPool.query(`
-        SELECT
-          u.id AS user_id,
-          u.username,
-          u.password_hash,
-          COALESCE(u.display_name, u.username) AS display_name,
-          COALESCE(u.role, 'operator') AS role,
-          t.id::text AS tenant_id,
-          t.tenant_key,
-          t.tenant_name
-        FROM public.users u
-        LEFT JOIN public.user_tenants ut ON ut.user_id = u.id AND ut.is_active = true
-        LEFT JOIN public.tenants t ON t.id = ut.tenant_id AND t.is_active = true
-        WHERE u.username = $1 AND u.is_active = true
-        ORDER BY (CASE WHEN t.tenant_key = $2 THEN 0 ELSE 1 END), t.tenant_key
-        LIMIT 1
-      `, [username, requestedTenantKey || '']);
-      if (commonUserRes.rows[0]) {
-        commonUser = commonUserRes.rows[0];
-      }
-    } catch (err) {
-      console.warn('[TenantAuth] user_tenants query failed:', err.code || err.message);
-    }
-
-    // 1-2) public.user_org_memberships + public.organizations へのフォールバック
-    if (!commonUser || !commonUser.tenant_key) {
+    // (B) テナント未指定（統合ログイン）の場合: 共通DBの所属管理テーブルからテナントを解決
+    if (!effectiveTenantKey) {
       try {
-        const orgUserRes = await cpPool.query(`
+        const userTenantRes = await cpPool.query(`
           SELECT
-            u.id AS user_id,
-            u.username,
-            u.password_hash,
-            COALESCE(u.display_name, u.username) AS display_name,
-            COALESCE(u.role, 'operator') AS role,
-            o.id::text AS tenant_id,
-            o.code AS tenant_key,
-            o.name AS tenant_name
+            t.id::text AS tenant_id,
+            t.tenant_key,
+            t.tenant_name
           FROM public.users u
-          LEFT JOIN public.user_org_memberships uom ON uom.user_id = u.id
-          LEFT JOIN public.organizations o ON o.id = uom.org_id
+          JOIN public.user_tenants ut ON ut.user_id = u.id AND ut.is_active = true
+          JOIN public.tenants t ON t.id = ut.tenant_id AND t.is_active = true
           WHERE u.username = $1 AND u.is_active = true
-          ORDER BY (CASE WHEN o.code = $2 THEN 0 ELSE 1 END), o.code
-          LIMIT 1
-        `, [username, requestedTenantKey || '']);
-        if (orgUserRes.rows[0]) {
-          if (!commonUser) {
-            commonUser = orgUserRes.rows[0];
-          } else if (orgUserRes.rows[0].tenant_key) {
-            commonUser.tenant_id = orgUserRes.rows[0].tenant_id;
-            commonUser.tenant_key = orgUserRes.rows[0].tenant_key;
-            commonUser.tenant_name = orgUserRes.rows[0].tenant_name;
-          }
-        }
-      } catch (err) {
-        console.warn('[TenantAuth] user_org_memberships query failed:', err.code || err.message);
-      }
-    }
-
-    // 1-3) ユーザー単体取得 & ルーティング一覧からのフォールバック解決
-    if (!commonUser) {
-      try {
-        const simpleUserRes = await cpPool.query(`
-          SELECT
-            id AS user_id,
-            username,
-            password_hash,
-            COALESCE(display_name, username) AS display_name,
-            COALESCE(role, 'operator') AS role
-          FROM public.users
-          WHERE username = $1 AND is_active = true
           LIMIT 1
         `, [username]);
-        if (simpleUserRes.rows[0]) {
-          commonUser = simpleUserRes.rows[0];
+        if (userTenantRes.rows[0]) {
+          effectiveTenantKey = userTenantRes.rows[0].tenant_key;
+          tenantInfo = userTenantRes.rows[0];
         }
       } catch (err) {
-        console.warn('[TenantAuth] simple users query failed:', err.code || err.message);
+        console.warn('[TenantAuth] user_tenants query failed:', err.code || err.message);
       }
-    }
 
-    if (commonUser && commonUser.password_hash) {
-      const compareCandidate = async () => {
-        if (String(commonUser.password_hash).startsWith('$2')) {
-          return bcrypt.compare(password, commonUser.password_hash);
-        }
-        return String(password) === String(commonUser.password_hash);
-      };
-
-      const matched = await compareCandidate();
-      if (matched) {
-        let resolvedTenantKey = commonUser.tenant_key || requestedTenantKey;
-        let tenantDisplayName = commonUser.tenant_name;
-        if (!resolvedTenantKey) {
-          const routingRows = await getAllCompanyRoutingRows();
-          if (routingRows.length > 0) {
-            resolvedTenantKey = routingRows[0].tenant_key;
-            tenantDisplayName = routingRows[0].company_name;
-          } else {
-            resolvedTenantKey = 'demo';
-            tenantDisplayName = 'デモ環境';
+      if (!effectiveTenantKey) {
+        try {
+          const userOrgRes = await cpPool.query(`
+            SELECT
+              o.id::text AS tenant_id,
+              o.code AS tenant_key,
+              o.name AS tenant_name
+            FROM public.users u
+            JOIN public.user_org_memberships uom ON uom.user_id = u.id
+            JOIN public.organizations o ON o.id = uom.org_id
+            WHERE u.username = $1 AND u.is_active = true
+            LIMIT 1
+          `, [username]);
+          if (userOrgRes.rows[0]) {
+            effectiveTenantKey = userOrgRes.rows[0].tenant_key;
+            tenantInfo = userOrgRes.rows[0];
           }
+        } catch (err) {
+          console.warn('[TenantAuth] user_org_memberships query failed:', err.code || err.message);
         }
+      }
 
-        const officialTenantId = commonUser.tenant_id || resolvedTenantKey;
-        const companyName = tenantDisplayName || resolvedTenantKey;
-
-        const token = commonAuth.issueSession(res, {
-          userId: commonUser.user_id,
-          username: commonUser.username,
-          tenantId: officialTenantId,
-          tenantKey: resolvedTenantKey,
-          authSource: 'common',
-          role: commonUser.role || 'operator',
-          permissions: []
-        });
-
-        return res.json({
-          success: true,
-          token,
-          user: {
-            id: commonUser.user_id,
-            username: commonUser.username,
-            displayName: commonUser.display_name,
-            role: commonUser.role || 'operator',
-            tenant_id: officialTenantId,
-            tenant_key: resolvedTenantKey,
-            tenant_path: `/${resolvedTenantKey}`,
-            company_name: companyName
-          }
+      // 所属テナントが特定できない場合、demoや他社へ暗黙にフォールバックせず拒否
+      if (!effectiveTenantKey) {
+        return res.status(401).json({
+          success: false,
+          message: '所属テナントを特定できませんでした'
         });
       }
     }
 
-    // 2. フォールバック: 各テナントDB直接認証（テナントキーが指定されている場合）
-    const effectiveTenantKey = requestedTenantKey || (urlTenantKey !== 'demo_env' ? urlTenantKey : '');
-    if (effectiveTenantKey) {
-      const runtime = await resolveTenantRuntime(effectiveTenantKey, {
-        tenantPath: String(req.headers['x-tenant-path'] || req.body?.tenant_path || '').trim(),
-        fullUrl: String(req.headers['x-tenant-full-url'] || '').trim(),
-        referer: String(req.headers.referer || '').trim(),
-        originalUrl: String(req.originalUrl || req.url || '').trim()
-      }).catch(() => null);
+    // 2. 共通DBで接続先を解決
+    const runtime = await resolveTenantRuntime(effectiveTenantKey, {
+      tenantPath: String(req.headers['x-tenant-path'] || req.body?.tenant_path || '').trim(),
+      fullUrl: String(req.headers['x-tenant-full-url'] || '').trim(),
+      referer: String(req.headers.referer || '').trim(),
+      originalUrl: String(req.originalUrl || req.url || '').trim()
+    }).catch(err => {
+      console.warn(`[TenantAuth] resolveTenantRuntime failed for ${effectiveTenantKey}:`, err.message);
+      return null;
+    });
 
-      if (runtime && runtime.pool) {
-        const tenantUserResult = await runtime.pool.query(
-          'SELECT * FROM public.users WHERE username = $1 AND is_active = true LIMIT 1',
-          [username]
-        );
-        const tenantUser = tenantUserResult.rows[0];
-        if (tenantUser) {
-          const tenantPasswordHash = tenantUser.password_hash || tenantUser.password || '';
-          if (tenantPasswordHash) {
-            const compareCandidate = async () => {
-              if (String(tenantPasswordHash).startsWith('$2')) {
-                return bcrypt.compare(password, tenantPasswordHash);
-              }
-              return String(password) === String(tenantPasswordHash);
-            };
-
-            const tenantPasswordMatches = await compareCandidate();
-            if (tenantPasswordMatches) {
-              const tenantInfoRes = await cpPool.query(
-                `SELECT id, tenant_key, tenant_name FROM public.tenants WHERE tenant_key = $1 OR id::text = $1 LIMIT 1`,
-                [effectiveTenantKey]
-              ).catch(() => ({ rows: [] }));
-              const officialTenant = tenantInfoRes.rows[0];
-              const officialTenantId = officialTenant ? officialTenant.id : (runtime.resolvedTenantId || effectiveTenantKey);
-
-              const token = commonAuth.issueSession(res, {
-                userId: tenantUser.id,
-                username: tenantUser.username,
-                tenantId: officialTenantId,
-                tenantKey: effectiveTenantKey,
-                authSource: 'tenant',
-                role: tenantUser.role || 'operator',
-                permissions: []
-              });
-
-              return res.json({
-                success: true,
-                token,
-                user: {
-                  id: tenantUser.id,
-                  username: tenantUser.username,
-                  displayName: tenantUser.display_name || tenantUser.username,
-                  role: tenantUser.role || 'operator',
-                  tenant_id: officialTenantId,
-                  tenant_key: effectiveTenantKey,
-                  tenant_path: runtime.tenantPath || `/${effectiveTenantKey}`,
-                  company_name: officialTenant?.tenant_name || runtime.companyName || effectiveTenantKey
-                }
-              });
-            }
-          }
-        }
-      }
+    if (!runtime || !runtime.pool) {
+      return res.status(503).json({
+        success: false,
+        message: `テナント(${effectiveTenantKey})のデータベースに接続できません`
+      });
     }
 
-    return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+    // 3. 対象テナントDBでユーザー認証（パスワード照合）
+    const tenantUserResult = await runtime.pool.query(`
+      SELECT id, username, COALESCE(display_name, username) AS display_name, password_hash, password, role, is_active
+      FROM public.users
+      WHERE username = $1 AND is_active = true
+      LIMIT 1
+    `, [username]);
+    const tenantUser = tenantUserResult.rows[0];
+    if (!tenantUser) {
+      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+    }
+
+    const tenantPasswordHash = tenantUser.password_hash || tenantUser.password || '';
+    if (!tenantPasswordHash) {
+      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+    }
+
+    let passwordMatches = false;
+    if (String(tenantPasswordHash).startsWith('$2')) {
+      passwordMatches = await bcrypt.compare(password, tenantPasswordHash);
+    } else {
+      passwordMatches = String(password) === String(tenantPasswordHash);
+    }
+
+    if (!passwordMatches) {
+      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+    }
+
+    // 4. 認証成功: テナント情報取得とセッション発行
+    if (!tenantInfo) {
+      const tenantInfoRes = await cpPool.query(
+        `SELECT id::text AS tenant_id, tenant_key, tenant_name FROM public.tenants WHERE tenant_key = $1 OR id::text = $1 LIMIT 1`,
+        [effectiveTenantKey]
+      ).catch(() => ({ rows: [] }));
+      tenantInfo = tenantInfoRes.rows[0];
+    }
+
+    const officialTenantId = tenantInfo ? tenantInfo.tenant_id : (runtime.resolvedTenantId || effectiveTenantKey);
+    const companyName = tenantInfo?.tenant_name || runtime.companyName || effectiveTenantKey;
+
+    const token = commonAuth.issueSession(res, {
+      userId: tenantUser.id,
+      username: tenantUser.username,
+      tenantId: officialTenantId,
+      tenantKey: effectiveTenantKey,
+      authSource: 'tenant',
+      role: tenantUser.role || 'operator',
+      permissions: []
+    });
+
+    return res.json({
+      success: true,
+      token,
+      user: {
+        id: tenantUser.id,
+        username: tenantUser.username,
+        displayName: tenantUser.display_name || tenantUser.username,
+        role: tenantUser.role || 'operator',
+        tenant_id: officialTenantId,
+        tenant_key: effectiveTenantKey,
+        tenant_path: runtime.tenantPath || `/${effectiveTenantKey}`,
+        company_name: companyName
+      }
+    });
   } catch (err) {
     console.error('[TenantAuth] Login failed:', err.message);
     return res.status(500).json({ success: false, message: 'ログイン処理に失敗しました' });
@@ -2832,7 +2867,7 @@ app.get('/api/apps', requireCookieSession, async (req, res) => {
   }
 });
 
-app.post('/api/apps/:appKey/launch-token', requireCookieSession, async (req, res) => {
+const handleLaunchToken = async (req, res) => {
   try {
     const pool = getControlPlanePool();
     const appKey = String(req.params.appKey || '').trim();
@@ -2840,7 +2875,6 @@ app.post('/api/apps/:appKey/launch-token', requireCookieSession, async (req, res
     if (!tenant) return res.status(403).json({ success: false, message: 'テナントを確認できません' });
 
     // アプリ一覧(/api/apps)と同じ public.tenant_app_routings を正本として権限判定する
-    // (旧 applications/tenant_applications テーブルは二重管理になり不整合の原因になるため使用しない)
     const routeCheck = await pool.query(`
       SELECT 1 FROM public.tenant_app_routings
       WHERE tenant_key = $1 AND app_id = $2 AND is_active = true
@@ -2903,7 +2937,10 @@ app.post('/api/apps/:appKey/launch-token', requireCookieSession, async (req, res
     console.error('[CommonAuth] Launch token creation failed:', err.message);
     return res.status(500).json({ success: false, message: 'アプリ起動用の認証情報を発行できませんでした' });
   }
-});
+};
+
+app.post('/api/apps/:appKey/launch-token', requireCookieSession, handleLaunchToken);
+app.post('/:tenantId/api/apps/:appKey/launch-token', requireCookieSession, handleLaunchToken);
 
 app.post('/api/logout', (req, res) => {
   commonAuth.clearSession(res);
@@ -8198,7 +8235,10 @@ async function initializeDatabase() {
     console.log('🔄 Initializing database connection...');
     const testQuery = await pool.query('SELECT NOW() as current_time');
     console.log('✅ Database connection successful:', testQuery.rows[0].current_time);
+    
+    // 1. 共通DBのマイグレーション検証（必須基盤）
     await databaseMigrations.assertApplied(pool, 'common');
+    
     const routes = await pool.query(`
       SELECT DISTINCT ON (tenant_key)
         tenant_key, tenant_name, database_key, db_name, database_url,
@@ -8210,19 +8250,35 @@ async function initializeDatabase() {
     if (routes.rowCount === 0) {
       throw new Error('No active tenant database routes are configured. Register a tenant with "npm run db:register-tenant".');
     }
+
+    // 2. 各テナントDBの検証（個別テナントの障害で正常な他社テナントを一律停止させない）
+    let healthyCount = 0;
     for (const route of routes.rows) {
-      const runtime = buildTenantRuntimeFromRoutingRow(
-        { ...route, company_id: route.tenant_key, company_name: route.tenant_name || route.app_name },
-        route.tenant_key,
-        getDefaultDbName(),
-        getDefaultBucketName(),
-        route.tenant_key
-      );
-      await databaseMigrations.assertApplied(runtime.pool, 'tenant');
+      try {
+        const runtime = buildTenantRuntimeFromRoutingRow(
+          { ...route, company_id: route.tenant_key, company_name: route.tenant_name || route.app_name },
+          route.tenant_key,
+          getDefaultDbName(),
+          getDefaultBucketName(),
+          route.tenant_key
+        );
+        await databaseMigrations.assertApplied(runtime.pool, 'tenant');
+        tenantHealthMap.set(route.tenant_key, { healthy: true });
+        healthyCount++;
+        console.log(`✅ Tenant database verified for "${route.tenant_key}".`);
+      } catch (tErr) {
+        tenantHealthMap.set(route.tenant_key, { healthy: false, error: tErr.message });
+        console.warn(`⚠️ Tenant database verification failed for "${route.tenant_key}": ${tErr.message}`);
+      }
     }
-    dbReady = true;
-    console.log(`✅ Database schemas verified for common DB and ${routes.rowCount} active tenant route(s).`);
-    return true;
+
+    if (healthyCount > 0) {
+      dbReady = true;
+      console.log(`✅ Database ready. Common DB verified and ${healthyCount}/${routes.rowCount} tenant route(s) healthy.`);
+      return true;
+    } else {
+      throw new Error('All configured tenant databases failed verification.');
+    }
   } catch (err) {
     dbReady = false;
     console.error('❌ Database initialization failed:', err.message);

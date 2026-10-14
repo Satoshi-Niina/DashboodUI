@@ -51,7 +51,10 @@ function issueSession(res, session) {
 }
 
 function readSession(req) {
-  const token = parseCookies(req.headers.cookie)[COOKIE_NAME];
+  let token = parseCookies(req.headers.cookie)[COOKIE_NAME];
+  if (!token && req.headers?.authorization && /^Bearer\s+/i.test(req.headers.authorization)) {
+    token = req.headers.authorization.replace(/^Bearer\s+/i, '').trim();
+  }
   if (!token) return null;
   return jwt.verify(token, getJwtSecret(), { issuer: JWT_ISSUER, audience: JWT_AUDIENCE });
 }
