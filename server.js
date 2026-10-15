@@ -83,7 +83,7 @@ app.use(express.json());
 // HTTPSリバースプロキシゲートウェイ（Port 8443）経由の通信のみを許可し、直接内部ポートへのアクセスを遮断する
 const INTERNAL_GATEWAY_SECRET = process.env.INTERNAL_GATEWAY_SECRET || 'dev-internal-gateway-secret-2026';
 
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   const isHealth = req.path === '/health' || req.path === '/_ah/health' || req.path === '/ready';
   if (isHealth) return next();
 
@@ -94,6 +94,15 @@ app.use((req, res, next) => {
       const expectedHmac = crypto.createHmac('sha256', INTERNAL_GATEWAY_SECRET).update(decoded.payload).digest('hex');
       if (decoded.hmac === expectedHmac) {
         req.deviceAuth = JSON.parse(decoded.payload);
+        // 早期に端末証明書からテナント情報を解決して req.deviceInfo に設定
+        if (req.deviceAuth && req.deviceAuth.hasCert && req.deviceAuth.fingerprint256) {
+          try {
+            const cpPool = getControlPlanePool();
+            req.deviceInfo = await resolveDeviceTenant(req, cpPool);
+          } catch (deviceErr) {
+            console.warn('[DeviceAuth] Early resolution failed:', deviceErr.message);
+          }
+        }
         return next();
       }
     } catch (_) {}
@@ -595,7 +604,7 @@ function extractTenantIdFromRequest(req) {
       const session = commonAuth.readSession(req);
       if (session && (session.tenant_key || session.tenant_id)) {
         const sessionTenant = String(session.tenant_key || session.tenant_id).trim().toLowerCase();
-        if (sessionTenant && sessionTenant !== 'demo_env') {
+        if (sessionTenant && sessionTenant !== 'demo_env' && sessionTenant !== 'demo') {
           return mapTenantSegment(sessionTenant, true);
         }
       }
@@ -605,13 +614,13 @@ function extractTenantIdFromRequest(req) {
   // 2. 端末証明書による特定結果が存在する場合はそれを採用
   if (req.deviceInfo && req.deviceInfo.tenantKey) {
     const certTenant = String(req.deviceInfo.tenantKey).trim().toLowerCase();
-    if (certTenant) {
+    if (certTenant && certTenant !== 'demo_env' && certTenant !== 'demo') {
       return mapTenantSegment(certTenant, true);
     }
   }
 
-  // 3. 認証前・未特定リクエスト: URLによる会社切り替えは許可せず demo_env（未特定）を返す
-  return 'demo_env';
+  // 3. 認証前・未特定リクエスト: demoや共通DBへフォールバックせず null を返す
+  return null;
 }
 
 async function getCompanyRoutingByTenantRequest({ tenantId = '', tenantPath = '', fullUrl = '' } = {}) {
@@ -954,7 +963,10 @@ function inferTenantDbName(tenantKey, defaultDbName) {
 }
 
 async function resolveTenantRuntime(tenantId, requestHint = {}) {
-  const normalizedTenantId = (tenantId || 'demo_env').trim().toLowerCase() || 'demo_env';
+  const normalizedTenantId = String(tenantId || '').trim().toLowerCase();
+  if (!normalizedTenantId || normalizedTenantId === 'demo_env' || normalizedTenantId === 'demo') {
+    throw new Error('Tenant is not specified');
+  }
   if (normalizedTenantId === INVALID_TENANT_KEY) {
     throw new Error('Tenant is not allowed for this URL');
   }
@@ -963,36 +975,11 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
   const requestTenantPath = requestHint.tenantPath || requestHint.fullUrl || '';
   const requestFullUrl = requestHint.fullUrl || requestHint.tenantPath || requestHint.referer || '';
   const requestOriginalUrl = requestHint.originalUrl || '';
-  const expectedTenantKey = normalizedTenantId !== 'demo_env'
-    ? normalizedTenantId
-    : resolveFirstTenantKey(requestTenantPath, requestFullUrl, requestOriginalUrl, requestHint.referer || '');
-
-  if (expectedTenantKey === INVALID_TENANT_KEY) {
-    throw new Error('Tenant is not allowed for this URL');
-  }
+  const expectedTenantKey = normalizedTenantId;
 
   const tenantHealth = tenantHealthMap.get(expectedTenantKey) || tenantHealthMap.get(normalizedTenantId);
   if (tenantHealth && !tenantHealth.healthy) {
     throw new Error(`Tenant "${expectedTenantKey}" is temporarily unavailable: schema verification failed`);
-  }
-
-  if (expectedTenantKey === 'demo_env') {
-    if (!isDemoAliasEnabled()) {
-      throw new Error('Tenant is not specified');
-    }
-    const demoRoute = await getCompanyRoutingByTenantKey('demo');
-    if (demoRoute) {
-      return buildTenantRuntimeFromRoutingRow(
-        demoRoute,
-        normalizedTenantId,
-        defaultDbName,
-        defaultBucketName,
-        'demo_env'
-      );
-    }
-
-    // 未登録テナントはfallbackせず503エラーとする
-    throw new Error(`Tenant not registered: demo (expectedTenantKey=demo_env)`);
   }
 
   try {
@@ -1487,54 +1474,28 @@ app.use('/api', async (req, res, next) => {
   const isBootstrap = isLogin || isSessionBootstrapApiRequest(req);
 
   try {
-    const requestedTenantId = extractTenantIdFromRequest(req) || req.requestedTenantId || 'demo_env';
+    const requestedTenantId = extractTenantIdFromRequest(req) || req.requestedTenantId || null;
     const defaultDbName = getDefaultDbName();
 
     let runtime = null;
-    try {
-      runtime = await resolveTenantRuntime(requestedTenantId, {
-        tenantPath: String(req.headers['x-tenant-path'] || req.query.tenant_path || '').trim(),
-        fullUrl: String(req.headers['x-tenant-full-url'] || req.query.full_url || '').trim(),
-        referer: String(req.headers.referer || '').trim(),
-        originalUrl: String(req.originalUrl || req.url || '').trim()
-      });
-    } catch (routingErr) {
-      if (isBootstrap) {
-        runtime = {
-          requestedTenantId,
-          resolvedTenantId: null,
-          companyId: null,
-          companyName: '',
-          dbName: defaultDbName,
-          databaseUrl: null,
-          storageBucketName: getDefaultBucketName(),
-          tenantPath: '',
-          pool: getControlPlanePool(),
-          isFallback: true
-        };
-      } else {
-        throw routingErr;
+    if (requestedTenantId && requestedTenantId !== 'demo_env' && requestedTenantId !== 'demo') {
+      try {
+        runtime = await resolveTenantRuntime(requestedTenantId, {
+          tenantPath: String(req.headers['x-tenant-path'] || req.query.tenant_path || '').trim(),
+          fullUrl: String(req.headers['x-tenant-full-url'] || req.query.full_url || '').trim(),
+          referer: String(req.headers.referer || '').trim(),
+          originalUrl: String(req.originalUrl || req.url || '').trim()
+        });
+      } catch (routingErr) {
+        if (!isBootstrap) {
+          throw routingErr;
+        }
       }
     }
 
-    if (isLogin && (!runtime || !runtime.pool)) {
-      runtime = {
-        requestedTenantId,
-        resolvedTenantId: runtime?.resolvedTenantId || null,
-        companyId: runtime?.companyId || null,
-        companyName: runtime?.companyName || '',
-        dbName: defaultDbName,
-        databaseUrl: null,
-        storageBucketName: getDefaultBucketName(),
-        tenantPath: runtime?.tenantPath || '',
-        pool: getControlPlanePool(),
-        isFallback: true
-      };
-    }
-
     req.tenantContext = runtime;
-    req.tenantId = runtime.resolvedTenantId || requestedTenantId || 'demo_env';
-    req.db = runtime.pool || getControlPlanePool();
+    req.tenantId = runtime?.resolvedTenantId || requestedTenantId || null;
+    req.db = runtime?.pool || getControlPlanePool();
     // 内部診断ヘッダーはクライアントへ漏洩させず、サーバーログのみに記録
     if (runtime.tenantResolutionError) {
       applyTenantErrorHeaders(res, runtime.tenantResolutionError);
@@ -1621,21 +1582,20 @@ app.use('/api', async (req, res, next) => {
   } catch (err) {
     if (isBootstrap) {
       console.warn('[TenantRouting] Bypassing tenant resolution error for login/bootstrap request:', err.message);
-      const defaultDbName = getDefaultDbName();
       const fallbackRuntime = {
-        requestedTenantId: req.requestedTenantId || 'demo_env',
+        requestedTenantId: null,
         resolvedTenantId: null,
         companyId: null,
         companyName: '',
-        dbName: defaultDbName,
+        dbName: null,
         databaseUrl: null,
-        storageBucketName: getDefaultBucketName(),
-        tenantPath: '',
+        storageBucketName: null,
+        tenantPath: '/',
         pool: getControlPlanePool(),
-        isFallback: true
+        isFallback: false
       };
       req.tenantContext = fallbackRuntime;
-      req.tenantId = req.requestedTenantId || 'demo_env';
+      req.tenantId = null;
       req.db = getControlPlanePool();
       return requestTenantContextStorage.run(fallbackRuntime, () => next());
     }
@@ -1646,9 +1606,7 @@ app.use('/api', async (req, res, next) => {
     // 未登録テナントまたはdb_name未設定の場合は503を返す（fallbackしない）
     return res.status(503).json({
       success: false,
-      message: 'Tenant not available',
-      error: err.message || String(err),
-      requestedTenantId: req.requestedTenantId || 'unknown'
+      message: 'テナントが利用できません'
     });
   }
 });
@@ -2556,6 +2514,9 @@ async function verifyDeviceSessionTenantMatch(req, res, next) {
 }
 
 async function resolveDeviceTenant(req, cpPool) {
+  if (req.deviceInfo) {
+    return req.deviceInfo;
+  }
   const deviceAuth = req.deviceAuth;
 
   // 1. ゲートウェイ経由（mTLSプロキシ終端情報あり）
@@ -2745,7 +2706,7 @@ app.post('/api/login', async (req, res) => {
         tenant_id: officialTenantKey,
         tenant_key: officialTenantKey,
         tenant_uuid: officialTenantUuid,
-        tenant_path: runtime.tenantPath || `/${officialTenantKey}`,
+        tenant_path: '/',
         company_name: companyName
       }
     });
@@ -2923,8 +2884,8 @@ const handleLaunchToken = async (req, res) => {
       tenantKey,
       tenantId: tenantKey,
       tenant_id: tenantKey,
-      tenantPath: `/${tenantKey}`,
-      tenant_path: `/${tenantKey}`,
+      tenantPath: '/',
+      tenant_path: '/',
       company_code: ssoClaims.company_code,
       company_name: ssoClaims.company_name
     }, process.env.SHARED_SSO_SECRET, {
@@ -2979,11 +2940,19 @@ app.post('/api/verify-token', async (req, res) => {
       audience: 'emergency-assistance-app'
     });
 
-    const runtime = await resolveTenantRuntime(decoded.tenantId || 'demo_env');
+    if (!decoded.tenantId) {
+      return res.status(401).json({
+        valid: false,
+        success: false,
+        message: 'テナントが特定できません'
+      });
+    }
+
+    const runtime = await resolveTenantRuntime(decoded.tenantId);
 
     return requestTenantContextStorage.run(runtime, async () => {
       req.tenantContext = runtime;
-      req.tenantId = runtime.resolvedTenantId || decoded.tenantId || 'demo_env';
+      req.tenantId = runtime.resolvedTenantId || decoded.tenantId;
       req.db = runtime.pool || getControlPlanePool();
 
       // ゲートウェイ方式でユーザー情報を取得（departmentカラムは取得しない）
@@ -3008,9 +2977,9 @@ app.post('/api/verify-token', async (req, res) => {
       res.json({
         valid: true,
         success: true,
-        tenant_id: runtime.resolvedTenantId || decoded.tenantId || 'demo_env',
-        tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || decoded.tenantId || 'demo_env'),
-        company_code: decoded.company_code || decoded.companyCode || runtime.companyId || runtime.resolvedTenantId || 'demo_env',
+        tenant_id: runtime.resolvedTenantId || decoded.tenantId,
+        tenant_path: '/',
+        company_code: decoded.company_code || decoded.companyCode || runtime.companyId || runtime.resolvedTenantId,
         company_name: decoded.company_name || decoded.companyName || runtime.companyName || '',
         tenant_name: decoded.company_name || decoded.companyName || runtime.companyName || '',
         roles: Array.isArray(decoded.roles) && decoded.roles.length > 0 ? decoded.roles : [mapRoleForExternal(normalizedRole)],
@@ -3021,9 +2990,9 @@ app.post('/api/verify-token', async (req, res) => {
           role: mapRoleForExternal(normalizedRole),
           externalRole: mapRoleForExternal(normalizedRole),
           department: department,
-          tenant_id: runtime.resolvedTenantId || decoded.tenantId || 'demo_env',
-          tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || decoded.tenantId || 'demo_env'),
-          company_code: decoded.company_code || decoded.companyCode || runtime.companyId || runtime.resolvedTenantId || 'demo_env',
+          tenant_id: runtime.resolvedTenantId || decoded.tenantId,
+          tenant_path: '/',
+          company_code: decoded.company_code || decoded.companyCode || runtime.companyId || runtime.resolvedTenantId,
           company_name: decoded.company_name || decoded.companyName || runtime.companyName || '',
           tenant_name: decoded.company_name || decoded.companyName || runtime.companyName || '',
           roles: Array.isArray(decoded.roles) && decoded.roles.length > 0 ? decoded.roles : [mapRoleForExternal(normalizedRole)]
@@ -3157,7 +3126,13 @@ app.post('/api/auth/external', async (req, res) => {
   }
 
   try {
-    const resolvedTenantId = tenantId || decoded.tenantId || 'demo_env';
+    const resolvedTenantId = tenantId || decoded.tenantId;
+    if (!resolvedTenantId) {
+      return res.status(401).json({
+        success: false,
+        message: 'テナントが特定できません'
+      });
+    }
     const runtime = await resolveTenantRuntime(resolvedTenantId);
 
     return requestTenantContextStorage.run(runtime, async () => {
@@ -3189,7 +3164,7 @@ app.post('/api/auth/external', async (req, res) => {
         success: true,
         token: token,
         tenant_id: runtime.resolvedTenantId || resolvedTenantId,
-        tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || resolvedTenantId),
+        tenant_path: '/',
         user: {
           id: user.id,
           username: user.username,
@@ -3198,7 +3173,7 @@ app.post('/api/auth/external', async (req, res) => {
           externalRole: mapRoleForExternal(normalizedRole),
           department: department,
           tenant_id: runtime.resolvedTenantId || resolvedTenantId,
-          tenant_path: runtime.tenantPath || buildTenantPath(runtime.resolvedTenantId || resolvedTenantId)
+          tenant_path: '/'
         }
       });
     });
