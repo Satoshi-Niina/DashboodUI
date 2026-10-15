@@ -2648,17 +2648,23 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
     }
 
-    const tenantPasswordHash = tenantUser.password_hash || tenantUser.password || '';
-    if (!tenantPasswordHash) {
+    const candidateHashes = [tenantUser.password_hash, tenantUser.password].filter(Boolean);
+    if (candidateHashes.length === 0) {
       console.warn(`[LoginTrace:401] User '${username}' has no password hash set in database '${runtime.dbName}'`);
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
     }
 
     let passwordMatches = false;
-    if (String(tenantPasswordHash).startsWith('$2')) {
-      passwordMatches = await bcrypt.compare(password, tenantPasswordHash);
-    } else {
-      passwordMatches = String(password) === String(tenantPasswordHash);
+    for (const h of candidateHashes) {
+      if (String(h).startsWith('$2')) {
+        if (await bcrypt.compare(password, h)) {
+          passwordMatches = true;
+          break;
+        }
+      } else if (String(password) === String(h)) {
+        passwordMatches = true;
+        break;
+      }
     }
 
     console.log(`[LoginTrace:4] Password verification: username='${username}', passwordMatches=${passwordMatches}`);
