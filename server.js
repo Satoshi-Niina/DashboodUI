@@ -3004,7 +3004,9 @@ const handleLaunchToken = async (req, res) => {
       effectiveTenantId: tenantKey,
       user
     });
+    const launchJti = crypto.randomUUID ? crypto.randomUUID() : `launch-${Date.now()}-${Math.random().toString(36).substring(2)}`;
     const token = jwt.sign({
+      jti: launchJti,
       id: user.user_id,
       userId: user.user_id,
       username: user.username,
@@ -3021,12 +3023,19 @@ const handleLaunchToken = async (req, res) => {
       company_code: ssoClaims.company_code,
       company_name: ssoClaims.company_name
     }, process.env.SHARED_SSO_SECRET, {
-      expiresIn: '5m',
+      expiresIn: '60s',
       issuer: process.env.JWT_ISSUER || 'dashboard-auth',
       audience: process.env.JWT_AUDIENCE || 'dashboard-apps'
     });
 
-    return res.json({ success: true, token, tenantKey, publicTenantId: getPublicTenantIdForKey(tenantKey), role: normalizedRole });
+    return res.json({
+      success: true,
+      token,
+      launchCode: token,
+      tenantKey,
+      publicTenantId: getPublicTenantIdForKey(tenantKey),
+      role: normalizedRole
+    });
   } catch (err) {
     console.error('[CommonAuth] Launch token creation failed:', err.message);
     return res.status(500).json({ success: false, message: 'アプリ起動用の認証情報を発行できませんでした' });

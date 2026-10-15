@@ -505,8 +505,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 throw new Error(launchContext.message || '起動用の認証情報を取得できませんでした');
             }
 
-            // 起動先URLは public.tenant_app_routings に登録された実際の待受先をそのまま使用する
-            const urlObj = new URL(baseUrl, window.location.origin);
+            // 起動先URLは public.tenant_app_routings に登録された実際の待受先を使用する
+            // HTTPSゲートウェイ（8443）経由の場合は、内部ポートではなく統一パス /inspection/ を使用する
+            let targetUrl = baseUrl;
+            if (window.location.protocol === 'https:' && (currentAppId === 'inspection' || baseUrl.includes(':5173'))) {
+                targetUrl = `${window.location.origin}/inspection/`;
+            }
+            const urlObj = new URL(targetUrl, window.location.origin);
             urlObj.search = '';
             const launchTenantId = launchContext.publicTenantId || launchContext.tenantKey;
             urlObj.searchParams.set('tenant_id', launchTenantId);
