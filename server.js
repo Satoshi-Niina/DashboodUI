@@ -7251,11 +7251,8 @@ async function initializeTenantSchemas() {
       dbName: row.dbName || 'unknown'
     })).filter(t => t.id && t.id !== 'demo_env');
   } catch (err) {
-    console.warn('[Schema] Failed to query dynamic tenants, falling back to static list:', err.message);
-    tenants = [
-      { id: 'kosei', dbName: 'kosei_db' },
-      { id: 'daitetsu', dbName: 'daitetsu_db' }
-    ];
+    console.warn('[Schema] Failed to query dynamic tenants:', err.message);
+    tenants = [];
   }
 
   for (const tenant of tenants) {
