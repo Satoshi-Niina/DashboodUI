@@ -11,7 +11,8 @@ test('common migrations are ordered and include executable schema verifiers', ()
     '002_z_legacy_resource_routing',
     '003_common_defaults',
     '004_public_tenant_ids', '005_public_tenant_id_lifecycle',
-    '006_reorganize_common_db_control_plane'
+    '006_reorganize_common_db_control_plane',
+    '007_device_certificates'
   ]);
   for (const migration of migrations) {
     assert.match(migration.checksum, /^[a-f0-9]{64}$/);
@@ -35,7 +36,8 @@ test('tenant migrations are ordered and only baseline after verifying an existin
     '009_prefixed_machine_type_codes',
     '010_machine_specific_inspection_types',
     '011_reorganize_tenant_auth_and_masters',
-    '012_restore_machines_public_schema'
+    '012_restore_machines_public_schema',
+    '013_ensure_machine_types_display_codes'
   ]);
   assert.match(migrations[0].baselineVerifySql, /data_type = 'uuid'/i);
   assert.match(migrations[1].verifySql, /inspection_schedules/i);

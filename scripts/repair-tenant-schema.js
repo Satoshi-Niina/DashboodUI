@@ -86,6 +86,29 @@ async function repairTenantDb(dbName = 'demo_db') {
               updated_at = EXCLUDED.updated_at
       `);
       console.log(`✅ Synchronized ${syncResult.rowCount || 0} machines into master_data.machines`);
+    // 5. Ensure display_code is assigned for all machine_types
+    const nullDisplayCodeRes = await client.query(`
+      SELECT id FROM public.machine_types WHERE display_code IS NULL ORDER BY created_at, id
+    `);
+    if (nullDisplayCodeRes.rows.length > 0) {
+      console.log(`[Repair] Assigning display_code to ${nullDisplayCodeRes.rows.length} machine types...`);
+      const maxCodeRes = await client.query(`
+        SELECT COALESCE(MAX(
+          CASE 
+            WHEN display_code ~ '^MT-[0-9]+$' THEN SUBSTRING(display_code FROM 4)::int
+            WHEN display_code ~ '^[0-9]+$' THEN display_code::int
+            ELSE 0
+          END
+        ), 0) AS max_code
+        FROM public.machine_types
+      `);
+      let nextNum = (maxCodeRes.rows[0]?.max_code || 0) + 1;
+      for (const row of nullDisplayCodeRes.rows) {
+        let code = `MT-${String(nextNum).padStart(4, '0')}`;
+        await client.query(`UPDATE public.machine_types SET display_code = $1 WHERE id = $2`, [code, row.id]);
+        nextNum++;
+      }
+      console.log('✅ Assigned display_codes to machine types');
     }
 
     await client.query('COMMIT');

@@ -19,10 +19,7 @@ function getRedirectTargetFromLocation() {
 }
 
 function buildIndexPathForTenant(tenantId) {
-    if (!tenantId || tenantId === 'demo') {
-        return '/index.html';
-    }
-    return `/${encodeURIComponent(tenantId)}/index.html`;
+    return '/index.html';
 }
 
 document.addEventListener('DOMContentLoaded', async () => {

@@ -2666,6 +2666,91 @@ async function resolveSessionTenant(pool, session) {
   };
 }
 
+async function resolveDeviceTenant(req, cpPool) {
+  const deviceAuth = req.deviceAuth;
+
+  // 1. ゲートウェイ経由（mTLSプロキシ終端情報あり）
+  if (deviceAuth) {
+    if (!deviceAuth.hasCert || !deviceAuth.fingerprint256) {
+      console.warn('[DeviceAuth] No client certificate provided via gateway');
+      return { ok: false, error: 'no_certificate' };
+    }
+
+    if (!deviceAuth.authorized) {
+      console.warn('[DeviceAuth] Client certificate is unauthorized by Root CA:', deviceAuth.authError);
+      return { ok: false, error: 'certificate_unauthorized' };
+    }
+
+    try {
+      const certRes = await cpPool.query(`
+        SELECT
+          d.id::text AS device_id,
+          d.device_identifier,
+          d.tenant_id,
+          d.device_name,
+          d.is_active AS device_active,
+          dc.id::text AS cert_id,
+          dc.serial_number,
+          dc.is_revoked,
+          dc.valid_to
+        FROM public.device_certificates dc
+        JOIN public.devices d ON d.id = dc.device_id
+        WHERE dc.fingerprint256 = $1
+        LIMIT 1
+      `, [deviceAuth.fingerprint256]);
+
+      const certRow = certRes.rows[0];
+      if (!certRow) {
+        console.warn(`[DeviceAuth] Certificate fingerprint not registered: ${deviceAuth.fingerprint256}`);
+        return { ok: false, error: 'device_not_registered' };
+      }
+
+      if (certRow.is_revoked) {
+        console.warn(`[DeviceAuth] Certificate is revoked: ${certRow.serial_number}`);
+        return { ok: false, error: 'certificate_revoked' };
+      }
+
+      if (!certRow.device_active) {
+        console.warn(`[DeviceAuth] Device is inactive: ${certRow.device_identifier}`);
+        return { ok: false, error: 'device_inactive' };
+      }
+
+      if (certRow.valid_to && new Date(certRow.valid_to) < new Date()) {
+        console.warn(`[DeviceAuth] Certificate is expired: valid_to=${certRow.valid_to}`);
+        return { ok: false, error: 'certificate_expired' };
+      }
+
+      return {
+        ok: true,
+        tenantKey: certRow.tenant_id,
+        deviceId: certRow.device_id,
+        deviceIdentifier: certRow.device_identifier,
+        deviceName: certRow.device_name
+      };
+    } catch (err) {
+      console.error('[DeviceAuth] Database lookup error:', err.message);
+      return { ok: false, error: 'database_error' };
+    }
+  }
+
+  // 2. ゲートウェイ経由でない、かつローカル開発専用モック設定時（明示的なフラグ指定時のみ）
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (!isProduction && process.env.ALLOW_DEV_MOCK_TENANT === 'true') {
+    const devMockTenant = String(process.env.DEV_MOCK_TENANT || process.env.DEV_DEFAULT_TENANT || '').trim().toLowerCase();
+    if (devMockTenant) {
+      return {
+        ok: true,
+        tenantKey: devMockTenant,
+        deviceId: 'dev-local-device-id',
+        deviceIdentifier: `dev-mock-${devMockTenant}`,
+        deviceName: 'ローカル開発固定端末'
+      };
+    }
+  }
+
+  return { ok: false, error: 'no_certificate' };
+}
+
 app.post('/api/login', async (req, res) => {
   const username = String(req.body?.username || '').trim();
   const password = String(req.body?.password || '');
@@ -2679,34 +2764,19 @@ app.post('/api/login', async (req, res) => {
     // 1. テナント特定（端末認証方針）:
     // URL、要求本文、ヘッダー、localStorage 等のクライアント入力は一切接続先決定の根拠にしない。
     // demoなどへの暗黙フォールバックも廃止。
-    let effectiveTenantKey = '';
     let tenantInfo = null;
-
-    const isProduction = process.env.NODE_ENV === 'production';
-
-    if (!isProduction) {
-      // 開発専用のサーバー設定で試験対象テナントを固定（ブラウザーから変更不可）
-      // 本番環境（production）ではこの代替方式は無効
-      const devMockTenant = String(process.env.DEV_MOCK_TENANT || process.env.DEV_DEFAULT_TENANT || 'daitetsu').trim().toLowerCase();
-      if (devMockTenant) {
-        effectiveTenantKey = devMockTenant;
-      }
-    } else {
-      // 本番環境: 検証済み端末証明書（mTLS）およびサーバー側登録情報からテナントを特定
-      // ※段階③でmTLS・証明書検証を導入予定。現時点で証明書等の端末情報が検証できない場合は認証を即停止。
-      const verifiedDeviceTenant = req.clientCertificateTenantKey || null;
-      if (verifiedDeviceTenant) {
-        effectiveTenantKey = verifiedDeviceTenant;
-      }
-    }
-
-    // 端末を確認できない場合は「端末の登録を確認してください」と表示して認証を止める
-    if (!effectiveTenantKey) {
+    const deviceResult = await resolveDeviceTenant(req, cpPool);
+    if (!deviceResult.ok) {
+      console.warn(`[TenantAuth] Device verification rejected: ${deviceResult.error}`);
       return res.status(403).json({
         success: false,
-        message: '端末の登録を確認してください'
+        message: '端末の登録を確認してください',
+        code: 'DEVICE_UNVERIFIED'
       });
     }
+
+    const effectiveTenantKey = deviceResult.tenantKey;
+    req.deviceInfo = deviceResult;
 
     // 2. 共通DBで接続先を解決
     const runtime = await resolveTenantRuntime(effectiveTenantKey).catch(err => {
