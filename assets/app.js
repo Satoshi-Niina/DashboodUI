@@ -512,11 +512,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 targetUrl = `${window.location.origin}/inspection/`;
             }
             const urlObj = new URL(targetUrl, window.location.origin);
-            urlObj.search = '';
             const launchTenantId = launchContext.publicTenantId || launchContext.tenantKey;
-            urlObj.searchParams.set('tenant_id', launchTenantId);
-            urlObj.searchParams.set('tenant_path', `/${launchTenantId}`);
-            urlObj.searchParams.set('token', launchContext.token);
+            // URLクエリにテナント名やトークンを含めない（ログ漏洩防止・会社名非露出）
+            urlObj.search = '';
+            // postMessage非対応時の安全なフォールバックとして、サーバーへ送信されないフラグメント(Hash)のみに設定
+            urlObj.hash = `token=${encodeURIComponent(launchContext.token)}`;
 
             const externalContext = {
                 type: 'EXTERNAL_AUTH_CONTEXT',

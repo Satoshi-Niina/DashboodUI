@@ -2505,22 +2505,13 @@ function extractTokenFromRequest(req) {
 // Middleware: トークン認証
 function authenticateToken(req, res, next) {
   const token = extractTokenFromRequest(req);
-  const isDevBypass = process.env.SAFE_MODE === 'true' || process.env.BYPASS_JWT === 'true' || process.env.NODE_ENV !== 'production';
 
   if (!token) {
-    if (isDevBypass) {
-      req.user = { id: 'demo-admin', role: 'system_admin' };
-      return next();
-    }
     return res.status(401).json({ success: false, message: 'トークンが提供されていません' });
   }
 
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
     if (err) {
-      if (isDevBypass) {
-        req.user = { id: 'demo-admin', role: 'system_admin' };
-        return next();
-      }
       return res.status(403).json({ success: false, message: 'トークンが無効です' });
     }
     req.user = user;
@@ -2659,11 +2650,51 @@ async function resolveSessionTenant(pool, session) {
     }
   } catch (_) { }
 
-  return {
-    id: tenantId || 'demo',
-    tenant_key: tenantId || 'demo',
-    tenant_name: tenantId || 'デモ環境'
-  };
+  // テナントが特定できない場合は別会社・デモへフォールバックせず null を返す
+  return null;
+}
+
+// 認証済みセッションのテナントと、提示された端末証明書の所属テナントの一致を検証するミドルウェア
+async function verifyDeviceSessionTenantMatch(req, res, next) {
+  if (!req.session) return next();
+
+  // ゲートウェイ内部認証情報（mTLS終端）の存在確認
+  const deviceAuth = req.deviceAuth;
+  if (!deviceAuth || !deviceAuth.hasCert || !deviceAuth.fingerprint256) {
+    console.warn('[SessionGuard] Request has session but missing verified device certificate');
+    return res.status(403).json({
+      success: false,
+      code: 'DEVICE_UNVERIFIED',
+      message: '端末の登録を確認してください'
+    });
+  }
+
+  const cpPool = getControlPlanePool();
+  const deviceResult = await resolveDeviceTenant(req, cpPool);
+  if (!deviceResult.ok) {
+    console.warn(`[SessionGuard] Device rejected: ${deviceResult.error}`);
+    return res.status(403).json({
+      success: false,
+      code: 'DEVICE_UNVERIFIED',
+      message: '端末の登録を確認してください'
+    });
+  }
+
+  const sessionTenant = String(req.session.tenant_key || req.session.tenant_id || '').trim().toLowerCase();
+  const certTenant = String(deviceResult.tenantKey || '').trim().toLowerCase();
+
+  // セッションのテナントと端末証明書の所属テナントの厳格な一致確認
+  if (sessionTenant && certTenant && sessionTenant !== certTenant) {
+    console.warn(`[SessionGuard] Tenant mismatch: sessionTenant=${sessionTenant}, certTenant=${certTenant}`);
+    return res.status(403).json({
+      success: false,
+      code: 'TENANT_MISMATCH',
+      message: '端末の所属会社とログインセッションが一致しません'
+    });
+  }
+
+  req.deviceInfo = deviceResult;
+  next();
 }
 
 async function resolveDeviceTenant(req, cpPool) {
@@ -2733,21 +2764,7 @@ async function resolveDeviceTenant(req, cpPool) {
     }
   }
 
-  // 2. ゲートウェイ経由でない、かつローカル開発専用モック設定時（明示的なフラグ指定時のみ）
-  const isProduction = process.env.NODE_ENV === 'production';
-  if (!isProduction && process.env.ALLOW_DEV_MOCK_TENANT === 'true') {
-    const devMockTenant = String(process.env.DEV_MOCK_TENANT || process.env.DEV_DEFAULT_TENANT || '').trim().toLowerCase();
-    if (devMockTenant) {
-      return {
-        ok: true,
-        tenantKey: devMockTenant,
-        deviceId: 'dev-local-device-id',
-        deviceIdentifier: `dev-mock-${devMockTenant}`,
-        deviceName: 'ローカル開発固定端末'
-      };
-    }
-  }
-
+  // 端末証明書未提示（または直接アクセス）の場合は即座に拒否（暗黙フォールバック・モックバイパス禁止）
   return { ok: false, error: 'no_certificate' };
 }
 
@@ -2828,7 +2845,10 @@ app.post('/api/login', async (req, res) => {
       tenantInfo = tenantInfoRes.rows[0];
     }
 
-    const officialTenantKey = effectiveTenantKey || (tenantInfo ? tenantInfo.tenant_key : 'demo');
+    const officialTenantKey = effectiveTenantKey || (tenantInfo ? tenantInfo.tenant_key : null);
+    if (!officialTenantKey) {
+      return res.status(403).json({ success: false, message: '有効なテナントが特定できません' });
+    }
     const officialTenantUuid = tenantInfo ? tenantInfo.tenant_id : null;
     const companyName = tenantInfo?.tenant_name || runtime.companyName || officialTenantKey;
 
@@ -2865,35 +2885,34 @@ app.post('/api/login', async (req, res) => {
 
 // NOTE: このエンドポイントは以前重複定義されており、旧ハンドラは
 // UUID型カラムに対して厳格な JOIN (t.id = $2 など) を行っていたため、
-// session.tenant_id が "demo" のような文字列の場合に
-// "invalid input syntax for type uuid" エラーで例外を起こし、
-// フロントエンドが認証切れと誤判定してログイン画面へ強制リダイレクトしていた。
-// 現在は下記の安全な実装（id::text = $1 OR tenant_key = $1）のみを残す。
-app.get('/api/auth/me', requireCookieSession, async (req, res) => {
+// session.tenant_id が文字列の場合に例外を起こしていた。
+// 現在は下記の安全な実装（id::text = $1 OR tenant_key = $1）を残し、
+// 端末証明書とのテナント整合性（verifyDeviceSessionTenantMatch）を必須とする。
+app.get('/api/auth/me', requireCookieSession, verifyDeviceSessionTenantMatch, async (req, res) => {
   try {
     const pool = getControlPlanePool();
     // 1. テナント情報の取得（UUIDでもtenant_keyでも安全に引く）
     const tenantRes = await pool.query(`
       SELECT id::text AS tenant_id, tenant_key, tenant_name
       FROM public.tenants
-      WHERE id::text = $1 OR tenant_key = $1
+      WHERE (id::text = $1 OR tenant_key = $1)
+        AND is_active = true
       LIMIT 1
     `, [String(req.session.tenant_id || '').trim()]);
 
-    const tenant = tenantRes.rows[0] || {
-      tenant_id: req.session.tenant_id,
-      tenant_key: 'demo',
-      tenant_name: 'デモ環境'
-    };
+    const tenant = tenantRes.rows[0];
+    if (!tenant) {
+      return res.status(403).json({ success: false, message: '有効なテナント情報が特定できません' });
+    }
 
-    // 2. ユーザー情報を取得（テナントDBまたはcommon_dbから取得）
+    // 2. ユーザー情報を取得（テナントDBから取得）
     let user = null;
     try {
       const runtime = await resolveTenantRuntime(tenant.tenant_key);
       const userRes = await runtime.pool.query(`
         SELECT id, username, display_name, role
         FROM public.users
-        WHERE id::text = $1 OR username = $1
+        WHERE (id::text = $1 OR username = $1) AND is_active = true
         LIMIT 1
       `, [String(req.session.sub || '').trim()]);
       user = userRes.rows[0];
@@ -2917,21 +2936,24 @@ app.get('/api/auth/me', requireCookieSession, async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('[/api/auth/me] Error:', err);
+    console.error('[/api/auth/me] Error:', err.message);
     return res.status(500).json({ success: false, message: 'セッション取得エラー' });
   }
 });
 
 // GET /api/apps
 // テナントに紐づく有効なアプリ一覧を public.tenant_app_routings から安全に取得する。
-// 取得に失敗した場合でも 500/403 を返さず、空配列を返してダッシュボード画面が
-// 落ちない（=ログイン画面へ強制リダイレクトされない）ようにする。
-app.get('/api/apps', requireCookieSession, async (req, res) => {
-  let tenantKey = 'demo';
+// 端末証明書のテナント一致を検証し、未承認アクセスや他社へのすり替えを遮断する。
+app.get('/api/apps', requireCookieSession, verifyDeviceSessionTenantMatch, async (req, res) => {
+  let tenantKey = '';
   try {
     const pool = getControlPlanePool();
     const tenant = await resolveSessionTenant(pool, req.session).catch(() => null);
-    tenantKey = tenant?.tenant_key || String(req.session.tenant_id || 'demo').trim().toLowerCase();
+    tenantKey = tenant?.tenant_key || String(req.session.tenant_key || req.session.tenant_id || '').trim().toLowerCase();
+
+    if (!tenantKey) {
+      return res.status(403).json({ success: false, message: 'テナントを確認できません' });
+    }
 
     const result = await pool.query(`
       SELECT app_id, app_name, app_url, icon, icon_class, category, required_role, display_order, description
@@ -2943,11 +2965,11 @@ app.get('/api/apps', requireCookieSession, async (req, res) => {
     `, [tenantKey]);
 
     const appsList = result.rows
-      .filter((row) => row.app_url) // ルーティング専用行（app_url未設定）は除外
+      .filter((row) => row.app_url)
       .map((row) => ({
         app_key: row.app_id,
         app_name: row.app_name,
-        app_url: row.app_url,
+        app_url: row.app_id === 'inspection' ? '/inspection/' : row.app_url,
         icon: row.icon || '📱',
         iconClass: row.icon_class || null,
         category: row.category || '',
@@ -2956,7 +2978,7 @@ app.get('/api/apps', requireCookieSession, async (req, res) => {
 
     return res.json({ success: true, apps: appsList });
   } catch (err) {
-    console.error(`[/api/apps] Failed to load apps for tenant "${tenantKey}", returning empty list:`, err.message);
+    console.error(`[/api/apps] Failed to load apps for tenant "${tenantKey}":`, err.message);
     return res.json({ success: true, apps: [] });
   }
 });
@@ -3042,222 +3064,16 @@ const handleLaunchToken = async (req, res) => {
   }
 };
 
-app.post('/api/apps/:appKey/launch-token', requireCookieSession, handleLaunchToken);
-app.post('/:tenantId/api/apps/:appKey/launch-token', requireCookieSession, handleLaunchToken);
+app.post('/api/apps/:appKey/launch-token', requireCookieSession, verifyDeviceSessionTenantMatch, handleLaunchToken);
 
 app.post('/api/logout', (req, res) => {
   commonAuth.clearSession(res);
   return res.json({ success: true });
 });
 
-// Login API Endpoint
-app.post('/api/retired-tenant-login', async (req, res) => {
+// 旧認証API（廃止済み）
+app.post('/api/retired-tenant-login', (req, res) => {
   return res.status(410).json({ success: false, message: 'この認証方式は廃止されました' });
-
-  const { username, password } = req.body;
-
-  const tenantPath = String(req.body.tenant_path || req.headers['x-tenant-path'] || req.query.tenant_path || '').trim();
-  const fullUrl = String(req.headers['x-tenant-full-url'] || req.query.full_url || req.headers.referer || '').trim();
-  const bodyTenantKey = String(req.body && req.body.tenantKey || '').trim().toLowerCase();
-  const headerTenantKey = String(req.headers['x-tenant-key'] || req.headers['x-tenant-id'] || '').trim().toLowerCase();
-  const refererTenantKey = getTenantKeyFromPath(String(req.headers.referer || '').trim());
-  const tenantKey = bodyTenantKey
-    || headerTenantKey
-    || (refererTenantKey !== 'demo_env' ? refererTenantKey : '');
-
-  if (!tenantKey) {
-    return res.status(400).json({ success: false, message: 'tenantKey is required' });
-  }
-
-  console.log('[Login] Request received:', {
-    username,
-    tenantKey: bodyTenantKey || headerTenantKey || '',
-    xTenantKey: String(req.headers['x-tenant-key'] || '').trim(),
-    xTenantId: String(req.headers['x-tenant-id'] || '').trim(),
-    resolvedTenantKey: tenantKey
-  });
-
-  try {
-    const routingRow = await getCompanyRoutingByTenantRequest({
-      tenantId: tenantKey,
-      tenantPath,
-      fullUrl
-    });
-    console.log('[Login] tenant_app_routings database_url (masked):', maskDatabaseUrl(routingRow?.database_url));
-
-    // 解決されたテナントに対して実行プール（runtime）を再構築する
-    const runtime = await resolveTenantRuntime(tenantKey, {
-      tenantPath,
-      fullUrl,
-      referer: String(req.headers.referer || '').trim(),
-      originalUrl: String(req.originalUrl || req.url || '').trim()
-    });
-
-    if (!runtime || !runtime.pool) {
-      return res.status(404).json({ success: false, message: `Tenant DB pool not found: ${tenantKey}` });
-    }
-
-    console.log(`[Login] Tenant resolved: ${tenantKey} → DB: ${runtime.dbName}`);
-    console.log('[Login] Runtime database_url (masked):', maskDatabaseUrl(runtime.databaseUrl));
-    req.tenantContext = runtime;
-    req.tenantId = runtime.resolvedTenantId || tenantKey;
-    req.db = runtime.pool;
-
-    // テナント DB に接続してユーザー認証（各テナント DB 内で認証）を await して同期的に実行する
-    await requestTenantContextStorage.run(runtime, async () => {
-      const databaseResult = await runtime.pool.query('SELECT current_database() AS database_name');
-      const connectedDbName = databaseResult.rows[0]?.database_name || 'unknown';
-      console.log(`[Login] Connected database: ${connectedDbName} (runtime DB: ${runtime.dbName})`);
-
-      // Proxyの混乱を避けるため、確定したテナントプールから直接クエリを実行
-      const userQuery = 'SELECT * FROM public.users WHERE username = $1';
-      console.log('[Login] Executing SQL:', userQuery);
-      const userResult = await runtime.pool.query(userQuery, [username]);
-      const users = userResult.rows;
-
-      console.log('[Login] User lookup result:', users.length > 0
-        ? {
-          found: true,
-          id: users[0].id,
-          username: users[0].username,
-          hasPasswordHash: Boolean(users[0].password_hash),
-          hasPassword: Boolean(users[0].password)
-        }
-        : { found: false });
-
-      if (users.length === 0) {
-        return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
-      }
-
-      // テナント コンテキスト に設定（JWT に含める）
-
-      const user = users[0];
-      const targetHash = user.password_hash || user.password;
-
-      console.log('[Login] Password check for user:', user.username);
-      console.log('[Login] Submitted password length:', password ? password.length : 'NULL');
-
-      if (!targetHash) {
-        console.log('[Login] No password hash found for user:', username);
-        return res.status(401).json({ success: false, message: '認証情報が無効です' });
-      }
-
-      const match = await bcrypt.compare(password, targetHash);
-      console.log('[Login] Password match result:', match);
-
-      // セキュリティ向上のため、平文パスワードをハッシュ化して更新（テナント DB に更新）
-      if (match && !targetHash.startsWith('$2')) {
-        try {
-          const hashedPassword = await bcrypt.hash(password, 10);
-          const userRoute = await resolveTablePath('users');
-          await runtime.pool.query(
-            `UPDATE ${userRoute.fullPath} SET password = $1, password_hash = $2 WHERE id = $3`,
-            [hashedPassword, hashedPassword, user.id]
-          );
-          console.log(`[Login] Password hashed for user: ${user.username}`);
-        } catch (hashErr) {
-          console.error('[Login] Failed to hash password:', hashErr);
-        }
-      }
-
-      if (match) {
-        console.log('[Login] Password matched for user:', username);
-
-        // 認証成功 - 旧ロールを3種類へ正規化して扱う
-        const normalizedRole = normalizeRoleForApp(user.role);
-        const externalRole = mapRoleForExternal(normalizedRole);
-        const department = getDepartmentByRole(normalizedRole);
-        const effectiveTenantId = runtime.companyId || runtime.resolvedTenantId || runtime.tenantId || tenantKey || 'demo';
-        const effectiveTenantPath = normalizeTenantPathForResponse(runtime.tenantPath || '', effectiveTenantId);
-        const ssoClaims = buildSsoClaims({ runtime, normalizedRole, effectiveTenantId, user });
-
-        const payload = {
-          id: user.id,
-          userId: user.id,  // 外部アプリ連携用
-          username: user.username,
-          tenantKey: tenantKey,
-          displayName: user.display_name,  // Emergency-Assistanceで必要
-          role: normalizedRole,
-          roles: ssoClaims.roles,
-          externalRole,
-          department: department,  // Emergency-Assistanceで必要
-          tenantId: effectiveTenantId,  // テナント ID（マルチテナント制御用）
-          tenant_id: effectiveTenantId,
-          tenantPath: effectiveTenantPath,
-          tenant_path: effectiveTenantPath,
-          company_code: ssoClaims.company_code,
-          company_name: ssoClaims.company_name,
-          dbName: runtime.dbName,  // DB 名（データベース接続用）
-          iat: Math.floor(Date.now() / 1000)  // 発行時刻を明示
-        };
-
-        const token = jwt.sign(payload, process.env.JWT_SECRET, {
-          expiresIn: '4h',  // Emergency-Assistanceと同じ
-          issuer: 'emergency-assistance-app',  // Emergency-Assistanceと同じ
-          audience: 'emergency-assistance-app'  // Emergency-Assistanceと同じ
-        });
-
-        console.log('[Login] 🎫 JWT Token generated:', {
-          userId: user.id,
-          username: user.username,
-          tenantId: effectiveTenantId,
-          tenantPath: effectiveTenantPath,
-          role: normalizedRole,
-          dbName: runtime.dbName,
-          tokenLength: token.length,
-          issuer: 'emergency-assistance-app',
-          audience: 'emergency-assistance-app',
-          expiresIn: '4h'
-        });
-
-        console.log('[Login] Token generated successfully');
-
-        // 🎫 トークンをセキュアな HttpOnly Cookie に設定
-        res.cookie('token', token, {
-          httpOnly: true,
-          secure: true,
-          sameSite: 'Lax',
-          path: '/',
-          maxAge: 4 * 60 * 60 * 1000 // 4時間
-        });
-
-        res.json({
-          success: true,
-          token,
-          tenant_id: effectiveTenantId,
-          tenant_path: effectiveTenantPath,
-          tenant_name: ssoClaims.company_name,
-          role: normalizedRole,
-          user: {
-            id: user.id,
-            username: user.username,
-            displayName: user.display_name,
-            role: normalizedRole,
-            externalRole,
-            tenant_id: effectiveTenantId,
-            tenant_path: effectiveTenantPath,
-            company_code: ssoClaims.company_code,
-            company_name: ssoClaims.company_name,
-            tenant_name: ssoClaims.company_name,
-            roles: ssoClaims.roles,
-            companyCode: ssoClaims.company_code,
-            companyName: ssoClaims.company_name
-          }
-        });
-      } else {
-        // パスワード不一致
-        console.log('[Login] Password mismatch for user:', username);
-        res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
-      }
-    });
-  } catch (err) {
-    if (String(err.message || '').toLowerCase().includes('tenant not registered')) {
-      return res.status(404).json({ success: false, message: `Tenant not found: ${tenantKey}` });
-    }
-    console.error('[Login] ERROR:', err);
-    console.error('[Login] Error stack:', err.stack);
-    res.status(500).json({ success: false, message: 'サーバーエラーが発生しました', error: err.message });
-  }
 });
 
 
@@ -3663,15 +3479,11 @@ async function requireAdmin(req, res, next) {
     decoded = commonAuth.readSession(req);
     if (!decoded) throw new Error('missing session');
   } catch (err) {
-    if (process.env.SAFE_MODE === 'true' || process.env.BYPASS_JWT === 'true') {
-      req.user = { id: 'demo-admin', role: 'system_admin', permissions: ['*'] };
-      return next();
-    }
     return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
   }
 
-  if (['system_admin', 'tenant_admin', 'manager', 'operation_admin', 'user', 'admin'].includes(decoded.role) || process.env.SAFE_MODE === 'true' || process.env.BYPASS_JWT === 'true') {
-    req.user = { id: decoded.sub || 'demo-admin', role: decoded.role || 'system_admin', permissions: decoded.permissions || [] };
+  if (['system_admin', 'tenant_admin', 'manager', 'operation_admin', 'user', 'admin'].includes(decoded.role)) {
+    req.user = { id: decoded.sub || decoded.userId || decoded.id, role: decoded.role || 'operator', permissions: decoded.permissions || [] };
     return next();
   }
   return res.status(403).json({ success: false, message: 'アクセス権限がありません。管理者権限が必要です。' });
@@ -5818,170 +5630,7 @@ app.get('/health/db', async (req, res) => {
   }
 });
 
-// デバッグ用エンドポイント（本番環境では削除推奨）
-app.get('/debug/env', (req, res) => {
-  // パスワードなどの機密情報は隠す
-  const safeEnv = {
-    NODE_ENV: process.env.NODE_ENV,
-    PORT: process.env.PORT,
-    CLOUD_SQL_INSTANCE: process.env.CLOUD_SQL_INSTANCE,
-    DB_NAME: process.env.DB_NAME,
-    DB_USER: process.env.DB_USER,
-    DB_PASSWORD: process.env.DB_PASSWORD ? '***設定済み***' : '未設定',
-    DATABASE_URL: process.env.DATABASE_URL ? '***設定済み***' : '未設定',
-    JWT_SECRET: process.env.JWT_SECRET ? '***設定済み***' : '未設定',
-    CORS_ORIGIN: process.env.CORS_ORIGIN,
-  };
-  res.json(safeEnv);
-});
 
-// デバッグ用: usersテーブルの確認（本番環境では削除必須）
-app.get('/debug/users', async (req, res) => {
-  try {
-    const result = await pool.query(`
-      SELECT 
-        id, 
-        username, 
-        display_name,
-        role,
-        CASE 
-          WHEN password LIKE '$2%' THEN 'ハッシュ化済み'
-          ELSE '平文'
-        END as password_type,
-        LEFT(password, 10) as password_preview
-      FROM public.users 
-      ORDER BY id
-    `);
-
-    res.json({
-      success: true,
-      count: result.rows.length,
-      users: result.rows
-    });
-  } catch (err) {
-    console.error('Debug users error:', err);
-    res.status(500).json({
-      success: false,
-      error: err.message,
-      hint: 'public.usersテーブルが存在しない可能性があります'
-    });
-  }
-});
-
-// デバッグ用: ログインテスト
-app.post('/debug/test-login', async (req, res) => {
-  const { username, password } = req.body;
-
-  try {
-    const query = 'SELECT id, username, password FROM public.users WHERE username = $1';
-    const result = await pool.query(query, [username]);
-
-    if (result.rows.length === 0) {
-      return res.json({
-        success: false,
-        message: 'ユーザーが見つかりません',
-        username: username
-      });
-    }
-
-    const user = result.rows[0];
-    const dbPassword = user.password;
-    const isHashed = dbPassword && dbPassword.startsWith('$2');
-
-    let match = false;
-    if (isHashed) {
-      match = await bcrypt.compare(password, dbPassword);
-    } else {
-      match = (password === dbPassword);
-    }
-
-    res.json({
-      success: true,
-      userFound: true,
-      passwordType: isHashed ? 'ハッシュ化' : '平文',
-      passwordMatch: match,
-      dbPasswordPreview: dbPassword ? dbPassword.substring(0, 15) + '...' : null,
-      inputPassword: password,
-      bcryptTest: isHashed ? await bcrypt.compare(password, dbPassword) : 'N/A'
-    });
-  } catch (err) {
-    console.error('Test login error:', err);
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
-  }
-});
-
-// デバッグ用: テーブル存在確認
-app.get('/debug/tables', async (req, res) => {
-  try {
-    const tables = ['management_offices', 'vehicles', 'machines', 'machine_types', 'bases', 'users', 'inspection_types', 'inspection_schedules'];
-    const results = {};
-
-    for (const tableName of tables) {
-      try {
-        const checkQuery = `
-          SELECT EXISTS(
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_name = $1
-          ) as exists
-        `;
-        const checkResult = await pool.query(checkQuery, [tableName]);
-        results[tableName] = {
-          exists: checkResult.rows[0].exists,
-          error: null
-        };
-
-        // テーブルが存在する場合、カラム情報も取得
-        if (checkResult.rows[0].exists) {
-          const columnsQuery = `
-            SELECT column_name, data_type, is_nullable
-            FROM information_schema.columns
-            WHERE table_schema = 'public' 
-            AND table_name = $1
-            ORDER BY ordinal_position
-          `;
-          const columnsResult = await pool.query(columnsQuery, [tableName]);
-          results[tableName].columns = columnsResult.rows;
-        }
-      } catch (err) {
-        results[tableName] = {
-          exists: false,
-          error: err.message
-        };
-      }
-    }
-
-    res.json({ success: true, tables: results });
-  } catch (err) {
-    console.error('Debug tables error:', err);
-    res.status(500).json({ success: false, message: err.message, stack: err.stack });
-  }
-});
-
-// デバッグエンドポイント: postal_codeカラム追加
-app.post('/debug/add-postal-code', async (req, res) => {
-  try {
-    console.log('public.management_officesにpostal_codeカラムを追加...');
-    await pool.query(`
-      ALTER TABLE public.management_offices 
-      ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20)
-    `);
-
-    console.log('public.basesにpostal_codeカラムを追加...');
-    await pool.query(`
-      ALTER TABLE public.bases 
-      ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20)
-    `);
-
-    res.json({ success: true, message: 'postal_codeカラムを追加しました' });
-  } catch (err) {
-    console.error('Add postal_code error:', err);
-    res.status(500).json({ success: false, message: 'エラーが発生しました: ' + err.message });
-  }
-});
 
 // ========================================
 // 機種マスタ・機械番号マスタ API (統合表示用)
@@ -7825,7 +7474,6 @@ async function initializeTenantSchemas() {
     console.warn('[Schema] Failed to query dynamic tenants, falling back to static list:', err.message);
     tenants = [
       { id: 'kosei', dbName: 'kosei_db' },
-      { id: 'demo', dbName: 'demo_db' },
       { id: 'daitetsu', dbName: 'daitetsu_db' }
     ];
   }
@@ -7861,371 +7509,29 @@ async function initializeTenantSchemas() {
   console.log('[Schema] Tenant schema initialization completed.');
 }
 
-/**
- * company_db_routing テーブルをクリーンアップ
- * - 古い demo_env エントリを削除
- * - kosei エントリが存在しない場合は追加
- * - テナント ID を統一（demo_env → demo）
- */
-async function cleanupCompanyDbRouting() {
-  try {
-    console.log('[CompanyDbCleanup] Starting cleanup of company_db_routing...');
-    const controlPool = getControlPlanePool();
+// Express グローバルエラーハンドラ
+// 利用者向けには内部スタックトレースやDB情報を隠蔽し、一般化メッセージと問い合わせ用エラーIDを返却する。
+// 管理者ログには原因を記録するが、パスワード・トークン・秘密鍵・接続文字列はマスキングする。
+app.use((err, req, res, next) => {
+  const errorId = crypto.randomUUID ? crypto.randomUUID() : `err-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+  const sanitizedMsg = String(err && err.message ? err.message : err)
+    .replace(/(password|token|secret|key)=[^&]+/gi, '$1=***')
+    .replace(/postgres(ql)?:\/\/[^@]+@/gi, 'postgresql://***:***@');
+  console.error(`[AppError][${errorId}]`, sanitizedMsg);
 
-    // テーブル構造を確認してカラル名を自動検出
-    const colsRes = await controlPool.query(`
-      SELECT column_name 
-      FROM information_schema.columns 
-      WHERE table_schema = 'public' AND table_name = 'company_db_routing'
-      ORDER BY ordinal_position
-    `);
-
-    if (colsRes.rows.length === 0) {
-      console.warn('[CompanyDbCleanup] ⚠️ company_db_routing table not found or has no columns');
-      return;
-    }
-
-    console.log('[CompanyDbCleanup] Table columns:', colsRes.rows.map(r => r.column_name).join(', '));
-
-    // 最初のカラムをテナントIDとして使用（通常は tenant_id, tenant_key, または company_id など）
-    const tenantIdColumn = colsRes.rows[0].column_name;
-    const dbNameColumn = colsRes.rows.find(r => r.column_name.includes('db') || r.column_name.includes('database'))?.column_name || colsRes.rows[2]?.column_name || 'db_name';
-
-    console.log(`[CompanyDbCleanup] Using tenant ID column: "${tenantIdColumn}", DB name column: "${dbNameColumn}"`);
-
-    // 現在のデータを確認
-    try {
-      const beforeRes = await controlPool.query(`SELECT * FROM public.company_db_routing LIMIT 10`);
-      console.log(`[CompanyDbCleanup] Current entries: ${beforeRes.rows.length}`);
-      beforeRes.rows.forEach(row => {
-        const tenantIdVal = row[tenantIdColumn] || Object.values(row)[0];
-        const dbNameVal = row[dbNameColumn] || Object.values(row)[2];
-        console.log(`  - ${tenantIdColumn}=${tenantIdVal}, ${dbNameColumn}=${dbNameVal}`);
-      });
-    } catch (err) {
-      console.warn('[CompanyDbCleanup] ⚠️ Could not retrieve current entries:', err.message);
-    }
-
-    // demo_env を削除しようとする（ただし、エラーをキャッチ）
-    try {
-      const deleteRes = await controlPool.query(`
-        DELETE FROM public.company_db_routing 
-        WHERE "${tenantIdColumn}" = $1
-      `, ['demo_env']);
-
-      if (deleteRes.rowCount > 0) {
-        console.log(`[CompanyDbCleanup] ✅ Removed ${deleteRes.rowCount} demo_env entry(ies)`);
-      }
-    } catch (deleteErr) {
-      console.warn(`[CompanyDbCleanup] ⚠️ Could not delete demo_env: ${deleteErr.message}`);
-    }
-
-    console.log('[CompanyDbCleanup] ✅ Cleanup attempt complete');
-  } catch (err) {
-    console.error('[CompanyDbCleanup] ❌ Error:', err.message);
-    console.error('[CompanyDbCleanup] Stack:', err.stack);
+  if (res.headersSent) {
+    return next(err);
   }
-}
 
-/**
- * demo テナント用：ビジネステーブルとrouting エントリを確認・修正
- */
-async function initializeDemoTenantTables() {
-  try {
-    console.log('[DemoInit] ⏳ Checking demo_db schema and routing...');
-    const demoRuntime = await resolveTenantRuntime('demo');
+  const status = Number(err.status || err.statusCode) || 500;
+  return res.status(status).json({
+    success: false,
+    message: status >= 500 ? 'システムエラーが発生しました。システム管理者にお問い合わせください。' : (err.message || 'エラーが発生しました'),
+    error_id: errorId
+  });
+});
 
-    await requestTenantContextStorage.run(demoRuntime, async () => {
-      const activePool = getActiveDbPool();
-      const appId = 'dashboard-ui';
 
-      // 【重要】app_resource_routing テーブルの実際のカラル構造を検出
-      console.log('[DemoInit] 🔍 Detecting app_resource_routing schema...');
-      let logicalColumn, physicalSchemaColumn, physicalTableColumn;
-      try {
-        const appRoutingCols = await getControlPlanePool().query(`
-          SELECT column_name, data_type, is_nullable
-          FROM information_schema.columns
-          WHERE table_schema = 'public' AND table_name = 'app_resource_routing'
-          ORDER BY ordinal_position
-        `);
-
-        const appRoutingColumnNames = appRoutingCols.rows.map(r => r.column_name);
-        console.log(`[DemoInit] 📊 app_resource_routing columns: [${appRoutingColumnNames.join(', ')}]`);
-
-        // 全カラル情報をログに出力
-        appRoutingCols.rows.forEach(col => {
-          console.log(`[DemoInit]   - ${col.column_name} (${col.data_type}, nullable=${col.is_nullable})`);
-        });
-
-        // カラル名を自動検出（複数のバリアント対応）
-        logicalColumn = appRoutingColumnNames.find(c =>
-          c === 'logical_resource_name' || c === 'logical_name' || c === 'resource_name' || c === 'name'
-        );
-        physicalSchemaColumn = appRoutingColumnNames.find(c =>
-          c === 'physical_schema' || c === 'schema_name' || c === 'db_schema'
-        );
-        physicalTableColumn = appRoutingColumnNames.find(c =>
-          c === 'physical_table_name' || c === 'physical_table' || c === 'table_name'
-        );
-
-        console.log(`[DemoInit] 🎯 Detected: logical='${logicalColumn}', schema='${physicalSchemaColumn}', table='${physicalTableColumn}'`);
-      } catch (schemaErr) {
-        console.warn(`[DemoInit] ⚠️ Could not detect schema: ${schemaErr.message}`);
-        console.error(`[DemoInit] Stack: ${schemaErr.stack}`);
-      }
-
-      // ビジネステーブルの定義
-      const businessTables = [
-        {
-          logicalName: 'machine_types',
-          physicalTableName: 'machine_types',
-          schema: 'public',
-          createSql: `
-            CREATE TABLE IF NOT EXISTS public.machine_types (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              machine_type_name VARCHAR(255),
-              model_name VARCHAR(255),
-              type_name VARCHAR(255),
-              type_code VARCHAR(50),
-              display_code VARCHAR(50),
-              category VARCHAR(100),
-              manufacturer VARCHAR(255),
-              description TEXT,
-              created_at TIMESTAMP DEFAULT now(),
-              updated_at TIMESTAMP DEFAULT now()
-            )
-          `
-        },
-        {
-          logicalName: 'machines',
-          physicalTableName: 'machines',
-          schema: 'public',
-          createSql: `
-            CREATE TABLE IF NOT EXISTS public.machines (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              machine_type_id UUID REFERENCES public.machine_types(id),
-              serial_number VARCHAR(255),
-              status VARCHAR(50),
-              location VARCHAR(255),
-              created_at TIMESTAMP DEFAULT now(),
-              updated_at TIMESTAMP DEFAULT now()
-            )
-          `
-        },
-        {
-          logicalName: 'management_offices',
-          physicalTableName: 'management_offices',
-          schema: 'public',
-          createSql: `
-            CREATE TABLE IF NOT EXISTS public.management_offices (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              office_name VARCHAR(255),
-              office_code VARCHAR(100),
-              address TEXT,
-              phone VARCHAR(20),
-              created_at TIMESTAMP DEFAULT now(),
-              updated_at TIMESTAMP DEFAULT now()
-            )
-          `
-        },
-        {
-          logicalName: 'bases',
-          physicalTableName: 'bases',
-          schema: 'public',
-          createSql: `
-            CREATE TABLE IF NOT EXISTS public.bases (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              base_name VARCHAR(255),
-              base_code VARCHAR(100),
-              office_id UUID REFERENCES public.management_offices(id),
-              created_at TIMESTAMP DEFAULT now(),
-              updated_at TIMESTAMP DEFAULT now()
-            )
-          `
-        },
-        {
-          logicalName: 'inspection_types',
-          physicalTableName: 'inspection_types',
-          schema: 'public',
-          createSql: `
-            CREATE TABLE IF NOT EXISTS public.inspection_types (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              inspection_type_name VARCHAR(255),
-              description TEXT,
-              created_at TIMESTAMP DEFAULT now(),
-              updated_at TIMESTAMP DEFAULT now()
-            )
-          `
-        },
-        {
-          logicalName: 'inspection_schedules',
-          physicalTableName: 'inspection_schedules',
-          schema: 'public',
-          createSql: `
-            CREATE TABLE IF NOT EXISTS public.inspection_schedules (
-              id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-              machine_id UUID REFERENCES public.machines(id),
-              machine_type_id UUID REFERENCES public.machine_types(id),
-              target_category VARCHAR(100),
-              inspection_type_id UUID REFERENCES public.inspection_types(id),
-              scheduled_date DATE,
-              completed_date DATE,
-              cycle_months INTEGER,
-              duration_days INTEGER,
-              remarks TEXT,
-              is_active BOOLEAN DEFAULT true,
-              notes TEXT,
-              created_at TIMESTAMP DEFAULT now(),
-              updated_at TIMESTAMP DEFAULT now()
-            )
-          `
-        }
-      ];
-
-      for (const table of businessTables) {
-        // テーブル存在確認
-        const tableExists = await activePool.query(`
-          SELECT EXISTS(
-            SELECT 1 FROM information_schema.tables 
-            WHERE table_schema = $1 AND table_name = $2
-          ) as exists
-        `, [table.schema, table.physicalTableName]);
-
-        if (!tableExists.rows[0].exists) {
-          console.log(`[DemoInit] 📋 Creating table ${table.logicalName} in demo_db...`);
-          await activePool.query(table.createSql);
-          console.log(`[DemoInit] ✅ Table ${table.logicalName} created`);
-        } else {
-          console.log(`[DemoInit] ✅ Table ${table.logicalName} exists`);
-        }
-
-        // inspection_types の不足カラムを動的補正
-        if (table.physicalTableName === 'machine_types') {
-          try {
-            await activePool.query(
-              'ALTER TABLE public.machine_types ADD COLUMN IF NOT EXISTS display_code VARCHAR(50)'
-            );
-          } catch (alterErr) {
-            console.warn('[DemoInit] Column add warning for machine_types:', alterErr.message);
-          }
-        }
-
-        if (table.physicalTableName === 'inspection_types') {
-          try {
-            await activePool.query(`
-              ALTER TABLE public.inspection_types ADD COLUMN IF NOT EXISTS type_name VARCHAR(255);
-              ALTER TABLE public.inspection_types ADD COLUMN IF NOT EXISTS type_code VARCHAR(100);
-              ALTER TABLE public.inspection_types ADD COLUMN IF NOT EXISTS display_order INTEGER NOT NULL DEFAULT 0;
-              ALTER TABLE public.inspection_types ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true;
-            `);
-          } catch (alterErr) {
-            console.warn('[DemoInit] Column add warning for inspection_types:', alterErr.message);
-          }
-        }
-
-        if (table.physicalTableName === 'machines') {
-          try {
-            await activePool.query(`
-              ALTER TABLE public.machines ADD COLUMN IF NOT EXISTS machine_number VARCHAR(255);
-              ALTER TABLE public.machines ADD COLUMN IF NOT EXISTS office_id UUID;
-              ALTER TABLE public.machines ADD COLUMN IF NOT EXISTS type_certification VARCHAR(255);
-              ALTER TABLE public.machines ADD COLUMN IF NOT EXISTS manufacture_date DATE;
-              ALTER TABLE public.machines ADD COLUMN IF NOT EXISTS purchase_date DATE;
-              ALTER TABLE public.machines ADD COLUMN IF NOT EXISTS notes TEXT;
-            `);
-          } catch (alterErr) {
-            console.warn('[DemoInit] Column add warning for machines:', alterErr.message);
-          }
-        }
-
-        if (table.physicalTableName === 'bases') {
-          try {
-            await activePool.query(
-              'ALTER TABLE public.bases ADD COLUMN IF NOT EXISTS location TEXT'
-            );
-          } catch (alterErr) {
-            console.warn('[DemoInit] Column add warning for bases:', alterErr.message);
-          }
-        }
-
-        // inspection_schedules の不足カラムを動的補正
-        if (table.physicalTableName === 'inspection_schedules') {
-          try {
-            await activePool.query(`
-              ALTER TABLE public.inspection_schedules ADD COLUMN IF NOT EXISTS cycle_months INTEGER;
-              ALTER TABLE public.inspection_schedules ADD COLUMN IF NOT EXISTS duration_days INTEGER;
-              ALTER TABLE public.inspection_schedules ADD COLUMN IF NOT EXISTS remarks TEXT;
-              ALTER TABLE public.inspection_schedules ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
-              ALTER TABLE public.inspection_schedules ADD COLUMN IF NOT EXISTS machine_type_id UUID;
-              ALTER TABLE public.inspection_schedules ADD COLUMN IF NOT EXISTS target_category VARCHAR(100);
-            `);
-          } catch (alterErr) {
-            console.warn('[DemoInit] Column add warning for inspection_schedules:', alterErr.message);
-          }
-        }
-
-        // routing エントリ確認（common_db で実行）
-        if (logicalColumn) {
-          try {
-            // WHERE 句でカラル名を使用（動的）
-            const countRes = await getControlPlanePool().query(`
-              SELECT COUNT(*) as cnt FROM public.app_resource_routing 
-              WHERE "${logicalColumn}" = $1
-            `, [table.logicalName]);
-
-            if (countRes.rows[0].cnt === 0) {
-              console.log(`[DemoInit] 🔗 Adding routing entry for ${table.logicalName}...`);
-
-              // INSERT の列を動的に構築
-              let insertColumns = [`"${logicalColumn}"`];
-              let insertValues = ['$1'];
-              let paramValues = [table.logicalName];
-              let paramIndex = 2;
-
-              if (physicalSchemaColumn) {
-                insertColumns.push(`"${physicalSchemaColumn}"`);
-                insertValues.push(`$${paramIndex}`);
-                paramValues.push(table.schema);
-                paramIndex++;
-              }
-              if (physicalTableColumn) {
-                insertColumns.push(`"${physicalTableColumn}"`);
-                insertValues.push(`$${paramIndex}`);
-                paramValues.push(table.physicalTableName);
-              }
-
-              const insertSql = `
-                INSERT INTO public.app_resource_routing 
-                (${insertColumns.join(', ')})
-                VALUES (${insertValues.join(', ')})
-                ON CONFLICT DO NOTHING
-              `;
-
-              try {
-                await getControlPlanePool().query(insertSql, paramValues);
-                console.log(`[DemoInit] ✅ Routing entry created for ${table.logicalName}`);
-              } catch (insertErr) {
-                console.warn(`[DemoInit] ⚠️ Routing INSERT failed: ${insertErr.message}`);
-              }
-            } else {
-              console.log(`[DemoInit] ✅ Routing entry exists for ${table.logicalName}`);
-            }
-          } catch (countErr) {
-            console.warn(`[DemoInit] ⚠️ Routing check failed for ${table.logicalName}: ${countErr.message}`);
-          }
-        } else {
-          console.log(`[DemoInit] ⏭️  Skipping routing for ${table.logicalName} (no logical column detected)`);
-        }
-      }
-
-      console.log('[DemoInit] ✅ Demo tenant initialization complete');
-    });
-  } catch (err) {
-    console.error('[DemoInit] ❌ Error:', err.message);
-    console.error('[DemoInit] Stack:', err.stack);
-  }
-}
 
 /**
  * 全テナントのユーザーデータ初期化
