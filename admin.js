@@ -274,7 +274,8 @@ function applyRoleBasedTabVisibility(role) {
     const systemAdminOnlyTabs = [
         'database-management',
         'system-operations',
-        'cors-settings'
+        'cors-settings',
+        'ai-management'
     ];
 
     systemAdminOnlyTabs.forEach(tabName => {

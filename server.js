@@ -4867,7 +4867,7 @@ app.get('/user-management', (req, res) => {
 // ========================================
 
 // AI設定取得
-app.get('/api/ai/settings', requireAdmin, async (req, res) => {
+app.get('/api/ai/settings', requireSystemAdmin, async (req, res) => {
   try {
     const query = `
       SELECT app_id, setting_type, settings_json, updated_at
@@ -4893,7 +4893,7 @@ app.get('/api/ai/settings', requireAdmin, async (req, res) => {
 });
 
 // AI設定保存
-app.post('/api/ai/settings', requireAdmin, async (req, res) => {
+app.post('/api/ai/settings', requireSystemAdmin, async (req, res) => {
   try {
     const { settingType, settings } = req.body;
 
@@ -4936,7 +4936,7 @@ app.post('/api/ai/settings', requireAdmin, async (req, res) => {
 });
 
 // ナレッジデータ一覧取得（自動文字化け修正機能付き）
-app.get('/api/ai/knowledge', requireAdmin, async (req, res) => {
+app.get('/api/ai/knowledge', requireSystemAdmin, async (req, res) => {
   try {
     const query = `
       SELECT id, file_name, file_path, file_size_bytes, file_type,
@@ -4992,7 +4992,7 @@ app.get('/api/ai/knowledge', requireAdmin, async (req, res) => {
 });
 
 // ファイルアップロード
-app.post('/api/ai/knowledge/upload', requireAdmin, upload.single('file'), async (req, res) => {
+app.post('/api/ai/knowledge/upload', requireSystemAdmin, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'ファイルが選択されていません' });
@@ -5269,7 +5269,7 @@ function chunkText(text, chunkSize = 1000, overlap = 200) {
 }
 
 // ナレッジデータ削除（論理削除+関連データクリーンアップ）
-app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
+app.delete('/api/ai/knowledge/:id', requireSystemAdmin, async (req, res) => {
   let client;
   try {
     client = await pool.connect();
@@ -5395,7 +5395,7 @@ app.delete('/api/ai/knowledge/:id', requireAdmin, async (req, res) => {
 
 
 // ストレージ統計情報取得
-app.get('/api/ai/storage-stats', requireAdmin, async (req, res) => {
+app.get('/api/ai/storage-stats', requireSystemAdmin, async (req, res) => {
   try {
     const query = `
       SELECT 
@@ -5419,7 +5419,7 @@ app.get('/api/ai/storage-stats', requireAdmin, async (req, res) => {
 });
 
 // GCS接続診断
-app.get('/api/ai/diagnose-gcs', requireAdmin, async (req, res) => {
+app.get('/api/ai/diagnose-gcs', requireSystemAdmin, async (req, res) => {
   try {
     console.log('[GCS Diagnosis] Starting diagnosis...');
 
