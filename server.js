@@ -1497,7 +1497,7 @@ app.use('/api', async (req, res, next) => {
     req.tenantId = runtime?.resolvedTenantId || requestedTenantId || null;
     req.db = runtime?.pool || getControlPlanePool();
     // 内部診断ヘッダーはクライアントへ漏洩させず、サーバーログのみに記録
-    if (runtime.tenantResolutionError) {
+    if (runtime?.tenantResolutionError) {
       applyTenantErrorHeaders(res, runtime.tenantResolutionError);
     }
 
@@ -2575,7 +2575,8 @@ async function resolveDeviceTenant(req, cpPool) {
         tenantKey: certRow.tenant_id,
         deviceId: certRow.device_id,
         deviceIdentifier: certRow.device_identifier,
-        deviceName: certRow.device_name
+        deviceName: certRow.device_name,
+        fingerprint256: deviceAuth.fingerprint256
       };
     } catch (err) {
       console.error('[DeviceAuth] Database lookup error:', err.message);
