@@ -488,16 +488,15 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
             const urlObj = new URL(targetUrl, window.location.origin);
             const launchTenantId = launchContext.publicTenantId || launchContext.tenantKey;
-            // URLクエリにテナント名やトークンを含めない（ログ漏洩防止・会社名非露出）
+            // URLクエリおよびフラグメントに機微情報やトークンを含めない（postMessageで安全にハンドシェイク）
             urlObj.search = '';
-            // postMessage非対応時の安全なフォールバックとして、サーバーへ送信されないフラグメント(Hash)のみに設定
-            urlObj.hash = `token=${encodeURIComponent(launchContext.token)}`;
+            urlObj.hash = '';
 
             const externalContext = {
                 type: 'EXTERNAL_AUTH_CONTEXT',
                 token: launchContext.token,
                 tenantId: launchTenantId,
-                tenantPath: `/${launchTenantId}`,
+                tenantPath: '/',
                 role: launchContext.role
             };
             const contextAcknowledged = new Promise((resolve, reject) => {
