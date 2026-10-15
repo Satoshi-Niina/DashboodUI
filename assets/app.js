@@ -28,12 +28,12 @@ function getTenantApiPath(targetPath) {
 }
 
 // アプリ情報をデフォルト画像にマッピング（後方互換性のため）
-// キーは DB (public.tenant_app_routings) の app_key と一致させる
+// キーは DB (public.applications) の app_key と一致させる
 const defaultAppImages = {
-    'planning': 'assets/img/Operation Planning to Performance Management.png',
-    'inspection': 'assets/img/Inspection Checklist.jpeg',
-    'emergency': 'assets/img/recovery.png',
-    'failure': 'assets/img/Machinery Failure Management.png'
+    'planning': '/assets/img/Operation Planning to Performance Management.png',
+    'inspection': '/assets/img/Inspection Checklist.jpeg',
+    'emergency': '/assets/img/recovery.png',
+    'failure': '/assets/img/Machinery Failure Management.png'
 };
 
 // 画像読み込み失敗時のフォールバック処理。
@@ -78,7 +78,7 @@ async function loadTenantApps() {
             id: app.app_key,
             title: app.app_name,
             description: app.description || '',
-            image: defaultAppImages[app.app_key] || 'assets/img/default-app.png',
+            image: app.image_url || defaultAppImages[app.app_key] || '/assets/img/default-app.png',
             url: app.app_url,
             icon: app.icon || '📱',
             iconClass: app.iconClass || null  // Bootstrap Icons等のクラス名（例: 'bi-truck', 'bi-calendar'）
@@ -114,8 +114,8 @@ async function loadTenantApps() {
 function loadFallbackApps() {
     console.warn('[App] ⚠️  Loading fallback apps (static default list)');
     console.warn('[App] This usually means:');
-    console.warn('[App]   - tenant_app_routings table is empty or missing');
-    console.warn('[App]   - API endpoint /api/tenant-apps returned an error');
+    console.warn('[App]   - applications/tenant_applications tables are empty or missing');
+    console.warn('[App]   - API endpoint /api/apps returned an error');
     console.warn('[App]   - Network error occurred');
     
     apps = [
@@ -123,7 +123,7 @@ function loadFallbackApps() {
             id: 'planning',
             title: '運用計画実績管理',
             description: '保守用車の運用計画・実績を管理します',
-            image: 'assets/img/Operation Planning to Performance Management.png',
+            image: '/assets/img/Operation Planning to Performance Management.png',
             url: '#planning',
             icon: '📅',
             iconClass: 'bi-calendar-check'
@@ -132,7 +132,7 @@ function loadFallbackApps() {
             id: 'inspection',
             title: '仕業点検管理',
             description: '保守用車の仕業点検・点検記録を管理します',
-            image: 'assets/img/Inspection Checklist.jpeg',
+            image: '/assets/img/Inspection Checklist.jpeg',
             url: '#inspection',
             icon: '🚛',
             iconClass: 'bi-truck'
@@ -141,7 +141,7 @@ function loadFallbackApps() {
             id: 'emergency',
             title: '応急処置支援',
             description: '機械故障等の技術支援を行います',
-            image: 'assets/img/recovery.png',
+            image: '/assets/img/recovery.png',
             url: '#emergency',
             icon: '🛠️',
             iconClass: 'bi-tools'
@@ -150,7 +150,7 @@ function loadFallbackApps() {
             id: 'failure',
             title: '機械故障管理',
             description: '機械故障の原因分析と対策、発生状況を管理します',
-            image: 'assets/img/Machinery Failure Management.png',
+            image: '/assets/img/Machinery Failure Management.png',
             url: '#failure',
             icon: '⚠️',
             iconClass: 'bi-exclamation-triangle'

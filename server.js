@@ -1343,6 +1343,10 @@ app.use('/assets/img', express.static(path.join(PUBLIC_DIR, 'img'), {
   dotfiles: 'deny',
   index: false
 }));
+app.use('/assets', express.static(PUBLIC_DIR, {
+  dotfiles: 'deny',
+  index: false
+}));
 
 // 静的ファイル配信（JSとCSSはキャッシュ無効化）
 app.use(express.static(PUBLIC_DIR, {
@@ -2590,10 +2594,12 @@ async function verifyDeviceSessionTenantMatch(req, res, next) {
   // セッションのテナントと端末証明書の所属テナントの厳格な一致確認
   if (sessionTenant && certTenant && sessionTenant !== certTenant) {
     console.warn(`[SessionGuard] Tenant mismatch: sessionTenant=${sessionTenant}, certTenant=${certTenant}`);
+    res.clearCookie('token', { path: '/' });
+    res.setHeader('Clear-Site-Data', '"cache", "cookies", "storage"');
     return res.status(403).json({
       success: false,
       code: 'TENANT_MISMATCH',
-      message: '端末の所属会社とログインセッションが一致しません'
+      message: '端末の所属会社とログインセッションが一致しません。対象会社で再認証してください。'
     });
   }
 
@@ -2869,12 +2875,20 @@ app.get('/api/apps', requireCookieSession, verifyDeviceSessionTenantMatch, async
       ORDER BY COALESCE(a.display_order, 9999) ASC, a.app_key ASC
     `, [tenant.id]);
 
+    const APP_IMAGES = {
+      planning: '/assets/img/Operation Planning to Performance Management.png',
+      inspection: '/assets/img/Inspection Checklist.jpeg',
+      emergency: '/assets/img/recovery.png',
+      failure: '/assets/img/Machinery Failure Management.png'
+    };
+
     const appsList = result.rows
       .filter((row) => row.app_url)
       .map((row) => ({
         app_key: row.app_id,
         app_name: row.app_name,
         app_url: row.app_id === 'inspection' ? '/inspection/' : row.app_url,
+        image_url: APP_IMAGES[row.app_id] || '/assets/img/default-app.png',
         icon: row.icon || '📱',
         iconClass: row.icon_class || null,
         category: row.category || '',
