@@ -276,20 +276,23 @@ async function getDashboardV2Context(req) {
   try {
     const appResult = await dashboardPool.query(`
       SELECT
-        app_id,
-        app_name,
-        app_url,
-        icon,
-        icon_class,
-        category,
-        required_role,
-        display_order,
-        is_visible,
-        description
-      FROM public.tenant_app_routings
-      WHERE tenant_key = $1
-        AND is_active = true
-      ORDER BY COALESCE(display_order, 9999) ASC, app_id ASC
+        a.app_key AS app_id,
+        a.app_name,
+        a.app_url,
+        a.icon,
+        a.icon AS icon_class,
+        a.category,
+        ta.required_role,
+        a.display_order,
+        ta.is_visible,
+        a.description
+      FROM public.tenant_applications ta
+      JOIN public.applications a ON a.id = ta.application_id AND a.is_active = true
+      JOIN public.tenants t ON t.id = ta.tenant_id AND t.is_active = true
+      WHERE (t.tenant_key = $1 OR t.id::text = $1)
+        AND ta.is_enabled = true
+        AND ta.is_visible = true
+      ORDER BY COALESCE(a.display_order, 9999) ASC, a.app_key ASC
     `, [tenantKey]);
 
     apps = appResult.rows
@@ -301,13 +304,18 @@ async function getDashboardV2Context(req) {
 
   let user = null;
   try {
-    const userResult = userName
-      ? await dashboardPool.query('SELECT * FROM public.users WHERE username = $1 LIMIT 1', [userName])
-      : await dashboardPool.query('SELECT * FROM public.users ORDER BY 1 ASC LIMIT 1');
-    user = normalizeDashboardUserRow(userResult.rows[0] || null);
+    if (userName) {
+      const runtime = await resolveTenantRuntime(tenantKey).catch(() => null);
+      if (runtime && runtime.pool) {
+        const userResult = await runtime.pool.query('SELECT * FROM public.users WHERE username = $1 LIMIT 1', [userName]);
+        user = normalizeDashboardUserRow(userResult.rows[0] || null);
+      }
+    }
   } catch (err) {
-    console.warn('[DashboardV2] Failed to load user info from common DB:', err.message);
-    user = normalizeDashboardUserRow(null);
+    console.warn('[DashboardV2] Failed to load user info from tenant DB:', err.message);
+  }
+  if (!user) {
+    user = normalizeDashboardUserRow(req.user || null);
   }
 
   const environmentLabel = tenantKey === 'demo' ? 'デモ環境' : tenantKey;
@@ -554,112 +562,26 @@ async function getAllCompanyRoutingRows() {
     const cpPool = getControlPlanePool();
     let candidateRows = [];
 
-    // 1) master_data.company_db_routing を最優先
+    // 正規ルーティングテーブル: public.tenants + public.tenant_db_routing
     try {
       const res = await cpPool.query(`
-        SELECT company_id, company_name, db_name, db_host
-        FROM master_data.company_db_routing
-        WHERE (db_name IS NOT NULL AND db_name != '') OR company_id IS NOT NULL
-        ORDER BY company_id
+        SELECT t.tenant_key as company_id,
+               t.tenant_name as company_name,
+               t.tenant_key,
+               NULL as database_url,
+               r.database_key,
+               (COALESCE(r.database_key, t.tenant_key) || '_db') as db_name,
+               ('/' || t.tenant_key) as tenant_path
+        FROM public.tenants t
+        LEFT JOIN public.tenant_db_routing r ON r.tenant_id = t.id AND r.is_active = true
+        WHERE t.is_active = true
+        ORDER BY t.tenant_key
       `);
       if (res.rows && res.rows.length > 0) {
-        candidateRows = res.rows.map(r => ({
-          company_id: r.company_id,
-          company_name: r.company_name || r.company_id,
-          tenant_key: r.company_id,
-          database_url: null,
-          database_key: null,
-          db_name: r.db_name || (r.company_id ? `${r.company_id}_db` : null),
-          tenant_path: `/${r.company_id}`
-        }));
+        candidateRows = res.rows;
       }
-    } catch (_) { }
-
-    // 2) public.company_db_routing
-    if (candidateRows.length === 0) {
-      try {
-        const res = await cpPool.query(`
-          SELECT company_id, company_name, db_name, db_host
-          FROM public.company_db_routing
-          WHERE (db_name IS NOT NULL AND db_name != '') OR company_id IS NOT NULL
-          ORDER BY company_id
-        `);
-        if (res.rows && res.rows.length > 0) {
-          candidateRows = res.rows.map(r => ({
-            company_id: r.company_id,
-            company_name: r.company_name || r.company_id,
-            tenant_key: r.company_id,
-            database_url: null,
-            database_key: null,
-            db_name: r.db_name || (r.company_id ? `${r.company_id}_db` : null),
-            tenant_path: `/${r.company_id}`
-          }));
-        }
-      } catch (_) { }
-    }
-
-    // 3) public.tenant_app_routings
-    if (candidateRows.length === 0) {
-      try {
-        const query = `
-          SELECT DISTINCT ON (tenant_key)
-            tenant_key as company_id,
-            COALESCE(tenant_name, app_name) as company_name,
-            tenant_key,
-            database_url,
-            database_key,
-            db_name,
-            ('/' || tenant_key) as tenant_path
-          FROM public.tenant_app_routings
-          WHERE is_active = true
-          ORDER BY tenant_key, app_id
-        `;
-        const result = await queryCompanyRouting(query);
-        if (result.rows && result.rows.length > 0) {
-          candidateRows = result.rows;
-        }
-      } catch (_) { }
-    }
-
-    // 4) public.tenants
-    if (candidateRows.length === 0) {
-      try {
-        const res = await cpPool.query(`
-          SELECT tenant_key as company_id,
-                 tenant_name as company_name,
-                 tenant_key,
-                 NULL as database_url,
-                 NULL as database_key,
-                 (tenant_key || '_db') as db_name,
-                 ('/' || tenant_key) as tenant_path
-          FROM public.tenants
-          WHERE is_active = true
-          ORDER BY tenant_key
-        `);
-        if (res.rows && res.rows.length > 0) {
-          candidateRows = res.rows;
-        }
-      } catch (_) { }
-    }
-
-    // 5) public.organizations (念のためのフォールバック)
-    if (candidateRows.length === 0) {
-      try {
-        const res = await cpPool.query(`
-          SELECT code as company_id,
-                 name as company_name,
-                 code as tenant_key,
-                 NULL as database_url,
-                 NULL as database_key,
-                 (code || '_db') as db_name,
-                 ('/' || code) as tenant_path
-          FROM public.organizations
-          ORDER BY code
-        `);
-        if (res.rows && res.rows.length > 0) {
-          candidateRows = res.rows;
-        }
-      } catch (_) { }
+    } catch (err) {
+      console.warn('[TenantRouting] Failed to query tenants and tenant_db_routing:', err.message);
     }
 
     const rows = candidateRows.map(row => {
@@ -1007,21 +929,20 @@ async function getCompanyRoutingByCompanyId(companyId) {
   }
 
   const query = `
-    SELECT DISTINCT ON (tenant_key)
-      tenant_key as company_id,
-      COALESCE(tenant_name, app_name) as company_name,
-      tenant_key,
-      database_url,
-      database_key,
-      db_name,
-      ('/' || tenant_key) as tenant_path
-    FROM public.tenant_app_routings
-    WHERE is_active = true
-      AND LOWER(TRIM(tenant_key)) = $1
-    ORDER BY tenant_key, app_id
+    SELECT t.tenant_key as company_id,
+           t.tenant_name as company_name,
+           t.tenant_key,
+           NULL as database_url,
+           r.database_key,
+           (COALESCE(r.database_key, t.tenant_key) || '_db') as db_name,
+           ('/' || t.tenant_key) as tenant_path
+    FROM public.tenants t
+    LEFT JOIN public.tenant_db_routing r ON r.tenant_id = t.id AND r.is_active = true
+    WHERE t.is_active = true
+      AND (LOWER(TRIM(t.tenant_key)) = $1 OR t.id::text = $1)
     LIMIT 1
   `;
-  const result = await queryCompanyRouting(query, [cacheKey]);
+  const result = await getControlPlanePool().query(query, [cacheKey]);
   let row = normalizeTenantRoutingRow(result.rows[0] || null);
   if (!row && aliasKey && aliasKey !== cacheKey) {
     const allRows = await getAllCompanyRoutingRows();
@@ -1730,35 +1651,15 @@ app.use('/api', async (req, res, next) => {
           }
           let sessionHasCurrentAccess = null;
           try {
-            if (session.auth_source === 'tenant') {
+            if (runtime && runtime.pool) {
               sessionHasCurrentAccess = await runtime.pool.query(`
                   SELECT 1 FROM public.users
                   WHERE id::text = $1 AND is_active = true AND role = $2
                   LIMIT 1
                 `, [String(session.sub || ''), String(session.role || '')]);
-            } else {
-              sessionHasCurrentAccess = await getControlPlanePool().query(`
-                  SELECT COALESCE(
-                    array_agg(DISTINCT p.permission_key) FILTER (WHERE p.permission_key IS NOT NULL),
-                    '{}'
-                  ) AS permissions
-                  FROM public.users u
-                  JOIN public.user_tenants ut ON ut.user_id = u.id AND ut.is_active = true
-                  JOIN public.tenants t ON t.id = ut.tenant_id AND t.is_active = true
-                  JOIN public.user_roles ur ON ur.user_id = u.id AND ur.tenant_id = t.id
-                  JOIN public.roles r ON r.id = ur.role_id
-                  LEFT JOIN public.role_permissions rp ON rp.role_id = r.id
-                  LEFT JOIN public.permissions p ON p.id = rp.permission_id
-                  WHERE u.id::text = $1
-                    AND t.tenant_key = $2
-                    AND r.role_key = $3
-                    AND u.is_active = true
-                  GROUP BY u.id, t.id, r.id
-                  LIMIT 1
-                `, [String(session.sub || ''), requestedRouteTenantKey, String(session.role || '')]);
             }
           } catch (authErr) {
-            console.warn('[TenantRouting] Session permission check fallback:', authErr.code || authErr.message);
+            console.warn('[TenantRouting] Session permission check error:', authErr.code || authErr.message);
           }
 
           if (sessionHasCurrentAccess) {
@@ -1912,17 +1813,20 @@ app.get('/api/tenant-apps', async (req, res) => {
     const effectiveTenantKey = runtime.companyId || runtime.resolvedTenantId || runtime.requestedTenantId || 'demo';
     const normalizedTenantKey = effectiveTenantKey === 'demo_env' ? 'demo' : effectiveTenantKey;
 
-    // 新しいテーブル tenant_app_routings から取得（必須カラムのみ）
+    // 正規の tenant_applications + applications から取得
     const controlPlane = getControlPlanePool();
     const result = await controlPlane.query(`
       SELECT 
-        app_id,
-        app_name,
-        app_url
-      FROM public.tenant_app_routings
-      WHERE tenant_key = $1 
-        AND is_active = true
-      ORDER BY app_id ASC
+        a.app_key AS app_id,
+        a.app_name,
+        a.app_url
+      FROM public.tenant_applications ta
+      JOIN public.applications a ON a.id = ta.application_id AND a.is_active = true
+      JOIN public.tenants t ON t.id = ta.tenant_id AND t.is_active = true
+      WHERE (t.tenant_key = $1 OR t.id::text = $1)
+        AND ta.is_enabled = true
+        AND ta.is_visible = true
+      ORDER BY COALESCE(a.display_order, 9999) ASC, a.app_key ASC
     `, [normalizedTenantKey]);
 
     const apps = result.rows.map(row => ({
@@ -2956,13 +2860,14 @@ app.get('/api/apps', requireCookieSession, verifyDeviceSessionTenantMatch, async
     }
 
     const result = await pool.query(`
-      SELECT app_id, app_name, app_url, icon, icon_class, category, required_role, display_order, description
-      FROM public.tenant_app_routings
-      WHERE tenant_key = $1
-        AND is_active = true
-        AND is_visible IS NOT FALSE
-      ORDER BY COALESCE(display_order, 9999) ASC, app_id ASC
-    `, [tenantKey]);
+      SELECT a.app_key AS app_id, a.app_name, a.app_url, a.icon, a.icon AS icon_class, a.category, ta.required_role, a.display_order, a.description
+      FROM public.tenant_applications ta
+      JOIN public.applications a ON a.id = ta.application_id AND a.is_active = true
+      WHERE ta.tenant_id = $1
+        AND ta.is_enabled = true
+        AND ta.is_visible = true
+      ORDER BY COALESCE(a.display_order, 9999) ASC, a.app_key ASC
+    `, [tenant.id]);
 
     const appsList = result.rows
       .filter((row) => row.app_url)
@@ -2990,12 +2895,14 @@ const handleLaunchToken = async (req, res) => {
     const tenant = await resolveSessionTenant(pool, req.session);
     if (!tenant) return res.status(403).json({ success: false, message: 'テナントを確認できません' });
 
-    // アプリ一覧(/api/apps)と同じ public.tenant_app_routings を正本として権限判定する
+    // アプリ一覧(/api/apps)と同じ public.tenant_applications を正本として権限判定する
     const routeCheck = await pool.query(`
-      SELECT 1 FROM public.tenant_app_routings
-      WHERE tenant_key = $1 AND app_id = $2 AND is_active = true
+      SELECT 1
+      FROM public.tenant_applications ta
+      JOIN public.applications a ON a.id = ta.application_id AND a.is_active = true
+      WHERE ta.tenant_id = $1 AND a.app_key = $2 AND ta.is_enabled = true
       LIMIT 1
-    `, [tenant.tenant_key, appKey]);
+    `, [tenant.id, appKey]);
     if (routeCheck.rowCount === 0) {
       return res.status(403).json({ success: false, message: 'このアプリを起動する権限がありません' });
     }
@@ -3663,9 +3570,9 @@ app.get('/api/config/history', requireAdmin, async (req, res) => {
 app.get('/api/admin/app-tenants', requireAdmin, async (req, res) => {
   try {
     const result = await getControlPlanePool().query(`
-      SELECT DISTINCT tenant_key
-      FROM public.tenant_app_routings
-      WHERE tenant_key IS NOT NULL AND tenant_key <> '_config'
+      SELECT tenant_key
+      FROM public.tenants
+      WHERE is_active = true
       ORDER BY tenant_key ASC
     `);
     res.json({ success: true, tenants: result.rows.map(r => r.tenant_key) });
@@ -3685,11 +3592,10 @@ async function getAppCatalog() {
   };
 
   const result = await getControlPlanePool().query(`
-    SELECT DISTINCT ON (app_id)
-      app_id, app_name, app_url, icon, icon_class, category, display_order
-    FROM public.tenant_app_routings
-    WHERE app_id IN ('planning', 'inspection', 'emergency', 'failure')
-    ORDER BY app_id ASC, tenant_key ASC
+    SELECT app_key AS app_id, app_name, app_url, icon, icon AS icon_class, category, display_order
+    FROM public.applications
+    WHERE is_active = true
+    ORDER BY display_order ASC, app_key ASC
   `);
 
   return result.rows.sort((a, b) => {
@@ -3707,27 +3613,35 @@ app.get('/api/admin/tenant-apps/:tenantKey', requireAdmin, async (req, res) => {
       return res.status(400).json({ success: false, message: 'tenantKeyが必要です' });
     }
 
-    const [catalog, tenantRowsResult] = await Promise.all([
+    const pool = getControlPlanePool();
+    const tenantRes = await pool.query('SELECT id, tenant_key FROM public.tenants WHERE tenant_key = $1 LIMIT 1', [tenantKey]);
+    const tenant = tenantRes.rows[0];
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'テナントが見つかりません' });
+    }
+
+    const [catalog, tenantAppsResult] = await Promise.all([
       getAppCatalog(),
-      getControlPlanePool().query(`
-        SELECT app_id, app_name, app_url, icon, icon_class, category, is_active
-        FROM public.tenant_app_routings
-        WHERE tenant_key = $1
-      `, [tenantKey])
+      pool.query(`
+        SELECT a.app_key AS app_id, a.app_name, a.app_url, a.icon, a.category, ta.is_enabled, ta.is_visible
+        FROM public.tenant_applications ta
+        JOIN public.applications a ON a.id = ta.application_id
+        WHERE ta.tenant_id = $1
+      `, [tenant.id])
     ]);
 
-    const tenantRowsByAppId = new Map(tenantRowsResult.rows.map(row => [row.app_id, row]));
+    const tenantAppsMap = new Map(tenantAppsResult.rows.map(row => [row.app_id, row]));
 
     const apps = catalog.map(catalogRow => {
-      const tenantRow = tenantRowsByAppId.get(catalogRow.app_id);
+      const tenantRow = tenantAppsMap.get(catalogRow.app_id);
       return {
         appId: catalogRow.app_id,
-        appName: (tenantRow && tenantRow.app_name) || catalogRow.app_name,
-        appUrl: (tenantRow && tenantRow.app_url) || catalogRow.app_url,
-        icon: (tenantRow && tenantRow.icon) || catalogRow.icon,
-        iconClass: (tenantRow && tenantRow.icon_class) || catalogRow.icon_class,
-        category: (tenantRow && tenantRow.category) || catalogRow.category,
-        isActive: tenantRow ? tenantRow.is_active === true : false,
+        appName: catalogRow.app_name,
+        appUrl: catalogRow.app_url,
+        icon: catalogRow.icon,
+        iconClass: catalogRow.icon_class,
+        category: catalogRow.category,
+        isActive: tenantRow ? tenantRow.is_enabled === true : false,
         isProvisioned: !!tenantRow
       };
     });
@@ -3739,7 +3653,7 @@ app.get('/api/admin/tenant-apps/:tenantKey', requireAdmin, async (req, res) => {
   }
 });
 
-// 指定テナントのアプリ公開状況を更新（デモ用に必要なアプリだけ有効化）
+// 指定テナントのアプリ公開状況を更新（必要なアプリだけ有効化）
 app.post('/api/admin/tenant-apps/:tenantKey', requireAdmin, async (req, res) => {
   const tenantKey = String(req.params.tenantKey || '').trim().toLowerCase();
   const updates = Array.isArray(req.body?.apps) ? req.body.apps : [];
@@ -3753,36 +3667,27 @@ app.post('/api/admin/tenant-apps/:tenantKey', requireAdmin, async (req, res) => 
 
   const controlPlane = getControlPlanePool();
   try {
+    const tenantRes = await controlPlane.query('SELECT id FROM public.tenants WHERE tenant_key = $1 LIMIT 1', [tenantKey]);
+    const tenant = tenantRes.rows[0];
+    if (!tenant) {
+      return res.status(404).json({ success: false, message: 'テナントが見つかりません' });
+    }
+
     for (const update of updates) {
       const appId = String(update.appId || '').trim();
       if (!appId) continue;
       const isActive = update.isActive === true;
 
-      const updateResult = await controlPlane.query(`
-        UPDATE public.tenant_app_routings
-        SET is_active = $1
-        WHERE tenant_key = $2 AND app_id = $3
-      `, [isActive, tenantKey, appId]);
+      const appRes = await controlPlane.query('SELECT id FROM public.applications WHERE app_key = $1 LIMIT 1', [appId]);
+      const appRow = appRes.rows[0];
+      if (!appRow) continue;
 
-      if (updateResult.rowCount === 0) {
-        // テナント未提供のアプリは、カタログの定義値を引き継いで新規登録する
-        const catalog = await getAppCatalog();
-        const catalogRow = catalog.find(row => row.app_id === appId) || {};
-        await controlPlane.query(`
-          INSERT INTO public.tenant_app_routings
-            (tenant_key, app_id, app_name, app_url, icon, icon_class, category, is_active)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        `, [
-          tenantKey,
-          appId,
-          update.appName || catalogRow.app_name || appId,
-          update.appUrl || catalogRow.app_url || '#',
-          update.icon || catalogRow.icon || '📱',
-          update.iconClass || catalogRow.icon_class || null,
-          update.category || catalogRow.category || '一般',
-          isActive
-        ]);
-      }
+      await controlPlane.query(`
+        INSERT INTO public.tenant_applications (tenant_id, application_id, is_enabled, is_visible)
+        VALUES ($1, $2, $3, true)
+        ON CONFLICT (tenant_id, application_id)
+        DO UPDATE SET is_enabled = EXCLUDED.is_enabled, updated_at = now()
+      `, [tenant.id, appRow.id, isActive]);
     }
 
     res.json({ success: true, message: 'アプリ公開設定を更新しました' });
@@ -7374,86 +7279,9 @@ if (secret) {
   console.error('⚠️ JWT_SECRET is NOT set!');
 }
 
-// --- データベース自動修正機能 (起動時に実行) ---
+// --- データベース自動修正機能 (廃止: 共通DBの最小化に伴い自動修復処理を除去) ---
 async function runEmergencyDbFix() {
-  console.log('👷 Running Emergency DB Fix (Self-Healing)...');
-  try {
-    // 1. 全ての関連外部キーを一旦削除 (型変更を阻害しないため)
-    await pool.query(`
-        DO $$ 
-        DECLARE r RECORD;
-        BEGIN
-            FOR r IN (
-                SELECT 'ALTER TABLE "' || n.nspname || '"."' || c.relname || '" DROP CONSTRAINT IF EXISTS "' || con.conname || '" CASCADE' as cmd
-                FROM pg_constraint con
-                JOIN pg_class c ON c.oid = con.conrelid
-                JOIN pg_namespace n ON n.oid = c.relnamespace
-                WHERE con.confrelid IN (SELECT oid FROM pg_class WHERE relname IN ('machines', 'machine_types'))
-            ) LOOP EXECUTE r.cmd; END LOOP;
-        END $$;
-      `);
-    // The business tables are canonical in public. Do not run the old
-    // master_data repair routine against the public UUID-based schema.
-    const businessTables = [
-      'users',
-      'management_offices',
-      'bases',
-      'machines',
-      'machine_types',
-      'inspection_types',
-      'inspection_schedules'
-    ];
-    const tableCheck = await pool.query(`
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = 'public'
-        AND table_name = ANY($1::text[])
-    `, [businessTables]);
-    const foundTables = new Set(tableCheck.rows.map(row => row.table_name));
-    for (const tableName of businessTables) {
-      console.log(`[Self-Healing] public.${tableName} exists:`, foundTables.has(tableName));
-    }
-
-    // ルーティング再設定（現在のテーブル構造に対応していないため、スキップ）
-    try {
-      // 注意: app_resource_routingテーブルの構造が変更されているため、
-      // 古い構造（app_id, logical_resource_name等）を前提としたINSERT文は実行しない
-      console.log('[Self-Healing] ⚠️ Skipping app_resource_routing update (table structure changed)');
-
-      // 以下のコードは現在のテーブル構造（tenant_key主キー）に対応していないためコメントアウト
-      /*
-      await pool.query(`
-        INSERT INTO public.app_resource_routing (app_id, logical_resource_name, physical_schema, physical_table, is_active)
-         VALUES ('dashboard-ui', 'machines', 'public', 'machines', true),
-           ('dashboard-ui', 'machine_types', 'public', 'machine_types', true)
-        ON CONFLICT (app_id, logical_resource_name) DO UPDATE SET physical_schema = EXCLUDED.physical_schema, physical_table = EXCLUDED.physical_table;
-      `);
-      */
-    } catch (routingError) {
-      console.warn('[Self-Healing] ⚠️ app_resource_routing update skipped:', routingError.message);
-    }
-
-    // 2. 全テナント共通の旧ホスト名を補正する。テナントやアプリの登録内容はDBで管理する。
-    try {
-      console.log('[Self-Healing] 🔧 Cleaning up legacy client URLs in tenant_app_routings...');
-      await pool.query(`
-        UPDATE public.tenant_app_routings
-        SET app_url = REPLACE(app_url, 'operation-management-client-', 'operation-management-server-')
-        WHERE app_url LIKE '%operation-management-client-%'
-      `);
-
-      tenantRouteListCache.clear();
-      tenantRouteCache.clear();
-
-      console.log('[Self-Healing] ✅ Legacy URL cleanup completed; tenant routes remain DB-driven.');
-    } catch (normErr) {
-      console.warn('[Self-Healing] ⚠️ Legacy URL cleanup failed:', normErr.message);
-    }
-
-    console.log('✅ Self-healing completed successfully.');
-  } catch (e) {
-    console.error('❌ Self-healing failed:', e.message);
-  }
+  // Deprecated: No-op. Minimal common_db does not self-heal or alter business tables.
 }
 
 /**
@@ -7649,12 +7477,18 @@ async function initializeDatabase() {
     await databaseMigrations.assertApplied(pool, 'common');
     
     const routes = await pool.query(`
-      SELECT DISTINCT ON (tenant_key)
-        tenant_key, tenant_name, database_key, db_name, database_url,
-        storage_bucket_name, tenant_path, app_name
-      FROM public.tenant_app_routings
-      WHERE is_active = true
-      ORDER BY tenant_key, app_id
+      SELECT t.tenant_key,
+             t.tenant_name,
+             r.database_key,
+             (COALESCE(r.database_key, t.tenant_key) || '_db') as db_name,
+             NULL as database_url,
+             NULL as storage_bucket_name,
+             ('/' || t.tenant_key) as tenant_path,
+             t.tenant_name as app_name
+      FROM public.tenants t
+      JOIN public.tenant_db_routing r ON r.tenant_id = t.id AND r.is_active = true
+      WHERE t.is_active = true
+      ORDER BY t.tenant_key
     `);
     if (routes.rowCount === 0) {
       throw new Error('No active tenant database routes are configured. Register a tenant with "npm run db:register-tenant".');
