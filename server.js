@@ -1068,14 +1068,9 @@ function getRequestBucketName(req, fallbackBucketName = '') {
 }
 
 function applyTenantErrorHeaders(res, err) {
-  if (!res || !err) {
-    return;
-  }
-
+  if (!err) return;
   const errorMessage = String(err.message || err).replace(/[\r\n]+/g, ' ').slice(0, 1024);
-  const errorStack = err.stack ? String(err.stack).replace(/[\r\n]+/g, ' ').slice(0, 8192) : '';
-  res.setHeader('X-Tenant-Error', errorMessage);
-  res.setHeader('X-Tenant-Error-Stack', errorStack);
+  console.error('[TenantError]', errorMessage);
 }
 
 function toSafeHeaderValue(rawValue) {
@@ -1145,7 +1140,7 @@ app.get('/api/tenant-routing', async (req, res) => {
         company_name: row.company_name,
         db_name: row.db_name,
         storage_bucket_name: row.storage_bucket_name,
-        tenant_path: responseTenantPath,
+        tenant_path: effectiveTenantPath,
         tenant_id: row.company_id,
         tenant_url: effectiveTenantUrl
       } : null,
@@ -1155,7 +1150,7 @@ app.get('/api/tenant-routing', async (req, res) => {
           company_name: row.company_name,
           db_name: row.db_name,
           storage_bucket_name: row.storage_bucket_name,
-          tenant_path: responseTenantPath,
+          tenant_path: effectiveTenantPath,
           tenant_id: row.company_id,
           tenant_url: effectiveTenantUrl
         }
@@ -1540,10 +1535,7 @@ app.use('/api', async (req, res, next) => {
     req.tenantContext = runtime;
     req.tenantId = runtime.resolvedTenantId || requestedTenantId || 'demo_env';
     req.db = runtime.pool || getControlPlanePool();
-    res.setHeader('X-Resolved-Tenant-Id', runtime.resolvedTenantId || 'demo_env');
-    res.setHeader('X-Resolved-Db-Name', runtime.dbName || defaultDbName);
-    res.setHeader('X-Resolved-Company-Name', toSafeHeaderValue(runtime.companyName || ''));
-    res.setHeader('X-Resolved-Bucket-Name', runtime.storageBucketName || '');
+    // 内部診断ヘッダーはクライアントへ漏洩させず、サーバーログのみに記録
     if (runtime.tenantResolutionError) {
       applyTenantErrorHeaders(res, runtime.tenantResolutionError);
     }
@@ -1667,71 +1659,86 @@ app.use('/api/config', configRoutes);
 // 現在リクエストのテナント解決結果を確認するための診断用API
 app.get('/api/tenant-context', async (req, res) => {
   try {
-    const runtime = req.tenantContext || getActiveTenantRuntime() || {
-      requestedTenantId: req.requestedTenantId || 'demo_env',
-      resolvedTenantId: 'demo_env',
-      companyId: 'demo_env',
-      companyName: '',
-      dbName: getDefaultDbName(),
-      storageBucketName: getDefaultBucketName(),
-      isFallback: true
-    };
+    const cpPool = getControlPlanePool();
+    // 1. セッションまたは端末証明書からテナントを特定
+    let effectiveTenantKey = null;
+    let companyName = '';
+    let dbName = '';
+    let storageBucketName = '';
 
-    const route = await getCompanyRoutingByTenantRequest({
-      tenantId: runtime.resolvedTenantId || runtime.requestedTenantId || '',
-      tenantPath: String(req.headers['x-tenant-path'] || req.query.tenant_path || '').trim(),
-      fullUrl: String(req.headers['x-tenant-full-url'] || req.query.full_url || req.headers.referer || '').trim()
-    }) || (runtime.companyId ? await getCompanyRoutingByCompanyId(runtime.companyId) : null);
+    // Cookieセッションの確認
+    if (req.headers && req.headers.cookie) {
+      try {
+        const session = commonAuth.readSession(req);
+        if (session && (session.tenant_key || session.tenant_id)) {
+          effectiveTenantKey = String(session.tenant_key || session.tenant_id).trim().toLowerCase();
+        }
+      } catch (_) {}
+    }
 
-    const effectiveTenantId = runtime.companyId || runtime.resolvedTenantId || runtime.requestedTenantId || 'demo_env';
-    const routeForResponse = route || {
-      company_id: effectiveTenantId,
-      company_name: runtime.companyName || '',
-      db_name: runtime.dbName || '',
-      storage_bucket_name: runtime.storageBucketName || '',
-      tenant_path: responseTenantPath
-    };
-    const effectiveTenantPath = normalizeTenantPathForResponse(routeForResponse.tenant_path, effectiveTenantId);
-    const requestedTenantPath = String(req.headers['x-tenant-path'] || req.query.tenant_path || '').trim();
-    const isDedicatedDemoPath = normalizeTenantIdForUrl(effectiveTenantId) === 'demo'
-      && normalizePathForCompare(requestedTenantPath) === '/demo';
-    const publicTenantId = getPublicTenantIdForKey(runtime.resolvedTenantId || effectiveTenantId);
-    const requestedFirstSegment = normalizePathForCompare(requestedTenantPath).split('/').filter(Boolean)[0] || '';
-    const isPublicIdPath = Boolean(publicTenantId) && requestedFirstSegment === publicTenantId;
-    const responseTenantPath = isDedicatedDemoPath ? '/demo' : (isPublicIdPath ? `/${publicTenantId}` : effectiveTenantPath);
+    // セッション未確立なら端末証明書の確認
+    if (!effectiveTenantKey) {
+      const deviceResult = await resolveDeviceTenant(req, cpPool);
+      if (deviceResult.ok && deviceResult.tenantKey) {
+        effectiveTenantKey = deviceResult.tenantKey;
+      }
+    }
+
+    // テナント未特定時は demo_env や common_db にフォールバックせず、null として安全に応答
+    if (!effectiveTenantKey || effectiveTenantKey === 'demo_env') {
+      return res.json({
+        success: true,
+        tenant: null,
+        route: null,
+        routes: [],
+        message: 'テナント未特定（ログインまたは端末証明書が必要です）'
+      });
+    }
+
+    // 正規テナントDB接続先の解決
+    const runtime = await resolveTenantRuntime(effectiveTenantKey).catch(err => {
+      console.warn(`[TenantContext] resolveTenantRuntime failed for ${effectiveTenantKey}:`, err.message);
+      return null;
+    });
+
+    if (runtime) {
+      companyName = runtime.companyName || '';
+      dbName = runtime.dbName || '';
+      storageBucketName = runtime.storageBucketName || '';
+    }
+
+    const publicTenantId = getPublicTenantIdForKey(effectiveTenantKey);
     const tenantBaseUrl = getRequestBaseUrl(req);
-    const effectiveTenantUrl = isDedicatedDemoPath
-      ? `${tenantBaseUrl}/demo`
-      : (isPublicIdPath ? `${tenantBaseUrl}/${publicTenantId}` : buildTenantUrl(tenantBaseUrl, effectiveTenantId));
+    const effectiveTenantUrl = tenantBaseUrl ? `${tenantBaseUrl}/` : '/';
 
     return res.json({
       success: true,
       tenant: {
         publicTenantId: publicTenantId || null,
-        requestedTenantId: runtime.requestedTenantId || 'demo_env',
-        resolvedTenantId: runtime.resolvedTenantId || 'demo_env',
-        companyId: runtime.companyId || '',
-        companyName: runtime.companyName || '',
-        dbName: runtime.dbName || '',
-        tenantPath: responseTenantPath,
-        storageBucketName: runtime.storageBucketName || '',
-        isFallback: !!runtime.isFallback
+        requestedTenantId: effectiveTenantKey,
+        resolvedTenantId: effectiveTenantKey,
+        companyId: effectiveTenantKey,
+        companyName: companyName,
+        dbName: dbName,
+        tenantPath: '/',
+        storageBucketName: storageBucketName,
+        isFallback: false
       },
       route: {
-        company_id: routeForResponse.company_id,
-        company_name: routeForResponse.company_name,
-        db_name: routeForResponse.db_name,
-        storage_bucket_name: routeForResponse.storage_bucket_name,
-        tenant_path: isPublicIdPath ? responseTenantPath : effectiveTenantPath,
+        company_id: effectiveTenantKey,
+        company_name: companyName,
+        db_name: dbName,
+        storage_bucket_name: storageBucketName,
+        tenant_path: '/',
         tenant_url: effectiveTenantUrl
       },
       routes: [
         {
-          company_id: routeForResponse.company_id,
-          company_name: routeForResponse.company_name,
-          db_name: routeForResponse.db_name,
-          storage_bucket_name: routeForResponse.storage_bucket_name,
-          tenant_path: effectiveTenantPath,
+          company_id: effectiveTenantKey,
+          company_name: companyName,
+          db_name: dbName,
+          storage_bucket_name: storageBucketName,
+          tenant_path: '/',
           tenant_url: effectiveTenantUrl
         }
       ]
@@ -1740,7 +1747,7 @@ app.get('/api/tenant-context', async (req, res) => {
     applyTenantErrorHeaders(res, err);
     return res.status(500).json({
       success: false,
-      error: err.message || String(err)
+      error: 'テナント情報の取得に失敗しました'
     });
   }
 });
@@ -2645,19 +2652,23 @@ app.post('/api/login', async (req, res) => {
 
     const effectiveTenantKey = deviceResult.tenantKey;
     req.deviceInfo = deviceResult;
+    console.log(`[LoginTrace:1] Device verified: tenantKey=${effectiveTenantKey}, deviceId=${deviceResult.deviceId || 'none'}, certFingerprint=${deviceResult.fingerprint256 ? deviceResult.fingerprint256.slice(0, 12) + '...' : 'none'}`);
 
     // 2. 共通DBで接続先を解決
     const runtime = await resolveTenantRuntime(effectiveTenantKey).catch(err => {
-      console.warn(`[TenantAuth] resolveTenantRuntime failed for ${effectiveTenantKey}:`, err.message);
+      console.warn(`[LoginTrace:Error] resolveTenantRuntime failed for ${effectiveTenantKey}:`, err.message);
       return null;
     });
 
     if (!runtime || !runtime.pool) {
+      console.warn(`[LoginTrace:503] Database pool unavailable for tenant: ${effectiveTenantKey}`);
       return res.status(503).json({
         success: false,
         message: `テナント(${effectiveTenantKey})のデータベースに接続できません`
       });
     }
+
+    console.log(`[LoginTrace:2] Target DB resolved: tenantKey=${effectiveTenantKey}, dbName=${runtime.dbName}`);
 
     // 3. 対象テナントDBでユーザー認証（パスワード照合）
     const tenantUserResult = await runtime.pool.query(`
@@ -2667,12 +2678,17 @@ app.post('/api/login', async (req, res) => {
       LIMIT 1
     `, [username]);
     const tenantUser = tenantUserResult.rows[0];
+
+    console.log(`[LoginTrace:3] Querying user in ${runtime.dbName}: attemptedUsername='${username}', userFound=${Boolean(tenantUser)}, role=${tenantUser?.role || 'none'}, isActive=${tenantUser?.is_active ?? 'none'}`);
+
     if (!tenantUser) {
+      console.warn(`[LoginTrace:401] User '${username}' not found or inactive in database '${runtime.dbName}' for tenant '${effectiveTenantKey}'`);
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
     }
 
     const tenantPasswordHash = tenantUser.password_hash || tenantUser.password || '';
     if (!tenantPasswordHash) {
+      console.warn(`[LoginTrace:401] User '${username}' has no password hash set in database '${runtime.dbName}'`);
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
     }
 
@@ -2683,9 +2699,14 @@ app.post('/api/login', async (req, res) => {
       passwordMatches = String(password) === String(tenantPasswordHash);
     }
 
+    console.log(`[LoginTrace:4] Password verification: username='${username}', passwordMatches=${passwordMatches}`);
+
     if (!passwordMatches) {
+      console.warn(`[LoginTrace:401] Password mismatch for user '${username}' in database '${runtime.dbName}'`);
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
     }
+
+    console.log(`[LoginTrace:Success] Authenticated successfully: username='${username}', tenantKey='${effectiveTenantKey}', role='${tenantUser.role || 'operator'}'`);
 
     // 4. 認証成功: テナント情報取得とセッション発行
     if (!tenantInfo) {
