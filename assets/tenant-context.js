@@ -46,7 +46,7 @@
         const segments = normalizedPath.split('/').filter(Boolean);
 
         if (segments.length === 0) {
-            return 'demo';
+            return '';
         }
 
         const first = String(segments[0] || '').trim().toLowerCase();
@@ -59,9 +59,9 @@
             'login.html'
         ]);
 
-        // HTMLファイル名や予約パスはテナント名として扱わず demo にフォールバック
+        // HTMLファイル名や予約パスはテナント名として扱わず空文字（共通・未指定）とする
         if (!first || excludedPaths.has(first) || first.endsWith('.html')) {
-            return 'demo';
+            return '';
         }
 
         return first;
@@ -76,12 +76,9 @@
                 || params.get('company_id')
                 || '';
             const normalized = normalizeTenantId(rawTenantId);
-            if (!normalized || normalized === 'demo_env') {
-                return 'demo';
-            }
             return normalized;
         } catch (_) {
-            return 'demo';
+            return '';
         }
     }
 
@@ -91,17 +88,18 @@
 
     function tenantPathFromUrl(fullUrl) {
         const tenantId = tenantIdFromPath(fullUrl);
-        const pathname = normalizePath(fullUrl);
-        const firstSegment = pathname.split('/').filter(Boolean)[0] || '';
-        if (tenantId === 'demo' && firstSegment === 'demo') {
-            return '/demo';
+        if (!tenantId) {
+            return '';
         }
-        return tenantId === 'demo' ? '/' : `/${tenantId}`;
+        return `/${tenantId}`;
     }
 
     function normalizeTenantId(rawTenantId) {
         const normalized = String(rawTenantId || '').trim().toLowerCase();
-        if (!normalized || normalized === 'demo_env') {
+        if (!normalized) {
+            return '';
+        }
+        if (normalized === 'demo_env') {
             return 'demo';
         }
         return normalized;
@@ -109,7 +107,8 @@
 
     function tenantPathFromTenantId(rawTenantId) {
         const tenantId = normalizeTenantId(rawTenantId);
-        return tenantId === 'demo' ? '/' : `/${tenantId}`;
+        if (!tenantId) return '';
+        return `/${tenantId}`;
     }
 
     function normalizeTenantContext(rawContext) {
@@ -144,15 +143,14 @@
     function getRequestTenantContext() {
         const currentUrlContext = getCurrentUrlTenantContext();
         const storedContext = getLoginTenantContext();
-        const activeTenantId = normalizeTenantId(
+        // URLに明示されている場合はURLを最優先（古い保存情報で上書きされない）
+        const activeTenantId = currentUrlContext.tenantId || normalizeTenantId(
             (tenantContext && tenantContext.tenantId)
             || (storedContext && storedContext.tenant_id)
-            || currentUrlContext.tenantId
         );
-        const activeTenantPath = normalizePath(
+        const activeTenantPath = currentUrlContext.tenantPath || normalizePath(
             (tenantContext && tenantContext.tenantPath)
             || (storedContext && storedContext.tenant_path)
-            || currentUrlContext.tenantPath
         );
 
         return {
@@ -166,8 +164,12 @@
         const headers = new Headers(existingHeaders || {});
         const requestTenantContext = getRequestTenantContext();
         headers.delete('authorization');
-        headers.set('X-Tenant-Id', requestTenantContext.tenantId);
-        headers.set('X-Tenant-Path', requestTenantContext.tenantPath);
+        if (requestTenantContext.tenantId) {
+            headers.set('X-Tenant-Id', requestTenantContext.tenantId);
+        }
+        if (requestTenantContext.tenantPath) {
+            headers.set('X-Tenant-Path', requestTenantContext.tenantPath);
+        }
         headers.set('X-Tenant-Full-Url', requestTenantContext.fullUrl);
 
         return headers;
@@ -253,16 +255,14 @@
 
     function getCurrentUrlTenantContext() {
         const tenantIdFromParams = getTenantKeyFromSearchParams(window.location.search);
-        const tenantId = tenantIdFromParams !== 'demo'
-            ? tenantIdFromParams
-            : tenantIdFromPath(window.location.pathname);
+        const tenantId = tenantIdFromParams || tenantIdFromPath(window.location.pathname);
 
         const tenantPathParam = (() => {
             try {
                 const params = new URLSearchParams(window.location.search || '');
                 return normalizePath(params.get('tenant_path') || '');
             } catch (_) {
-                return '/';
+                return '';
             }
         })();
 
@@ -270,11 +270,15 @@
             tenantId,
             tenantPath: tenantPathParam && tenantPathParam !== '/'
                 ? tenantPathParam
-                : tenantPathFromUrl(window.location.href)
+                : (tenantId ? tenantPathFromUrl(window.location.href) : '')
         };
     }
 
     function shouldClearStoredTenantState(currentTenantId) {
+        if (!currentTenantId) {
+            return false;
+        }
+
         const storedTenantIds = [];
 
         const loginTenantContext = getLoginTenantContext();
@@ -296,19 +300,27 @@
             return false;
         }
 
-        return storedTenantIds.some(storedTenantId => storedTenantId !== currentTenantId);
+        // 明示テナントと異なるものが保存されている場合はクリア
+        return storedTenantIds.some(storedTenantId => storedTenantId && storedTenantId !== currentTenantId);
     }
 
     function buildPathForTenant(targetPath, rawTenantPath) {
         const raw = String(targetPath || '/');
         const normalized = raw.startsWith('/') ? raw : `/${raw}`;
-        const tenantPath = normalizePath(rawTenantPath || '/');
+        const effectiveRawPath = (rawTenantPath !== undefined && rawTenantPath !== null)
+            ? rawTenantPath
+            : (getBasePath() || (tenantContext && tenantContext.tenantPath) || '');
+        const tenantPath = normalizePath(effectiveRawPath || '/');
         if (!tenantPath || tenantPath === '/') return normalized;
         return `${tenantPath}${normalized}`.replace(/\/\/+/g, '/');
     }
 
     function getBasePath() {
         if (!tenantContext || !tenantContext.tenantPath || tenantContext.tenantPath === '/') {
+            const stored = getLoginTenantContext();
+            if (stored && stored.tenant_path && stored.tenant_path !== '/') {
+                return stored.tenant_path;
+            }
             return '';
         }
         return tenantContext.tenantPath;
@@ -394,21 +406,38 @@
             clearTenantAuthState();
         }
 
+        const isLoginPage = window.location.pathname.includes('login');
+        const storedLoginContext = !isLoginPage ? getLoginTenantContext() : null;
+        const effectiveTenantId = currentUrlTenant.tenantId || (storedLoginContext ? storedLoginContext.tenant_id : '');
+        const effectiveTenantPath = currentUrlTenant.tenantPath || (storedLoginContext ? storedLoginContext.tenant_path : '');
+
+        // テナント未指定（共通ログイン等）の場合、勝手に demo で初期化しない
+        if (!effectiveTenantId) {
+            tenantContext = {
+                fullUrl,
+                tenantId: '',
+                companyId: '',
+                companyName: '',
+                dbName: '',
+                storageBucketName: '',
+                tenantPath: '',
+                matchedTenantPath: '',
+                isDemo: false,
+                routes: [],
+                resolvedAt: new Date().toISOString()
+            };
+            window.__TENANT_CONTEXT__ = tenantContext;
+            return tenantContext;
+        }
+
         const routeRow = await fetchTenantRoutes();
         const routeTenantId = routeRow ? String(routeRow.company_id || '').trim().toLowerCase() : '';
-        const companyId = routeRow ? (routeRow.company_id || resolved.tenantId) : resolved.tenantId;
-        const companyName = routeRow ? (routeRow.company_name || '') : '';
+        const companyId = routeRow ? (routeRow.company_id || effectiveTenantId) : effectiveTenantId;
+        const companyName = routeRow ? (routeRow.company_name || '') : (storedLoginContext?.company_name || '');
         const matchedTenantPath = routeRow ? (routeRow.tenant_path || '') : '';
         const dbName = routeRow ? (routeRow.db_name || '') : '';
         const storageBucketName = routeRow ? (routeRow.storage_bucket_name || '') : '';
-        const resolvedTenantPath = currentUrlTenant.tenantId === 'demo'
-            ? (currentUrlTenant.tenantPath === '/demo'
-                ? '/demo'
-                : (matchedTenantPath ? normalizePath(matchedTenantPath) : resolved.tenantPath))
-            : currentUrlTenant.tenantPath;
-        const effectiveTenantId = currentUrlTenant.tenantId === 'demo'
-            ? (routeTenantId || resolved.tenantId)
-            : currentUrlTenant.tenantId;
+        const resolvedTenantPath = effectiveTenantPath || (matchedTenantPath ? normalizePath(matchedTenantPath) : `/${effectiveTenantId}`);
         const isDemoTenant = effectiveTenantId === 'demo' || effectiveTenantId === 'demo_env';
 
         tenantContext = {
@@ -422,7 +451,6 @@
             matchedTenantPath,
             isDemo: isDemoTenant,
             routes: routeRow ? [routeRow] : [],
-            resolvedAt: new Date().toISOString()
         };
 
         localStorage.setItem(STORAGE_KEY, JSON.stringify(tenantContext));

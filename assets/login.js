@@ -1,23 +1,12 @@
-function getTenantIdFromLocation() {
-    const pathSegments = window.location.pathname.split('/').filter(Boolean);
-    const firstSegment = String(pathSegments[0] ?? '').trim().toLowerCase();
-    const excludedPaths = new Set(['api', 'assets', 'admin.html', 'index.html', 'login', 'login.html']);
-
-    if (!firstSegment || excludedPaths.has(firstSegment) || firstSegment.endsWith('.html')) {
-        return '';
-    }
-
-    return firstSegment;
-}
-
-function getTenantPathFromLocation() {
-    const tenantId = getTenantIdFromLocation();
-    return tenantId ? `/${tenantId}` : '';
-}
-
-function getTenantKeyFromCurrentPath() {
-    return getTenantIdFromLocation();
-}
+/**
+ * 運用管理ログイン画面スクリプト
+ * 
+ * 【認証方針】
+ * - 利用者の入力はユーザーID・パスワードのみ。
+ * - 端末（本番はmTLSクライアント証明書、ローカル復旧時はサーバー開発設定）に基づいてサーバー側でテナントを特定する。
+ * - URL、要求本文、localStorageのテナント指定は送信せず、接続先決定の根拠にしない。
+ * - 端末が確認できない場合、サーバーは「端末の登録を確認してください」を返し、画面に表示する。
+ */
 
 function getRedirectTargetFromLocation() {
     try {
@@ -29,176 +18,120 @@ function getRedirectTargetFromLocation() {
     }
 }
 
-function getTenantInfoFromRedirectTarget(redirectTarget) {
-    if (!redirectTarget) {
-        return null;
+function buildIndexPathForTenant(tenantId) {
+    if (!tenantId || tenantId === 'demo') {
+        return '/index.html';
     }
-
-    try {
-        const url = new URL(redirectTarget, window.location.origin);
-        if (url.origin !== window.location.origin) {
-            return null;
-        }
-        const pathSegments = url.pathname.split('/').filter(Boolean);
-        const firstSegment = String(pathSegments[0] ?? '').trim().toLowerCase();
-        const excludedPaths = new Set(['api', 'assets', 'admin.html', 'index.html', 'login', 'login.html']);
-
-        if (!firstSegment || excludedPaths.has(firstSegment) || firstSegment.endsWith('.html')) {
-            return null;
-        }
-
-        return {
-            tenantId: firstSegment,
-            tenantPath: `/${firstSegment}`
-        };
-    } catch (_) {
-        return null;
-    }
+    return `/${encodeURIComponent(tenantId)}/index.html`;
 }
 
-function buildIndexPathForTenant(tenantPath) {
-    return tenantPath === '/' ? '/index.html' : `${tenantPath}/index.html`;
-}
-
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     const loginForm = document.getElementById('login-form');
     const usernameInput = document.getElementById('username');
     const passwordInput = document.getElementById('password');
     const loginBtn = document.getElementById('login-btn');
-    const btnText = loginBtn.querySelector('.btn-text');
-    const btnLoader = loginBtn.querySelector('.btn-loader');
+    const btnText = loginBtn ? loginBtn.querySelector('.btn-text') : null;
+    const btnLoader = loginBtn ? loginBtn.querySelector('.btn-loader') : null;
     const errorMessage = document.getElementById('error-message');
     const redirectTarget = getRedirectTargetFromLocation();
-    const redirectTenantInfo = getTenantInfoFromRedirectTarget(redirectTarget);
 
-    // ページ読み込み時にフォームを強制クリア
-    usernameInput.value = '';
-    passwordInput.value = '';
-    usernameInput.setAttribute('value', '');
-    passwordInput.setAttribute('value', '');
-    loginForm.reset();
-    
-    // sessionStorageのフラグをチェック
+    // ページ読み込み時にフォームをクリア
+    if (usernameInput) usernameInput.value = '';
+    if (passwordInput) passwordInput.value = '';
+    if (loginForm) loginForm.reset();
+
     if (sessionStorage.getItem('clearLoginForm') === 'true') {
         sessionStorage.removeItem('clearLoginForm');
     }
-    
-    // ブラウザの自動入力を防ぐために遅延して再度クリア
+
     setTimeout(() => {
-        usernameInput.value = '';
-        passwordInput.value = '';
-        usernameInput.setAttribute('value', '');
-        passwordInput.setAttribute('value', '');
+        if (usernameInput) usernameInput.value = '';
+        if (passwordInput) passwordInput.value = '';
     }, 100);
-    
-    setTimeout(() => {
-        usernameInput.value = '';
-        passwordInput.value = '';
-    }, 300);
 
-    loginForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
+    if (loginForm) {
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
 
-        if (window.TenantContext && typeof window.TenantContext.init === 'function') {
-            await window.TenantContext.init();
-        }
+            hideError();
+            setLoading(true);
 
-        // UIの状態をリセット
-        hideError();
-        setLoading(true);
+            const username = usernameInput ? usernameInput.value.trim() : '';
+            const password = passwordInput ? passwordInput.value : '';
 
-        const username = usernameInput.value;
-        const password = passwordInput.value;
-
-        const tenantId = window.TenantContext && typeof window.TenantContext.getTenantId === 'function'
-            ? (redirectTenantInfo && redirectTenantInfo.tenantId) || window.TenantContext.getTenantId()
-            : getTenantIdFromLocation();
-        const tenantPath = window.TenantContext && typeof window.TenantContext.getTenantPath === 'function'
-            ? (redirectTenantInfo && redirectTenantInfo.tenantPath) || window.TenantContext.getTenantPath()
-            : getTenantPathFromLocation();
-        const tenantKey = getTenantKeyFromCurrentPath();
-        try {
-            const explicitTenant = tenantId || tenantKey;
-            console.log(`[Login] Logging in... (explicitTenant: ${explicitTenant || 'none (integrated)'})`);
-            const loginApiPath = (tenantPath && window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function')
-                ? window.TenantContext.buildPathForTenant('/api/login', tenantPath)
-                : '/api/login';
-            const queryString = explicitTenant ? `?tenant_id=${encodeURIComponent(explicitTenant)}` : '';
-
-            const headers = { 'Content-Type': 'application/json' };
-            if (explicitTenant) {
-                headers['X-Tenant-Key'] = explicitTenant;
-                headers['X-Tenant-Id'] = explicitTenant;
-            }
-            if (tenantPath) {
-                headers['X-Tenant-Path'] = tenantPath;
+            if (!username || !password) {
+                showError('ユーザーIDとパスワードを入力してください');
+                setLoading(false);
+                return;
             }
 
-            const bodyPayload = { username, password };
-            if (explicitTenant) {
-                bodyPayload.tenantKey = explicitTenant;
-                bodyPayload.tenant_id = explicitTenant;
-            }
-            if (tenantPath) {
-                bodyPayload.tenant_path = tenantPath;
-            }
+            console.log('[Login] Submitting credentials (tenant is determined by server/device)...');
 
-            const response = await fetch(`${loginApiPath}${queryString}`, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(bodyPayload)
-            });
+            try {
+                // テナント指定は送らず、認証情報のみを送信
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username, password })
+                });
 
-            const data = await response.json();
-            console.log('[Login] Response:', {
-                success: !!data.success,
-                tenant_id: data.user && data.user.tenant_id,
-                role: data.user && data.user.role
-            });
+                const data = await response.json().catch(() => null);
 
-            if (data.success) {
-                // 認証成功
-                console.log('[Login] User data:', data.user);
-
-                // レスポンスの JWT トークンや所属情報をブラウザストレージに保存
-                if (data.token) {
-                    try {
-                        localStorage.setItem('auth_token', data.token);
-                        sessionStorage.setItem('auth_token', data.token);
-                        localStorage.setItem('dashboard_token', data.token);
-                    } catch (_) {}
-                }
-                if (data.user?.tenant_id) {
-                    try {
-                        localStorage.setItem('tenant_id', data.user.tenant_id);
-                        if (data.user.tenant_key) localStorage.setItem('tenant_key', data.user.tenant_key);
-                    } catch (_) {}
+                if (!data) {
+                    showError('サーバーからの応答が無効です (ステータス: ' + response.status + ')');
+                    setLoading(false);
+                    return;
                 }
 
-                // 成功アニメーションを表示してから遷移
-                btnText.textContent = 'リダイレクト中...';
-                setTimeout(() => {
-                    const targetPath = redirectTarget
-                        || (tenantPath
-                            ? (window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
-                                ? window.TenantContext.buildPathForTenant('/index.html', tenantPath)
-                                : buildIndexPathForTenant(tenantPath))
-                            : '/index.html');
-                    window.location.href = targetPath;
-                }, 800);
-            } else {
-                // 認証失敗
-                showError(data.message || 'ログインに失敗しました');
+                if (response.ok && data.success) {
+                    console.log('[Login] Success! User:', data.user);
+
+                    const resolvedTenantId = data.user?.tenant_key || data.user?.tenant_id || '';
+
+                    // セッション情報更新
+                    if (data.token) {
+                        try {
+                            localStorage.setItem('auth_token', data.token);
+                            sessionStorage.setItem('auth_token', data.token);
+                            localStorage.setItem('dashboard_token', data.token);
+                        } catch (_) {}
+                    }
+                    if (resolvedTenantId) {
+                        try {
+                            localStorage.setItem('tenant_id', resolvedTenantId);
+                            localStorage.setItem('tenant_key', resolvedTenantId);
+                        } catch (_) {}
+                    }
+
+                    if (window.TenantContext && typeof window.TenantContext.persistLoginTenant === 'function') {
+                        window.TenantContext.persistLoginTenant({
+                            tenantId: resolvedTenantId,
+                            companyName: data.user?.tenant_name || data.user?.company_name || '',
+                            role: data.user?.role || ''
+                        });
+                    }
+
+                    if (btnText) btnText.textContent = 'リダイレクト中...';
+                    setTimeout(() => {
+                        const targetPath = redirectTarget || buildIndexPathForTenant(resolvedTenantId);
+                        window.location.href = targetPath;
+                    }, 500);
+                } else {
+                    showError(data.message || 'ログインに失敗しました');
+                    setLoading(false);
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                showError('ネットワークエラーが発生しました');
                 setLoading(false);
             }
-        } catch (error) {
-            console.error('Login error:', error);
-            showError('ネットワークエラーが発生しました');
-            setLoading(false);
-        }
-    });
+        });
+    }
 
     function setLoading(isLoading) {
+        if (!loginBtn || !btnText || !btnLoader) return;
         if (isLoading) {
             btnText.classList.add('hidden');
             btnLoader.classList.remove('hidden');
@@ -211,18 +144,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showError(message) {
+        if (!errorMessage) return;
         errorMessage.textContent = message;
         errorMessage.classList.remove('hidden');
     }
 
     function hideError() {
+        if (!errorMessage) return;
         errorMessage.classList.add('hidden');
     }
 
-    // ログアウト時に呼ばれる関数（グローバルに公開）
     window.clearLoginForm = function() {
-        usernameInput.value = '';
-        passwordInput.value = '';
-        loginForm.reset();
+        if (usernameInput) usernameInput.value = '';
+        if (passwordInput) passwordInput.value = '';
+        if (loginForm) loginForm.reset();
     };
 });

@@ -8,7 +8,8 @@ const path = require('path');
 const ejs = require('ejs');
 const multer = require('multer');
 const { Storage } = require('@google-cloud/storage');
-const { randomUUID } = require('crypto');
+const crypto = require('crypto');
+const { randomUUID } = crypto;
 const configRoutes = require('./server/routes/config');
 const dbGateway = require('./server/db-gateway');
 const commonAuth = require('./server/common-auth');
@@ -77,6 +78,41 @@ console.log('CORS configured:', corsOptions.origin);
 // Middleware
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// 内部ガードミドルウェア:
+// HTTPSリバースプロキシゲートウェイ（Port 8443）経由の通信のみを許可し、直接内部ポートへのアクセスを遮断する
+const INTERNAL_GATEWAY_SECRET = process.env.INTERNAL_GATEWAY_SECRET || 'dev-internal-gateway-secret-2026';
+
+app.use((req, res, next) => {
+  const isHealth = req.path === '/health' || req.path === '/_ah/health' || req.path === '/ready';
+  if (isHealth) return next();
+
+  const authHeader = req.headers['x-internal-device-auth'];
+  if (authHeader) {
+    try {
+      const decoded = JSON.parse(Buffer.from(authHeader, 'base64').toString('utf8'));
+      const expectedHmac = crypto.createHmac('sha256', INTERNAL_GATEWAY_SECRET).update(decoded.payload).digest('hex');
+      if (decoded.hmac === expectedHmac) {
+        req.deviceAuth = JSON.parse(decoded.payload);
+        return next();
+      }
+    } catch (_) {}
+  }
+
+  // ゲートウェイ署名がない場合:
+  // 開発環境で直接テスト実行する場合の例外フラグ（ALLOW_DIRECT_INTERNAL=true）がない限り遮断
+  const allowDirect = process.env.ALLOW_DIRECT_INTERNAL === 'true';
+  if (allowDirect) {
+    return next();
+  }
+
+  // 内部ポートへの直接アクセスを遮断
+  return res.status(403).json({
+    success: false,
+    error: 'DirectAccessForbidden',
+    message: '内部ポートへの直接アクセスは禁止されています。HTTPSゲートウェイ（https://localhost:8443）経由でアクセスしてください。'
+  });
+});
 
 function isApiRequestPath(pathLike) {
   const normalizedPath = String(pathLike || '').trim().toLowerCase();
@@ -694,6 +730,19 @@ function extractTenantIdFromRequest(req) {
     return mapTenantSegment(tenantIdHeader, true);
   }
 
+  // Cookieセッションが存在する場合は、セッションのtenant_keyを最優先採用
+  if (req.headers && req.headers.cookie) {
+    try {
+      const session = commonAuth.readSession(req);
+      if (session && (session.tenant_key || session.tenant_id)) {
+        const sessionTenant = String(session.tenant_key || session.tenant_id).trim().toLowerCase();
+        if (sessionTenant && sessionTenant !== 'demo_env') {
+          return mapTenantSegment(sessionTenant, true);
+        }
+      }
+    } catch (_) { }
+  }
+
   const refererHeader = String(req.headers.referer || '').trim();
 
   const fromReferer = getTenantKeyFromPath(refererHeader || '/', true);
@@ -1099,6 +1148,20 @@ async function resolveTenantRuntime(tenantId, requestHint = {}) {
 
     if (!routingRow && normalizedTenantId !== 'demo_env') {
       routingRow = await getCompanyRoutingByCompanyId(normalizedTenantId);
+    }
+
+    if (!routingRow) {
+      // UUID形式の場合は public.tenants から tenant_key を逆引き
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(expectedTenantKey || normalizedTenantId);
+      if (isUuid) {
+        try {
+          const cpPool = getControlPlanePool();
+          const uuidRes = await cpPool.query('SELECT tenant_key FROM public.tenants WHERE id::text = $1 LIMIT 1', [expectedTenantKey || normalizedTenantId]);
+          if (uuidRes.rows[0]?.tenant_key) {
+            routingRow = await getCompanyRoutingByTenantKey(uuidRes.rows[0].tenant_key);
+          }
+        } catch (_) {}
+      }
     }
 
     if (routingRow) {
@@ -2610,84 +2673,43 @@ app.post('/api/login', async (req, res) => {
     return res.status(400).json({ success: false, message: 'ユーザー名とパスワードを入力してください' });
   }
 
-  const rawTenantKey = String(req.body?.tenantKey || req.headers['x-tenant-key'] || '').trim();
-  const requestedTenantKey = rawTenantKey ? mapTenantSegment(rawTenantKey, false) : '';
-  const urlTenantKey = getTenantKeyFromPath(req.originalUrl || req.url || '/', true);
-  if (urlTenantKey && urlTenantKey !== 'demo_env' && requestedTenantKey && urlTenantKey !== requestedTenantKey) {
-    return res.status(403).json({
-      success: false,
-      message: 'URLで指定されたテナントとログイン先が一致しません'
-    });
-  }
-
   try {
     const cpPool = getControlPlanePool();
 
-    // 1. テナント特定:
-    // (A) リクエスト（URLまたはヘッダー/body）でテナントが指定されている場合
-    let effectiveTenantKey = requestedTenantKey || (urlTenantKey && urlTenantKey !== 'demo_env' ? urlTenantKey : '');
+    // 1. テナント特定（端末認証方針）:
+    // URL、要求本文、ヘッダー、localStorage 等のクライアント入力は一切接続先決定の根拠にしない。
+    // demoなどへの暗黙フォールバックも廃止。
+    let effectiveTenantKey = '';
     let tenantInfo = null;
 
-    // (B) テナント未指定（統合ログイン）の場合: 共通DBの所属管理テーブルからテナントを解決
-    if (!effectiveTenantKey) {
-      try {
-        const userTenantRes = await cpPool.query(`
-          SELECT
-            t.id::text AS tenant_id,
-            t.tenant_key,
-            t.tenant_name
-          FROM public.users u
-          JOIN public.user_tenants ut ON ut.user_id = u.id AND ut.is_active = true
-          JOIN public.tenants t ON t.id = ut.tenant_id AND t.is_active = true
-          WHERE u.username = $1 AND u.is_active = true
-          LIMIT 1
-        `, [username]);
-        if (userTenantRes.rows[0]) {
-          effectiveTenantKey = userTenantRes.rows[0].tenant_key;
-          tenantInfo = userTenantRes.rows[0];
-        }
-      } catch (err) {
-        console.warn('[TenantAuth] user_tenants query failed:', err.code || err.message);
-      }
+    const isProduction = process.env.NODE_ENV === 'production';
 
-      if (!effectiveTenantKey) {
-        try {
-          const userOrgRes = await cpPool.query(`
-            SELECT
-              o.id::text AS tenant_id,
-              o.code AS tenant_key,
-              o.name AS tenant_name
-            FROM public.users u
-            JOIN public.user_org_memberships uom ON uom.user_id = u.id
-            JOIN public.organizations o ON o.id = uom.org_id
-            WHERE u.username = $1 AND u.is_active = true
-            LIMIT 1
-          `, [username]);
-          if (userOrgRes.rows[0]) {
-            effectiveTenantKey = userOrgRes.rows[0].tenant_key;
-            tenantInfo = userOrgRes.rows[0];
-          }
-        } catch (err) {
-          console.warn('[TenantAuth] user_org_memberships query failed:', err.code || err.message);
-        }
+    if (!isProduction) {
+      // 開発専用のサーバー設定で試験対象テナントを固定（ブラウザーから変更不可）
+      // 本番環境（production）ではこの代替方式は無効
+      const devMockTenant = String(process.env.DEV_MOCK_TENANT || process.env.DEV_DEFAULT_TENANT || 'daitetsu').trim().toLowerCase();
+      if (devMockTenant) {
+        effectiveTenantKey = devMockTenant;
       }
-
-      // 所属テナントが特定できない場合、demoや他社へ暗黙にフォールバックせず拒否
-      if (!effectiveTenantKey) {
-        return res.status(401).json({
-          success: false,
-          message: '所属テナントを特定できませんでした'
-        });
+    } else {
+      // 本番環境: 検証済み端末証明書（mTLS）およびサーバー側登録情報からテナントを特定
+      // ※段階③でmTLS・証明書検証を導入予定。現時点で証明書等の端末情報が検証できない場合は認証を即停止。
+      const verifiedDeviceTenant = req.clientCertificateTenantKey || null;
+      if (verifiedDeviceTenant) {
+        effectiveTenantKey = verifiedDeviceTenant;
       }
     }
 
+    // 端末を確認できない場合は「端末の登録を確認してください」と表示して認証を止める
+    if (!effectiveTenantKey) {
+      return res.status(403).json({
+        success: false,
+        message: '端末の登録を確認してください'
+      });
+    }
+
     // 2. 共通DBで接続先を解決
-    const runtime = await resolveTenantRuntime(effectiveTenantKey, {
-      tenantPath: String(req.headers['x-tenant-path'] || req.body?.tenant_path || '').trim(),
-      fullUrl: String(req.headers['x-tenant-full-url'] || '').trim(),
-      referer: String(req.headers.referer || '').trim(),
-      originalUrl: String(req.originalUrl || req.url || '').trim()
-    }).catch(err => {
+    const runtime = await resolveTenantRuntime(effectiveTenantKey).catch(err => {
       console.warn(`[TenantAuth] resolveTenantRuntime failed for ${effectiveTenantKey}:`, err.message);
       return null;
     });
@@ -2736,14 +2758,15 @@ app.post('/api/login', async (req, res) => {
       tenantInfo = tenantInfoRes.rows[0];
     }
 
-    const officialTenantId = tenantInfo ? tenantInfo.tenant_id : (runtime.resolvedTenantId || effectiveTenantKey);
-    const companyName = tenantInfo?.tenant_name || runtime.companyName || effectiveTenantKey;
+    const officialTenantKey = effectiveTenantKey || (tenantInfo ? tenantInfo.tenant_key : 'demo');
+    const officialTenantUuid = tenantInfo ? tenantInfo.tenant_id : null;
+    const companyName = tenantInfo?.tenant_name || runtime.companyName || officialTenantKey;
 
     const token = commonAuth.issueSession(res, {
       userId: tenantUser.id,
       username: tenantUser.username,
-      tenantId: officialTenantId,
-      tenantKey: effectiveTenantKey,
+      tenantId: officialTenantKey,
+      tenantKey: officialTenantKey,
       authSource: 'tenant',
       role: tenantUser.role || 'operator',
       permissions: []
@@ -2757,9 +2780,10 @@ app.post('/api/login', async (req, res) => {
         username: tenantUser.username,
         displayName: tenantUser.display_name || tenantUser.username,
         role: tenantUser.role || 'operator',
-        tenant_id: officialTenantId,
-        tenant_key: effectiveTenantKey,
-        tenant_path: runtime.tenantPath || `/${effectiveTenantKey}`,
+        tenant_id: officialTenantKey,
+        tenant_key: officialTenantKey,
+        tenant_uuid: officialTenantUuid,
+        tenant_path: runtime.tenantPath || `/${officialTenantKey}`,
         company_name: companyName
       }
     });

@@ -5,8 +5,17 @@
 let apps = [];
 
 function getTenantApiPath(targetPath) {
+    if (window.TenantContext && typeof window.TenantContext.buildPath === 'function') {
+        const built = window.TenantContext.buildPath(targetPath);
+        if (built && built !== targetPath) {
+            return built;
+        }
+    }
     if (window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function') {
-        return window.TenantContext.buildPathForTenant(targetPath);
+        const tenantPath = window.TenantContext.getTenantPath ? window.TenantContext.getTenantPath() : '';
+        if (tenantPath) {
+            return window.TenantContext.buildPathForTenant(targetPath, tenantPath);
+        }
     }
     const pathSegments = window.location.pathname.split('/').filter(Boolean);
     const firstSegment = String(pathSegments[0] ?? '').trim().toLowerCase();
