@@ -304,31 +304,18 @@
         return storedTenantIds.some(storedTenantId => storedTenantId && storedTenantId !== currentTenantId);
     }
 
-    function buildPathForTenant(targetPath, rawTenantPath) {
+    function buildPathForTenant(targetPath, _rawTenantPath) {
         const raw = String(targetPath || '/');
         const normalized = raw.startsWith('/') ? raw : `/${raw}`;
-        const effectiveRawPath = (rawTenantPath !== undefined && rawTenantPath !== null)
-            ? rawTenantPath
-            : (getBasePath() || (tenantContext && tenantContext.tenantPath) || '');
-        const tenantPath = normalizePath(effectiveRawPath || '/');
-        if (!tenantPath || tenantPath === '/') return normalized;
-        return `${tenantPath}${normalized}`.replace(/\/\/+/g, '/');
+        return normalized;
     }
 
     function getBasePath() {
-        if (!tenantContext || !tenantContext.tenantPath || tenantContext.tenantPath === '/') {
-            const stored = getLoginTenantContext();
-            if (stored && stored.tenant_path && stored.tenant_path !== '/') {
-                return stored.tenant_path;
-            }
-            return '';
-        }
-        return tenantContext.tenantPath;
+        return '';
     }
 
     function buildPath(targetPath) {
-        const base = getBasePath();
-        return buildPathForTenant(targetPath, base || '/');
+        return buildPathForTenant(targetPath);
     }
 
     function toAbsoluteUrl(targetPath) {

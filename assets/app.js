@@ -5,26 +5,7 @@
 let apps = [];
 
 function getTenantApiPath(targetPath) {
-    if (window.TenantContext && typeof window.TenantContext.buildPath === 'function') {
-        const built = window.TenantContext.buildPath(targetPath);
-        if (built && built !== targetPath) {
-            return built;
-        }
-    }
-    if (window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function') {
-        const tenantPath = window.TenantContext.getTenantPath ? window.TenantContext.getTenantPath() : '';
-        if (tenantPath) {
-            return window.TenantContext.buildPathForTenant(targetPath, tenantPath);
-        }
-    }
-    const pathSegments = window.location.pathname.split('/').filter(Boolean);
-    const firstSegment = String(pathSegments[0] ?? '').trim().toLowerCase();
-    const excludedPaths = new Set(['api', 'assets', 'admin.html', 'index.html', 'login', 'login.html']);
-    if (firstSegment && !excludedPaths.has(firstSegment) && !firstSegment.endsWith('.html')) {
-        const normalized = targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
-        return `/${firstSegment}${normalized}`;
-    }
-    return targetPath;
+    return targetPath.startsWith('/') ? targetPath : `/${targetPath}`;
 }
 
 // アプリ情報をデフォルト画像にマッピング（後方互換性のため）
@@ -211,14 +192,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         await window.TenantContext.init();
     }
 
-    const authResponse = await fetch(getTenantApiPath('/api/auth/me'), { credentials: 'same-origin' });
+    const authResponse = await fetch('/api/auth/me', { credentials: 'same-origin' });
     if (!authResponse.ok) {
-        const redirectTarget = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-        const loginTarget = `/login?redirect=${encodeURIComponent(redirectTarget)}`;
-        const loginPath = window.TenantContext && typeof window.TenantContext.buildPathForTenant === 'function'
-            ? window.TenantContext.buildPathForTenant(loginTarget, window.TenantContext.getTenantPath ? window.TenantContext.getTenantPath() : '/')
-            : loginTarget;
-        window.location.replace(loginPath);
+        window.location.replace('/login.html');
         return;
     }
     const authData = await authResponse.json();
@@ -232,8 +208,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const tenantEnvironmentLabel = document.getElementById('tenant-environment-label');
     if (tenantEnvironmentLabel) {
-        const pathTenantId = window.location.pathname.split('/').filter(Boolean)[0] || '';
-        const tenantId = pathTenantId || userInfo.tenant_key || 'demo';
+        const tenantId = userInfo.tenant_key || userInfo.tenant_id || 'demo';
         const contextCompanyName = window.TenantContext && typeof window.TenantContext.getCompanyName === 'function'
             ? String(window.TenantContext.getCompanyName() || '').trim()
             : '';

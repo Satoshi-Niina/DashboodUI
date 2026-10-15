@@ -151,11 +151,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await window.TenantContext.init();
     }
 
-    const buildTenantPath = (targetPath) => (
-        window.TenantContext && typeof window.TenantContext.buildPath === 'function'
-            ? window.TenantContext.buildPath(targetPath)
-            : targetPath
-    );
+    const buildTenantPath = (targetPath) => targetPath;
 
     // HttpOnly Cookieをサーバ�者で検証し、表示用の最小ユーザー情報��だけを取得すめ者
     const authResponse = await fetch('/api/auth/me', { credentials: 'same-origin' });
@@ -164,7 +160,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (!authResponse.ok) {
         console.error('[Admin] No active session, redirecting to login');
-        window.location.href = buildTenantPath('/');
+        window.location.href = '/login.html';
         return;
     }
 
@@ -182,7 +178,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!isAllowed) {
         console.error('[Admin] Access denied - role:', userInfo.role);
         alert('アクセス権限がありません。管理者権限が必要です。');
-        window.location.href = buildTenantPath('/index.html');
+        window.location.href = '/index.html';
         return;
     }
 
@@ -193,7 +189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // メイン画面に戻め者
     document.getElementById('back-to-main-btn').addEventListener('click', () => {
-        window.location.href = buildTenantPath('/index.html');
+        window.location.href = '/index.html';
     });
 
     // タブ機�者の初期匁者

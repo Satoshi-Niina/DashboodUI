@@ -11,10 +11,20 @@
 function getRedirectTargetFromLocation() {
     try {
         const params = new URLSearchParams(window.location.search);
-        const redirectTarget = params.get('redirect') || '';
-        return redirectTarget.trim();
+        let redirectTarget = (params.get('redirect') || '').trim();
+        if (!redirectTarget) return '/index.html';
+
+        // 旧テナント付きパス（例: /daitetsu/index.html）から会社名部分を除去して正規化
+        const urlObj = new URL(redirectTarget, window.location.origin);
+        const segments = urlObj.pathname.split('/').filter(Boolean);
+        const knownTenants = new Set(['daitetsu', 'kosei', 'kintetsu', 'demo', 'demo_env']);
+        if (segments.length > 0 && knownTenants.has(segments[0].toLowerCase())) {
+            segments.shift(); // テナント名を除去
+        }
+        const cleanedPath = '/' + segments.join('/');
+        return (cleanedPath === '/' || cleanedPath === '') ? '/index.html' : cleanedPath;
     } catch (_) {
-        return '';
+        return '/index.html';
     }
 }
 

@@ -133,11 +133,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await window.TenantContext.init();
     }
 
-    const buildTenantPath = (targetPath) => (
-        window.TenantContext && typeof window.TenantContext.buildPath === 'function'
-            ? window.TenantContext.buildPath(targetPath)
-            : targetPath
-    );
+    const buildTenantPath = (targetPath) => targetPath;
 
     // 認証チェック
     const token = localStorage.getItem('user_token');
@@ -147,7 +143,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (!token) {
         console.error('[Admin] No token, redirecting to login');
-        window.location.href = buildTenantPath('/');
+        window.location.href = '/login.html';
         return;
     }
 
@@ -164,7 +160,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!isAllowed) {
         console.error('[Admin] Access denied - role:', userInfo.role);
         alert('アクセス権限がありません。管理者権限が必要です。');
-        window.location.href = buildTenantPath('/index.html');
+        window.location.href = '/index.html';
         return;
     }
 
@@ -175,7 +171,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // メイン画面に戻る
     document.getElementById('back-to-main-btn').addEventListener('click', () => {
-        window.location.href = buildTenantPath('/index.html');
+        window.location.href = '/index.html';
     });
 
     // タブ機能の初期化

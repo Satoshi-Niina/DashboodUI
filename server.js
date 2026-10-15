@@ -373,27 +373,13 @@ function normalizeTenantIdForUrl(rawTenantId) {
   return normalized;
 }
 
-function buildTenantPath(tenantId) {
-  const normalizedTenantId = normalizeTenantIdForUrl(tenantId);
-  if (normalizedTenantId === 'demo') {
-    return '/';
-  }
-  return `/${normalizedTenantId}`;
+function buildTenantPath(_tenantId) {
+  return '/';
 }
 
-function buildTenantUrl(baseUrl, tenantId) {
-  const normalizedTenantId = normalizeTenantIdForUrl(tenantId);
+function buildTenantUrl(baseUrl, _tenantId) {
   const safeBaseUrl = String(baseUrl || '').trim().replace(/\/+$/, '');
-
-  if (!safeBaseUrl) {
-    return buildTenantPath(normalizedTenantId);
-  }
-
-  if (normalizedTenantId === 'demo') {
-    return `${safeBaseUrl}/`;
-  }
-
-  return `${safeBaseUrl}/${encodeURIComponent(normalizedTenantId)}`;
+  return safeBaseUrl ? `${safeBaseUrl}/` : '/';
 }
 
 function getRequestBaseUrl(req) {
@@ -402,12 +388,8 @@ function getRequestBaseUrl(req) {
   return host ? `${protocol}://${host}` : '';
 }
 
-function normalizeTenantPathForResponse(rawTenantPath, fallbackTenantId) {
-  const normalizedPath = normalizePathForCompare(rawTenantPath || '');
-  if (normalizedPath === '/' || !normalizedPath) {
-    return buildTenantPath(fallbackTenantId);
-  }
-  return normalizedPath;
+function normalizeTenantPathForResponse(_rawTenantPath, _fallbackTenantId) {
+  return '/';
 }
 
 // ---- Public tenant IDs ----
@@ -607,52 +589,7 @@ async function getAllCompanyRoutingRows() {
 }
 
 function extractTenantIdFromRequest(req) {
-  // Query parameters are most explicit for API requests
-  const fromOriginalUrl = getTenantKeyFromPath(req.originalUrl || req.url || req.path || '/', true);
-  if (fromOriginalUrl !== 'demo_env') {
-    return fromOriginalUrl;
-  }
-
-  const tenantIdQuery = String(req.query && (req.query.tenant_id || req.query.tenantId) || '').trim().toLowerCase();
-  if (tenantIdQuery && /^[a-z0-9_-]+$/.test(tenantIdQuery) && tenantIdQuery !== 'demo_env') {
-    return mapTenantSegment(tenantIdQuery, true);
-  }
-
-  // Check body as fallback (e.g. login POST body)
-  const tenantIdBody = String(req.body && (req.body.tenant_id || req.body.tenantId) || '').trim().toLowerCase();
-  if (tenantIdBody && /^[a-z0-9_-]+$/.test(tenantIdBody) && tenantIdBody !== 'demo_env') {
-    return mapTenantSegment(tenantIdBody, true);
-  }
-
-  const fromQueryPath = getTenantKeyFromPath(req.query && req.query.tenant_path || '/', true);
-  if (fromQueryPath !== 'demo_env') {
-    return fromQueryPath;
-  }
-
-  const fromQueryUrl = getTenantKeyFromPath(req.query && req.query.full_url || '', true);
-  if (fromQueryUrl !== 'demo_env') {
-    return fromQueryUrl;
-  }
-
-  const tenantFullUrlHeader = String(req.headers['x-tenant-full-url'] || '').trim();
-  const tenantPathHeader = String(req.headers['x-tenant-path'] || '').trim();
-  const tenantIdHeader = String(req.headers['x-tenant-id'] || '').trim().toLowerCase();
-
-  const fromFullUrl = getTenantKeyFromPath(tenantFullUrlHeader || '/', true);
-  if (fromFullUrl !== 'demo_env') {
-    return fromFullUrl;
-  }
-
-  const fromTenantPathHeader = getTenantKeyFromPath(tenantPathHeader || '/', true);
-  if (fromTenantPathHeader !== 'demo_env') {
-    return fromTenantPathHeader;
-  }
-
-  if (tenantIdHeader && /^[a-z0-9_-]+$/.test(tenantIdHeader)) {
-    return mapTenantSegment(tenantIdHeader, true);
-  }
-
-  // Cookieセッションが存在する場合は、セッションのtenant_keyを最優先採用
+  // 1. Cookieセッションが存在する場合はセッションのtenant_keyを最優先
   if (req.headers && req.headers.cookie) {
     try {
       const session = commonAuth.readSession(req);
@@ -665,13 +602,15 @@ function extractTenantIdFromRequest(req) {
     } catch (_) { }
   }
 
-  const refererHeader = String(req.headers.referer || '').trim();
-
-  const fromReferer = getTenantKeyFromPath(refererHeader || '/', true);
-  if (fromReferer !== 'demo_env') {
-    return fromReferer;
+  // 2. 端末証明書による特定結果が存在する場合はそれを採用
+  if (req.deviceInfo && req.deviceInfo.tenantKey) {
+    const certTenant = String(req.deviceInfo.tenantKey).trim().toLowerCase();
+    if (certTenant) {
+      return mapTenantSegment(certTenant, true);
+    }
   }
 
+  // 3. 認証前・未特定リクエスト: URLによる会社切り替えは許可せず demo_env（未特定）を返す
   return 'demo_env';
 }
 
@@ -1236,10 +1175,11 @@ app.get('/api/tenant-routing', async (req, res) => {
   }
 });
 
-// /kosei や /daitetsu 配下でも同じ静的ファイルへ解決できるようにする
+// 旧テナント付きURL（/daitetsu/..., /kosei/... 等）へのアクセスは会社切り替えに使わず、
+// 共通URL（/index.html 等）へ 302 リダイレクトして正規化する
 app.use((req, res, next) => {
   const excludedPrefixes = new Set(['api', 'assets', 'health', '_ah', 'ready', 'dashboard-v2']);
-  const [pathname, searchPart] = req.url.split('?');
+  const [pathname, search] = req.url.split('?');
   const parts = pathname.split('/').filter(Boolean);
 
   if (parts.length === 0) return next();
@@ -1251,18 +1191,14 @@ app.use((req, res, next) => {
     return next();
   }
 
-  if (!req.requestedTenantId || req.requestedTenantId === 'demo_env') {
-    req.requestedTenantId = mapTenantSegment(firstSegment, true);
+  // 第1セグメントがテナント名の場合、会社名を含まない共通URLへ 302 リダイレクト
+  const remainingParts = parts.slice(1);
+  let targetPath = '/' + remainingParts.join('/');
+  if (targetPath === '/' || targetPath === '') {
+    targetPath = '/index.html';
   }
-  if (req.requestedTenantId === INVALID_TENANT_KEY) {
-    return res.status(404).send('Not found');
-  }
-
-  const strippedPath = `/${parts.slice(1).join('/')}`;
-  const rewrittenPath = strippedPath === '/' ? '/' : strippedPath;
-  req.url = `${rewrittenPath}${searchPart ? `?${searchPart}` : ''}`;
-
-  return next();
+  const queryString = search ? '?' + search : '';
+  return res.redirect(302, targetPath + queryString);
 });
 
 // Config Endpoint (データベースまたは環境変数から動的に生成)
@@ -1318,9 +1254,14 @@ app.get('/config.js', async (req, res) => {
   }
 });
 
-// ルートパスへのアクセス時はログイン画面を表示
-// express.staticより先に記述することでindex.htmlの自動配信を防ぐ
+// ルートパスへのアクセス時: ログイン済みなら /index.html へ、未ログインなら login.html へ
 app.get('/', (req, res) => {
+  try {
+    const session = commonAuth.readSession(req);
+    if (session && session.sub) {
+      return res.redirect(302, '/index.html');
+    }
+  } catch (_) {}
   res.sendFile(path.join(PUBLIC_DIR, 'login.html'));
 });
 
