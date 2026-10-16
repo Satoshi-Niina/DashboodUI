@@ -168,11 +168,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const authData = await authResponse.json();
     const userInfo = authData.user || {};
     console.log('[Admin] User info:', userInfo);
-    console.log('[Admin] User role:', userInfo.role);
-    document.getElementById('admin-user').textContent = userInfo.displayName || userInfo.username;
+    const adminDisplayName = userInfo.display_name || userInfo.displayName || userInfo.full_name || userInfo.username;
+    document.getElementById('admin-user').textContent = adminDisplayName;
 
     // シスデ��管理��者��た�者運用管理��者�者みアクセス可能
     const normalizedRole = normalizeUserRole(userInfo.role);
+    window.currentAdminUserRole = normalizedRole;
     const isAllowed = normalizedRole === 'system_admin' || normalizedRole === 'operation_admin';
 
     if (!isAllowed) {
@@ -378,6 +379,8 @@ function initializeTabs() {
                 loadCorsSettings();
             } else if (tabName === 'app-management') {
                 loadAppManagementTenants();
+            } else if (tabName === 'system-settings') {
+                loadSystemSettings();
             }
         });
     });
@@ -385,6 +388,16 @@ function initializeTabs() {
 
 // イベントリスナ�者の初期匁者
 function initializeEventListeners() {
+    // システム共通設定ボタン
+    const saveSysSettingsBtn = document.getElementById('save-system-settings-btn');
+    if (saveSysSettingsBtn) {
+        saveSysSettingsBtn.addEventListener('click', saveSystemSettings);
+    }
+    const refreshSysSettingsBtn = document.getElementById('refresh-system-settings-btn');
+    if (refreshSysSettingsBtn) {
+        refreshSysSettingsBtn.addEventListener('click', loadSystemSettings);
+    }
+
     // ユーザー追加ボタン
     const addUserBtn = document.getElementById('add-new-user-btn');
     if (addUserBtn) {
@@ -1480,188 +1493,222 @@ async function loadMachines() {
     }
 }
 
+
+// テキストエリアの自動高さ拡張
+function initAutoExpandTextareas() {
+    document.querySelectorAll('textarea.auto-expand-textarea').forEach(textarea => {
+        const adjust = () => {
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.max(72, textarea.scrollHeight) + 'px';
+        };
+        if (!textarea._hasAutoExpand) {
+            textarea._hasAutoExpand = true;
+            textarea.addEventListener('input', adjust);
+        }
+        adjust();
+    });
+}
+
+let allMachineTypesCache = [];
+let allOfficesCache = [];
+let machineCategoryModelInitialized = false;
+
+function initMachineModalControls() {
+    if (machineCategoryModelInitialized) return;
+    const catSelect = document.getElementById('machine-category-select');
+    const modelSelect = document.getElementById('machine-model-select');
+    const mfgInput = document.getElementById('machine-manufacturer-input');
+    const typeIdInput = document.getElementById('machine-type-id');
+
+    if (catSelect && modelSelect) {
+        catSelect.addEventListener('change', () => {
+            const selectedCat = catSelect.value;
+            populateMachineModelsForCategory(selectedCat);
+            if (mfgInput) mfgInput.value = '';
+            if (typeIdInput) typeIdInput.value = '';
+        });
+
+        modelSelect.addEventListener('change', () => {
+            const selectedTypeId = modelSelect.value;
+            if (typeIdInput) typeIdInput.value = selectedTypeId;
+            const found = allMachineTypesCache.find(mt => String(mt.id) === String(selectedTypeId));
+            if (mfgInput) {
+                mfgInput.value = found ? (found.manufacturer || '') : '';
+            }
+        });
+        machineCategoryModelInitialized = true;
+    }
+}
+
+function populateMachineCategories(selectedCategory = '') {
+    const catSelect = document.getElementById('machine-category-select');
+    if (!catSelect) return;
+
+    const normalizeCat = (cat) => String(cat || 'その他').replace('軌道モータカー', '軌道モーターカー').trim();
+    const categories = [];
+    allMachineTypesCache.forEach(mt => {
+        const cat = normalizeCat(mt.category);
+        if (cat && !categories.includes(cat)) {
+            categories.push(cat);
+        }
+    });
+
+    const categoryPriority = ['軌道モーターカー', '箱トロ', '鉄トロ', 'ホッパー車', 'レールカッター', '油圧ショベル', 'クレーン', 'その他'];
+    categories.sort((a, b) => {
+        const idxA = categoryPriority.indexOf(a) !== -1 ? categoryPriority.indexOf(a) : 999;
+        const idxB = categoryPriority.indexOf(b) !== -1 ? categoryPriority.indexOf(b) : 999;
+        if (idxA !== idxB) return idxA - idxB;
+        return a.localeCompare(b, 'ja');
+    });
+
+    catSelect.innerHTML = '<option value="">-- 機種を選択 --</option>' +
+        categories.map(cat => `<option value="${escapeHtml(cat)}"${cat === selectedCategory ? ' selected' : ''}>${escapeHtml(cat)}</option>`).join('');
+}
+
+function populateMachineModelsForCategory(category, selectedTypeId = null) {
+    const modelSelect = document.getElementById('machine-model-select');
+    const mfgInput = document.getElementById('machine-manufacturer-input');
+    const typeIdInput = document.getElementById('machine-type-id');
+    if (!modelSelect) return;
+
+    if (!category) {
+        modelSelect.innerHTML = '<option value="">-- 先に機種を選択してください --</option>';
+        if (mfgInput) mfgInput.value = '';
+        if (typeIdInput) typeIdInput.value = '';
+        return;
+    }
+
+    const normalizeCat = (cat) => String(cat || 'その他').replace('軌道モータカー', '軌道モーターカー').trim();
+    const filteredTypes = allMachineTypesCache.filter(mt => normalizeCat(mt.category) === category);
+
+    let options = ['<option value="">-- 型式を選択 --</option>'];
+    filteredTypes.forEach(mt => {
+        const isSelected = selectedTypeId && String(mt.id) === String(selectedTypeId);
+        const label = [mt.manufacturer, mt.model_name].filter(Boolean).join(' ') || mt.model_name || '型式不明';
+        options.push(`<option value="${mt.id}"${isSelected ? ' selected' : ''}>${escapeHtml(label)}</option>`);
+    });
+
+    modelSelect.innerHTML = options.join('');
+
+    if (selectedTypeId) {
+        const found = allMachineTypesCache.find(mt => String(mt.id) === String(selectedTypeId));
+        if (found) {
+            modelSelect.value = String(selectedTypeId);
+            if (mfgInput) mfgInput.value = found.manufacturer || '';
+            if (typeIdInput) typeIdInput.value = String(selectedTypeId);
+        }
+    }
+}
+
 async function openMachineModal(machineId = null) {
-    console.log('[openMachineModal] ===== START =====');
-    console.log('[openMachineModal] Opening modal, machineId:', machineId);
+    console.log('[openMachineModal] ===== START =====, machineId:', machineId);
     const modal = document.getElementById('machine-modal');
     const modalTitle = document.getElementById('machine-modal-title');
     const form = document.getElementById('machine-form');
     if (!modal) {
-        console.error('[openMachineModal] ❁者Modal element not found!');
+        console.error('[openMachineModal] Modal element not found!');
         alert('エラー: モーダルが見つかりません');
         return;
     }
 
     form.reset();
     document.getElementById('machine-id').value = '';
+    const typeIdHidden = document.getElementById('machine-type-id');
+    if (typeIdHidden) typeIdHidden.value = '';
+    const mfgInput = document.getElementById('machine-manufacturer-input');
+    if (mfgInput) mfgInput.value = '';
 
-    // モーダルを�者に表示
+    initMachineModalControls();
+
+    // モーダルを表示
     modal.style.display = 'flex';
-    console.log('[openMachineModal] • Modal displayed');
 
-    // 機種リストを読み込む
+    // 機種・型式リストおよび事業所リストを取得
     try {
-        console.log('[openMachineModal] 📡 Fetching machine types from /api/machine-types...');
-        const machineTypesResponse = await tenantFetch('/api/machine-types', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const [typesRes, officesRes] = await Promise.all([
+            tenantFetch('/api/machine-types', { headers: { 'Authorization': `Bearer ${token}` } }),
+            tenantFetch('/api/offices', { headers: { 'Authorization': `Bearer ${token}` } })
+        ]);
 
-        console.log('[openMachineModal] Machine types response status:', machineTypesResponse.status);
-
-        if (!machineTypesResponse.ok) {
-            throw new Error(`HTTP ${machineTypesResponse.status}: ${machineTypesResponse.statusText}`);
+        if (typesRes.ok) {
+            const typesData = await typesRes.json();
+            allMachineTypesCache = unwrapApiArray(typesData);
         }
 
-        const machineTypesData = await machineTypesResponse.json();
-        const machineTypes = unwrapApiArray(machineTypesData);
-        console.log('[openMachineModal] 📦 Machine types data received:', machineTypesData);
-        console.log('[openMachineModal] Success:', machineTypesData.success);
-        console.log('[openMachineModal] Data array:', machineTypes);
-        console.log('[openMachineModal] Data count:', machineTypes.length);
-
-        if (machineTypesData.success && machineTypes.length > 0) {
-            const machineTypeSelect = document.getElementById('machine-type-select');
-            if (!machineTypeSelect) {
-                console.error('[openMachineModal] machine-type-select element not found');
-                showToast('機種選択欄が見つかりません', 'error');
-                return;
-            }
-
-            console.log('[openMachineModal] • machine-type-select found:', machineTypeSelect);
-
-            const options = ['<option value="">-- 機種・型式を選択 --</option>'];
-            console.log('[openMachineModal] Processing machine types...');
-
-            machineTypes.forEach((type, index) => {
-                const typeId = type.id;
-                const modelName = type.model_name || '名前なし';
-                const manufacturer = type.manufacturer || '';
-                const category = type.category || '';
-
-                // 機種名！者odel_name�者�を表示
-                const catDisplay = category ? `[${String(category).replace('軌道モータカー', '軌道モーターカー')}] ` : '';
-                const displayText = `${catDisplay}${manufacturer ? `${manufacturer} ` : ''}${modelName}`;
-
-                options.push(`<option value="${typeId}">${escapeHtml(displayText)}</option>`);
-                console.log(`[openMachineModal] Type ${index + 1}/${machineTypes.length}:`, {
-                    id: typeId,
-                    modelName: modelName,
-                    manufacturer: manufacturer
-                });
-            });
-
-            machineTypeSelect.innerHTML = options.join('');
-            console.log('[openMachineModal] • Machine types loaded:', machineTypes.length, 'items');
-            console.log('[openMachineModal] Select HTML length:', machineTypeSelect.innerHTML.length);
-            console.log('[openMachineModal] Option elements:', machineTypeSelect.children.length);
-        } else {
-            console.error('[openMachineModal] ❁者Invalid machine types response:', {
-                success: machineTypesData.success,
-                hasData: machineTypes.length > 0,
-                isArray: Array.isArray(machineTypes),
-                message: machineTypesData.message
-            });
-            showToast('機種データの読み込みに失敗しました', 'error');
-        }
-
-        // 管理��業所を読み込む
-        console.log('[openMachineModal] 📡 Fetching offices from /api/offices...');
-        const officesResponse = await tenantFetch('/api/offices', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        console.log('[openMachineModal] Offices response status:', officesResponse.status);
-
-        if (!officesResponse.ok) {
-            throw new Error(`HTTP ${officesResponse.status}: ${officesResponse.statusText}`);
-        }
-
-        const officesData = await officesResponse.json();
-        const offices = unwrapApiArray(officesData);
-        console.log('[openMachineModal] 📦 Offices data received:', officesData);
-        console.log('[openMachineModal] Success:', officesData.success);
-        console.log('[openMachineModal] Offices array:', offices);
-        console.log('[openMachineModal] Offices count:', offices.length);
-
-        if (officesData.success && offices.length > 0) {
+        if (officesRes.ok) {
+            const officesData = await officesRes.json();
+            allOfficesCache = unwrapApiArray(officesData);
             const officeSelect = document.getElementById('machine-office-select');
-            if (!officeSelect) {
-                console.error('[openMachineModal] machine-office-select element not found');
-                showToast('事業所選択欄が見つかりません', 'error');
-                return;
-            }
-
-            console.log('[openMachineModal] • machine-office-select found:', officeSelect);
-
-            const options = ['<option value="">-- 事業所を選択 --</option>'];
-            console.log('[openMachineModal] Processing offices...');
-
-            offices.forEach((office, index) => {
-                const officeId = office.office_id;
-                const officeName = office.office_name || '名前なし';
-                options.push(`<option value="${officeId}">${escapeHtml(officeName)}</option>`);
-                console.log(`[openMachineModal] Office ${index + 1}/${offices.length}:`, {
-                    id: officeId,
-                    name: officeName
+            if (officeSelect) {
+                const options = ['<option value="">-- 事業所を選択 --</option>'];
+                allOfficesCache.forEach(office => {
+                    const oId = office.office_id || office.id;
+                    const oName = office.office_name || office.name || '名前なし';
+                    options.push(`<option value="${oId}">${escapeHtml(oName)}</option>`);
                 });
-            });
-
-            officeSelect.innerHTML = options.join('');
-            console.log('[openMachineModal] • Offices loaded:', offices.length, 'items');
-            console.log('[openMachineModal] Select HTML length:', officeSelect.innerHTML.length);
-            console.log('[openMachineModal] Option elements:', officeSelect.children.length);
-        } else {
-            console.error('[openMachineModal] ❁者Invalid offices response:', {
-                success: officesData.success,
-                hasOffices: offices.length > 0,
-                isArray: Array.isArray(offices),
-                message: officesData.message
-            });
-            showToast('事業所データの読み込みに失敗しました', 'error');
+                officeSelect.innerHTML = options.join('');
+            }
         }
-
-        console.log('[openMachineModal] • All data loaded successfully');
     } catch (error) {
-        console.error('[openMachineModal] Critical error:', error);
-        console.error('[openMachineModal] Error stack:', error.stack);
-        showToast('データの読み込み中にエラーが発生しました: ' + error.message, 'error');
+        console.error('[openMachineModal] Error fetching options:', error);
+        showToast('マスタデータの取得に失敗しました: ' + error.message, 'error');
     }
 
     if (machineId) {
-        modalTitle.textContent = '編集';
+        modalTitle.textContent = '保守用車を編集';
         await loadMachineData(machineId);
     } else {
-        modalTitle.textContent = '新規追加';
+        modalTitle.textContent = '保守用車を追加';
+        populateMachineCategories('');
+        populateMachineModelsForCategory('');
     }
 
-    console.log('[openMachineModal] ===== 者ND =====');
+    initAutoExpandTextareas();
+    console.log('[openMachineModal] ===== END =====');
 }
 
 async function loadMachineData(machineId) {
     try {
-        console.log('[loadMachineData] Loading machine:', machineId, 'Type:', typeof machineId);
+        console.log('[loadMachineData] Loading machine:', machineId);
         const response = await tenantFetch('/api/machines', {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await response.json();
 
         if (data.success) {
-            // IDの型を柔軟に比輁者��数値と文���者の両方に対応！者
-            const machine = data.data.find(m => {
+            const machines = unwrapApiArray(data);
+            const machine = machines.find(m => {
                 const mId = m.machine_id || m.id;
                 return String(mId) === String(machineId);
             });
             console.log('[loadMachineData] Found machine:', machine);
             if (machine) {
-                document.getElementById('machine-id').value = machine.machine_id || machine.id;
+                document.getElementById('machine-id').value = machine.machine_id || machine.id || '';
                 document.getElementById('machine-office-select').value = machine.office_id || '';
-                document.getElementById('machine-type-select').value = machine.machine_type_id || '';
                 document.getElementById('machine-number').value = machine.machine_number || '';
                 document.getElementById('machine-type-certification').value = machine.type_certification || '';
                 document.getElementById('machine-manufacture-date').value = machine.manufacture_date ? machine.manufacture_date.split('T')[0] : '';
                 document.getElementById('machine-certification-date').value = machine.model_certification_date ? machine.model_certification_date.split('T')[0] : '';
-                document.getElementById('machine-purchase-date').value = machine.purchase_date ? machine.purchase_date.split('T')[0] : '';
-                document.getElementById('machine-notes').value = machine.notes || '';
+                const purchaseDateInput = document.getElementById('machine-purchase-date');
+                if (purchaseDateInput) {
+                    purchaseDateInput.value = machine.purchase_date ? machine.purchase_date.split('T')[0] : '';
+                }
+                const notesArea = document.getElementById('machine-notes');
+                if (notesArea) {
+                    notesArea.value = machine.notes || '';
+                }
+
+                // 機種・型式・メーカーの連動復元
+                const targetTypeId = machine.machine_type_id;
+                const foundType = allMachineTypesCache.find(mt => String(mt.id) === String(targetTypeId));
+                if (foundType) {
+                    const normCat = String(foundType.category || 'その他').replace('軌道モータカー', '軌道モーターカー').trim();
+                    populateMachineCategories(normCat);
+                    populateMachineModelsForCategory(normCat, targetTypeId);
+                } else {
+                    populateMachineCategories('');
+                    populateMachineModelsForCategory('');
+                }
             } else {
                 console.error('[loadMachineData] Machine not found:', machineId);
                 showToast('保守用車が見つかりません', 'error');
@@ -1669,21 +1716,33 @@ async function loadMachineData(machineId) {
         }
     } catch (error) {
         console.error('Failed to load machine data:', error);
-        showToast('保守用車情情報の読み込みに失敗しました', 'error');
+        showToast('保守用車情報の読み込みに失敗しました', 'error');
     }
 }
 
 async function saveMachine() {
     const machineId = document.getElementById('machine-id').value;
+    const machineTypeId = document.getElementById('machine-type-id')?.value || document.getElementById('machine-model-select')?.value;
+    const officeId = document.getElementById('machine-office-select')?.value;
+
+    if (!officeId) {
+        showToast('管理事業所を選択してください', 'error');
+        return;
+    }
+    if (!machineTypeId) {
+        showToast('機種および型式を選択してください', 'error');
+        return;
+    }
+
     const machineData = {
-        office_id: document.getElementById('machine-office-select').value,
-        machine_type_id: document.getElementById('machine-type-select').value,
+        office_id: officeId,
+        machine_type_id: machineTypeId,
         machine_number: document.getElementById('machine-number').value,
         type_certification: document.getElementById('machine-type-certification').value,
         manufacture_date: document.getElementById('machine-manufacture-date').value || null,
         model_certification_date: document.getElementById('machine-certification-date').value || null,
-        purchase_date: document.getElementById('machine-purchase-date').value || null,
-        notes: document.getElementById('machine-notes').value
+        purchase_date: document.getElementById('machine-purchase-date')?.value || null,
+        notes: document.getElementById('machine-notes')?.value || ''
     };
 
     try {
@@ -1759,6 +1818,8 @@ async function deleteMachine(machineId, machineNumber) {
 window.deleteMachine = deleteMachine;
 
 // ========== 検修マスタ管理 ==========
+let currentInspectionTypeEditing = null;
+
 async function loadInspectionTypes() {
     const list = document.getElementById('inspection-types-list');
     if (!list) {
@@ -1782,6 +1843,22 @@ async function loadInspectionTypes() {
         console.log('[loadInspectionTypes] Response:', data);
 
         if (data.success && inspectionTypes.length > 0) {
+            // 自動ソート: 業務優先順位（機種優先度 ➔ 型式 ➔ 検修種別名）
+            const categoryPriority = ['軌道モーターカー', '軌道モータカー', '箱トロ', '鉄トロ', 'ホッパー車', 'レールカッター', '油圧ショベル', 'クレーン', 'その他'];
+            inspectionTypes.sort((a, b) => {
+                const catA = String(a.machine_category || '').replace('軌道モータカー', '軌道モーターカー');
+                const catB = String(b.machine_category || '').replace('軌道モータカー', '軌道モーターカー');
+                const pA = categoryPriority.indexOf(catA) !== -1 ? categoryPriority.indexOf(catA) : 999;
+                const pB = categoryPriority.indexOf(catB) !== -1 ? categoryPriority.indexOf(catB) : 999;
+                if (pA !== pB) return pA - pB;
+                const modelA = String(a.machine_type_name || '');
+                const modelB = String(b.machine_type_name || '');
+                if (modelA !== modelB) return modelA.localeCompare(modelB, 'ja');
+                const nameA = String(a.type_name || '');
+                const nameB = String(b.type_name || '');
+                return nameA.localeCompare(nameB, 'ja');
+            });
+
             let html = `
                 <table class="data-table" id="inspection-types-table">
                     <thead>
@@ -1793,8 +1870,6 @@ async function loadInspectionTypes() {
                             <th>検修周期</th>
                             <th>検修期間</th>
                             <th>説明</th>
-                            <th>表示順序</th>
-                            <th>状態</th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -1802,10 +1877,6 @@ async function loadInspectionTypes() {
             `;
 
             inspectionTypes.forEach(type => {
-                const statusBadge = type.is_active ?
-                    '<span class="status-badge status-active">有効</span>' :
-                    '<span class="status-badge status-inactive">無効</span>';
-
                 const categoryLabel = type.machine_category
                     ? String(type.machine_category).replace('軌道モータカー', '軌道モーターカー')
                     : '-';
@@ -1822,8 +1893,6 @@ async function loadInspectionTypes() {
                         <td>${type.cycle_months ? `${type.cycle_months}か月` : '-'}</td>
                         <td>${type.duration_days ? `${type.duration_days}日` : '-'}</td>
                         <td>${escapeHtml(type.description || '-')}</td>
-                        <td>${type.display_order || 0}</td>
-                        <td>${statusBadge}</td>
                         <td>
                             <button class="btn-sm btn-edit" data-action="edit-inspection-type" data-id="${type.id}">編集</button>
                             <button class="btn-sm btn-delete" data-action="delete-inspection-type" data-id="${type.id}" data-name="${escapeHtml(type.type_name)}">削除</button>
@@ -1847,23 +1916,25 @@ async function loadInspectionSchedules() {
     // 検修周期・期間設定は検修種別マスタに統合されたため不要
 }
 
-// 検修種別の編集・削除
 let allInspectionMachineTypes = [];
 
 async function initInspectionTypeHierarchy() {
     const categorySelect = document.getElementById('inspection-type-category');
     const modelSelect = document.getElementById('inspection-type-machine-type');
+    const codeInput = document.getElementById('inspection-type-code');
     if (!categorySelect || !modelSelect) return;
 
     categorySelect.innerHTML = '<option value="">-- 機種を選択 --</option>';
     modelSelect.innerHTML = '<option value="">-- 先に機種を選択してください --</option>';
+    if (codeInput) codeInput.value = '';
 
     try {
-        const response = await tenantFetch('/api/machine-types', {
-            headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+        const token = localStorage.getItem('token') || localStorage.getItem('user_token');
+        const res = await tenantFetch('/api/machine-types', {
+            headers: { 'Authorization': `Bearer ${token}` }
         });
-        const data = await response.json();
-        allInspectionMachineTypes = (data.success && unwrapApiArray(data)) || [];
+        const data = await res.json();
+        allInspectionMachineTypes = unwrapApiArray(data);
 
         const normalizeCategory = (cat) => String(cat || '').replace('軌道モータカー', '軌道モーターカー').trim();
         const categoryMap = new Map();
@@ -1872,8 +1943,9 @@ async function initInspectionTypeHierarchy() {
             const rawCat = mt.category || 'その他';
             const displayCat = normalizeCategory(rawCat);
             if (!categoryMap.has(displayCat)) {
-                categoryMap.set(displayCat, rawCat);
+                categoryMap.set(displayCat, []);
             }
+            categoryMap.get(displayCat).push(mt);
         });
 
         const preferredOrder = ['軌道モーターカー', '鉄トロ', '箱トロ', 'ホッパー車'];
@@ -1942,6 +2014,7 @@ function onInspectionCategoryChange(selectedCategory, selectedModelId = null) {
     }
 }
 
+// 検修種別の編集・削除
 function editInspectionType(id) {
     console.log('[editInspectionType] Opening modal for ID:', id);
     openInspectionTypeModal(id);
@@ -1957,6 +2030,7 @@ async function openInspectionTypeModal(id = null) {
     const codeInput = document.getElementById('inspection-type-code');
     if (codeInput) codeInput.value = '';
 
+    currentInspectionTypeEditing = null;
     await initInspectionTypeHierarchy();
 
     if (id) {
@@ -1967,6 +2041,7 @@ async function openInspectionTypeModal(id = null) {
     }
 
     modal.style.display = 'flex';
+    initAutoExpandTextareas();
 }
 
 async function loadInspectionTypeData(id) {
@@ -1980,6 +2055,7 @@ async function loadInspectionTypeData(id) {
 
         if (data.success) {
             const type = data.data || data;
+            currentInspectionTypeEditing = type;
             console.log('[loadInspectionTypeData] Type object:', type);
 
             document.getElementById('inspection-type-id').value = type.id;
@@ -2000,9 +2076,15 @@ async function loadInspectionTypeData(id) {
             document.getElementById('inspection-type-name').value = type.type_name || '';
             document.getElementById('inspection-type-cycle').value = type.cycle_months || '';
             document.getElementById('inspection-type-duration').value = type.duration_days || '';
-            document.getElementById('inspection-type-description').value = type.description || '';
-            document.getElementById('inspection-type-order').value = type.display_order || 0;
-            document.getElementById('inspection-type-active').checked = type.is_active !== false;
+            const descArea = document.getElementById('inspection-type-description');
+            if (descArea) descArea.value = type.description || '';
+
+            const orderInput = document.getElementById('inspection-type-order');
+            if (orderInput) orderInput.value = type.display_order || 0;
+            const activeCheckbox = document.getElementById('inspection-type-active');
+            if (activeCheckbox) activeCheckbox.checked = type.is_active !== false;
+
+            initAutoExpandTextareas();
         }
     } catch (error) {
         console.error('Failed to load inspection type data:', error);
@@ -2058,7 +2140,8 @@ async function openInspectionScheduleModal(id = null) {
         await loadInspectionScheduleData(id);
     } else {
         modalTitle.textContent = '検修設定を追加';
-        document.getElementById('inspection-schedule-active').checked = true;
+        const activeCheck = document.getElementById('inspection-schedule-active');
+        if (activeCheck) activeCheck.checked = true;
     }
 
     modal.style.display = 'flex';
@@ -2084,7 +2167,8 @@ async function loadInspectionScheduleData(id) {
 
             document.getElementById('inspection-schedule-cycle').value = schedule.cycle_months || '';
             document.getElementById('inspection-schedule-duration').value = schedule.duration_days || '';
-            document.getElementById('inspection-schedule-active').checked = schedule.is_active !== false;
+            const activeCheck = document.getElementById('inspection-schedule-active');
+            if (activeCheck) activeCheck.checked = schedule.is_active !== false;
 
             console.log('[loadInspectionScheduleData] Set values:', {
                 machineType: machineTypeSelect ? machineTypeSelect.value : '',
@@ -2127,13 +2211,17 @@ async function deleteInspectionSchedule(id, targetName) {
 async function saveInspectionType() {
     const id = document.getElementById('inspection-type-id').value;
     const category = document.getElementById('inspection-type-category')?.value;
-    const machineTypeId = normalizeOptionalId(document.getElementById('inspection-type-machine-type').value);
-    const typeName = (document.getElementById('inspection-type-name').value || '').trim();
-    const cycleMonths = document.getElementById('inspection-type-cycle').value;
-    const durationDays = document.getElementById('inspection-type-duration').value;
-    const description = document.getElementById('inspection-type-description').value;
-    const displayOrder = document.getElementById('inspection-type-order').value;
-    const isActive = document.getElementById('inspection-type-active').checked;
+    const machineTypeId = normalizeOptionalId(document.getElementById('inspection-type-machine-type')?.value);
+    const typeName = (document.getElementById('inspection-type-name')?.value || '').trim();
+    const cycleMonths = document.getElementById('inspection-type-cycle')?.value;
+    const durationDays = document.getElementById('inspection-type-duration')?.value;
+    const description = document.getElementById('inspection-type-description')?.value || '';
+
+    // 表示順序・有効チェックボックスは画面から削除されたため、編集時は既存値、新規時はデフォルト値
+    const displayOrderInput = document.getElementById('inspection-type-order');
+    const activeCheckbox = document.getElementById('inspection-type-active');
+    const displayOrder = displayOrderInput ? parseInt(displayOrderInput.value, 10) : (currentInspectionTypeEditing?.display_order ?? 0);
+    const isActive = activeCheckbox ? activeCheckbox.checked : (currentInspectionTypeEditing?.is_active ?? true);
 
     if (!category) {
         showToast('機種を選択してください', 'error');
@@ -4973,3 +5061,198 @@ async function sendUsersToServer(users) {
         showToast('サーバーエラー: ' + error.message, 'error');
     }
 }
+
+// ========================================
+// システム共通設定（テナントDB operations.system_settings）
+// ========================================
+let currentSystemSettings = [];
+
+async function loadSystemSettings() {
+    const tbody = document.getElementById('system-settings-tbody');
+    const statusSpan = document.getElementById('system-settings-status');
+    if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #666; padding: 20px;">読み込み中...</td></tr>';
+    }
+    if (statusSpan) {
+        statusSpan.textContent = '';
+    }
+
+    try {
+        console.log('[loadSystemSettings] Fetching system settings...');
+        const response = await tenantFetch('/api/system-settings', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        currentSystemSettings = Array.isArray(data) ? data : (data.settings || []);
+        console.log('[loadSystemSettings] Settings received:', currentSystemSettings.length);
+
+        const isSysAdmin = (window.currentAdminUserRole === 'system_admin');
+        const saveBtn = document.getElementById('save-system-settings-btn');
+        if (saveBtn) {
+            if (isSysAdmin) {
+                saveBtn.disabled = false;
+                saveBtn.title = '設定を保存します';
+                saveBtn.style.opacity = '1';
+                saveBtn.style.cursor = 'pointer';
+            } else {
+                saveBtn.disabled = true;
+                saveBtn.title = 'システム管理者のみ保存できます';
+                saveBtn.style.opacity = '0.5';
+                saveBtn.style.cursor = 'not-allowed';
+            }
+        }
+
+        // フォーム入力枠に値をバインド（システム管理者以外は入力不可）
+        currentSystemSettings.forEach(setting => {
+            const el = document.querySelector(`[data-key="${setting.setting_key}"]`);
+            if (el) {
+                if (el.tagName === 'SELECT') {
+                    el.value = String(setting.setting_value);
+                    el.disabled = !isSysAdmin;
+                } else {
+                    el.value = setting.setting_value ?? '';
+                    el.readOnly = !isSysAdmin;
+                }
+            }
+        });
+
+        // テーブル一覧を生成
+        if (tbody) {
+            if (currentSystemSettings.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #999; padding: 20px;">設定データがありません</td></tr>';
+            } else {
+                tbody.innerHTML = currentSystemSettings.map(s => `
+                    <tr id="setting-row-${escapeHtml(s.id)}" style="border-bottom: 1px solid #e2e8f0;">
+                        <td style="padding: 10px 14px; font-weight: 500;">${escapeHtml(s.display_name || s.setting_key)}</td>
+                        <td style="padding: 10px 14px; font-family: monospace; color: #64748b; font-size: 13px;">${escapeHtml(s.setting_key)}</td>
+                        <td style="padding: 10px 14px;"><span class="badge-gray" style="font-size: 11px;">${escapeHtml(s.category)}</span></td>
+                        <td style="padding: 10px 14px;" id="setting-val-cell-${escapeHtml(s.id)}">
+                            <span class="setting-val-text">${escapeHtml(s.setting_value ?? '')}</span>
+                        </td>
+                        <td style="padding: 10px 14px; color: #64748b; font-size: 13px;">${escapeHtml(s.description || '-')}</td>
+                        <td style="padding: 10px 14px; text-align: center;">
+                            ${(s.is_editable && isSysAdmin) ? `
+                                <button type="button" class="btn-edit" style="padding: 4px 10px; font-size: 12px;" onclick="inlineEditSystemSetting('${escapeHtml(s.id)}')">✏️ 編集</button>
+                            ` : (s.is_editable ? '<span style="color: #64748b; font-size: 12px;">閲覧のみ</span>' : '<span style="color: #94a3b8; font-size: 12px;">固定</span>')}
+                        </td>
+                    </tr>
+                `).join('');
+            }
+        }
+    } catch (err) {
+        console.error('[loadSystemSettings] Error:', err);
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #ef4444; padding: 20px;">設定の取得に失敗しました: ${escapeHtml(err.message)}</td></tr>`;
+        }
+        showToast('システム設定の読み込みに失敗しました: ' + err.message, 'error');
+    }
+}
+
+async function saveSystemSettings() {
+    const statusSpan = document.getElementById('system-settings-status');
+    const saveBtn = document.getElementById('save-system-settings-btn');
+    if (saveBtn) saveBtn.disabled = true;
+    if (statusSpan) {
+        statusSpan.style.color = '#3b82f6';
+        statusSpan.textContent = '保存中...';
+    }
+
+    try {
+        const inputs = document.querySelectorAll('#system-settings-tab [data-key]');
+        const settings = {};
+        inputs.forEach(input => {
+            const key = input.getAttribute('data-key');
+            if (key) {
+                settings[key] = input.value;
+            }
+        });
+
+        console.log('[saveSystemSettings] Saving settings:', settings);
+        const response = await tenantFetch('/api/system-settings/bulk', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ settings })
+        });
+
+        if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.error || `HTTP error! status: ${response.status}`);
+        }
+
+        if (statusSpan) {
+            statusSpan.style.color = '#10b981';
+            statusSpan.textContent = '✓ 正常に保存されました';
+            setTimeout(() => { if (statusSpan.textContent.includes('保存されました')) statusSpan.textContent = ''; }, 4000);
+        }
+        showToast('システム共通設定を保存しました', 'success');
+        await loadSystemSettings();
+    } catch (err) {
+        console.error('[saveSystemSettings] Error:', err);
+        if (statusSpan) {
+            statusSpan.style.color = '#ef4444';
+            statusSpan.textContent = '✕ 保存失敗: ' + err.message;
+        }
+        showToast('保存に失敗しました: ' + err.message, 'error');
+    } finally {
+        if (saveBtn) saveBtn.disabled = false;
+    }
+}
+
+// 行個別インライン編集
+window.inlineEditSystemSetting = function(id) {
+    const setting = currentSystemSettings.find(s => String(s.id) === String(id));
+    if (!setting) return;
+
+    const cell = document.getElementById(`setting-val-cell-${id}`);
+    if (!cell) return;
+
+    const currentVal = setting.setting_value ?? '';
+    cell.innerHTML = `
+        <div style="display: flex; gap: 4px; align-items: center;">
+            <input type="text" id="inline-input-${escapeHtml(id)}" value="${escapeHtml(currentVal)}" style="padding: 4px 8px; font-size: 13px; border: 1px solid #3b82f6; border-radius: 4px; width: 100%;">
+            <button type="button" class="btn-primary" style="padding: 3px 8px; font-size: 11px; white-space: nowrap;" onclick="saveInlineSystemSetting('${escapeHtml(id)}')">保存</button>
+            <button type="button" class="btn-secondary" style="padding: 3px 8px; font-size: 11px; white-space: nowrap;" onclick="cancelInlineSystemSetting('${escapeHtml(id)}')">取消</button>
+        </div>
+    `;
+};
+
+window.cancelInlineSystemSetting = function(id) {
+    const setting = currentSystemSettings.find(s => String(s.id) === String(id));
+    const cell = document.getElementById(`setting-val-cell-${id}`);
+    if (setting && cell) {
+        cell.innerHTML = `<span class="setting-val-text">${escapeHtml(setting.setting_value ?? '')}</span>`;
+    }
+};
+
+window.saveInlineSystemSetting = async function(id) {
+    const input = document.getElementById(`inline-input-${id}`);
+    if (!input) return;
+    const newVal = input.value;
+
+    try {
+        const response = await tenantFetch(`/api/system-settings/${id}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ setting_value: newVal })
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        showToast('設定を更新しました', 'success');
+        await loadSystemSettings();
+    } catch (err) {
+        console.error('[saveInlineSystemSetting] Error:', err);
+        showToast('更新失敗: ' + err.message, 'error');
+    }
+};

@@ -8,7 +8,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>設定管理 - Dashboard Admin</title>
-    <link rel="stylesheet" href="admin.css?v=20260120-1530">
+    <link rel="stylesheet" href="admin.css?v=20261015-master-ui-v1">
 </head>
 
 <body>
@@ -58,6 +58,10 @@
             <button class="tab-button" data-tab="cors-settings">
                 <span class="tab-icon">🌐</span>
                 <span class="tab-label">CORS設定</span>
+            </button>
+            <button class="tab-button" data-tab="system-settings">
+                <span class="tab-icon">⚙️</span>
+                <span class="tab-label">システム共通設定</span>
             </button>
             <button class="tab-button" data-tab="system-operations">
                 <span class="tab-icon">🛠️</span>
@@ -392,6 +396,125 @@
                         <input type="file" id="import-csv-file" accept=".csv" style="display:none;">
                     </div>
                     <p class="info-text">※ テーブルを選択すると使用できます</p>
+                </section>
+            </div>
+
+            <!-- システム共通設定タブ -->
+            <div id="system-settings-tab" class="tab-content" style="display: none;">
+                <div class="info-banner">
+                    <p>💡 事業者（テナント）別の基本情報、通知設定、履歴検索パラメータ等のシステム共通設定を一元管理します</p>
+                </div>
+
+                <!-- 1. 基本情報・表示設定カード -->
+                <section class="config-section form-section-card">
+                    <div class="form-section-header">
+                        <h3 class="form-section-title">🏢 アプリ基本情報・表示設定</h3>
+                    </div>
+                    <div class="form-grid-2col">
+                        <div class="form-group-unified">
+                            <label for="setting-company_name">会社名</label>
+                            <input type="text" id="setting-company_name" data-key="company_name" placeholder="例: 大鉄工業株式会社">
+                            <small class="form-hint" style="color: #64748b; font-size: 12px; margin-top: 4px; display: block;">各画面や帳票ヘッダーに表示される事業者名</small>
+                        </div>
+                        <div class="form-group-unified">
+                            <label for="setting-system_title">システムタイトル</label>
+                            <input type="text" id="setting-system_title" data-key="system_title" placeholder="例: 保守用車管理システム">
+                            <small class="form-hint" style="color: #64748b; font-size: 12px; margin-top: 4px; display: block;">ヘッダーに表示されるシステム名称</small>
+                        </div>
+                        <div class="form-group-unified">
+                            <label for="setting-logo_url">会社ロゴURL（オプション）</label>
+                            <input type="text" id="setting-logo_url" data-key="logo_url" placeholder="https://... または /assets/...">
+                            <small class="form-hint" style="color: #64748b; font-size: 12px; margin-top: 4px; display: block;">ヘッダーまたは帳票に表示するロゴ画像URL</small>
+                        </div>
+                        <div class="form-group-unified">
+                            <label for="setting-timezone">タイムゾーン</label>
+                            <input type="text" id="setting-timezone" data-key="timezone" placeholder="Asia/Tokyo">
+                            <small class="form-hint" style="color: #64748b; font-size: 12px; margin-top: 4px; display: block;">日時記録・表示の基準タイムゾーン</small>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 2. 通知設定カード -->
+                <section class="config-section form-section-card" style="margin-top: 20px;">
+                    <div class="form-section-header">
+                        <h3 class="form-section-title">🔔 通知設定</h3>
+                    </div>
+                    <div class="form-grid-2col">
+                        <div class="form-group-unified">
+                            <label for="setting-enable_email">異常発生時のメール通知</label>
+                            <select id="setting-enable_email" data-key="enable_email">
+                                <option value="false">無効（通知しない）</option>
+                                <option value="true">有効（メール通知する）</option>
+                            </select>
+                            <small class="form-hint" style="color: #64748b; font-size: 12px; margin-top: 4px; display: block;">点検で異常判定が検出された際の自動メール通知</small>
+                        </div>
+                        <div class="form-group-unified">
+                            <label for="setting-admin_email">管理者通知先メールアドレス</label>
+                            <input type="email" id="setting-admin_email" data-key="admin_email" placeholder="admin@example.com">
+                            <small class="form-hint" style="color: #64748b; font-size: 12px; margin-top: 4px; display: block;">異常検知や重要アラートの送信用アドレス</small>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 3. 履歴・表示パラメータカード -->
+                <section class="config-section form-section-card" style="margin-top: 20px;">
+                    <div class="form-section-header">
+                        <h3 class="form-section-title">📊 履歴表示・分析パラメータ</h3>
+                    </div>
+                    <div class="form-grid-2col">
+                        <div class="form-group-unified">
+                            <label for="setting-default_search_days">デフォルト検索期間（日）</label>
+                            <input type="number" id="setting-default_search_days" data-key="default_search_days" min="1" max="365">
+                            <small class="form-hint" style="color: #64748b; font-size: 12px; margin-top: 4px; display: block;">点検履歴検索の初期表示期間（日数）</small>
+                        </div>
+                        <div class="form-group-unified">
+                            <label for="setting-max_display_records">最大表示件数</label>
+                            <input type="number" id="setting-max_display_records" data-key="max_display_records" min="10" max="5000">
+                            <small class="form-hint" style="color: #64748b; font-size: 12px; margin-top: 4px; display: block;">履歴一覧・帳票の最大表示レコード数</small>
+                        </div>
+                        <div class="form-group-unified">
+                            <label for="setting-trend_analysis_count">推移分析対象回数</label>
+                            <input type="number" id="setting-trend_analysis_count" data-key="trend_analysis_count" min="2" max="20">
+                            <small class="form-hint" style="color: #64748b; font-size: 12px; margin-top: 4px; display: block;">測定値の推移グラフで比較する過去点検データ件数</small>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 保存ボタンエリア -->
+                <div style="margin-top: 24px; display: flex; gap: 12px; align-items: center; justify-content: flex-end;">
+                    <span id="system-settings-status" style="font-size: 14px; font-weight: 500;"></span>
+                    <button type="button" id="save-system-settings-btn" class="btn-primary" style="padding: 10px 28px; font-size: 15px;">
+                        💾 設定を保存する
+                    </button>
+                </div>
+
+                <!-- 4. 全設定パラメータ一覧（詳細・テーブル表示） -->
+                <section class="config-section" style="margin-top: 30px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h3 style="margin: 0; font-size: 16px;">📋 全設定キー・一覧（詳細確認用）</h3>
+                        <button type="button" id="refresh-system-settings-btn" class="btn-secondary" style="font-size: 13px; padding: 6px 14px;">
+                            🔄 最新データを再取得
+                        </button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="simple-table" id="system-settings-table">
+                            <thead>
+                                <tr style="background-color: #f8fafc;">
+                                    <th style="padding: 10px 14px; text-align: left;">項目名</th>
+                                    <th style="padding: 10px 14px; text-align: left;">設定キー</th>
+                                    <th style="padding: 10px 14px; text-align: left;">カテゴリ</th>
+                                    <th style="padding: 10px 14px; text-align: left;">設定値</th>
+                                    <th style="padding: 10px 14px; text-align: left;">説明</th>
+                                    <th style="padding: 10px 14px; text-align: center; width: 100px;">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="system-settings-tbody">
+                                <tr>
+                                    <td colspan="6" style="text-align: center; color: #666; padding: 20px;">読み込み中...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </section>
             </div>
 
@@ -1191,58 +1314,83 @@
 
     <!-- 保守用車管理マスタ追加・編集モーダル -->
     <div id="machine-modal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content modal-content-large">
             <div class="modal-header">
                 <h3 id="machine-modal-title">保守用車を追加</h3>
                 <button class="modal-close" id="machine-modal-close">&times;</button>
             </div>
             <form id="machine-form">
                 <input type="hidden" id="machine-id" name="machine_id">
+                <input type="hidden" id="machine-type-id" name="machine_type_id">
+                <input type="hidden" id="machine-purchase-date" name="purchase_date">
 
-                <div class="form-group">
-                    <label for="machine-office-select">管理事業所 *</label>
-                    <select id="machine-office-select" name="office_id" required>
-                        <option value="">-- 事業所を選択 --</option>
-                    </select>
+                <!-- 第1段：機械基本情報 -->
+                <div class="form-section-card">
+                    <div class="form-section-title">第1段：機械基本情報</div>
+                    <div class="form-grid-2col">
+                        <!-- 左列 1: 管理事業所 -->
+                        <div class="form-group-unified">
+                            <label for="machine-office-select">管理事業所 *</label>
+                            <select id="machine-office-select" name="office_id" required>
+                                <option value="">-- 事業所を選択 --</option>
+                            </select>
+                        </div>
+                        <!-- 右列 1: 機種 -->
+                        <div class="form-group-unified">
+                            <label for="machine-category-select">機種 *</label>
+                            <select id="machine-category-select" required>
+                                <option value="">-- 機種を選択 --</option>
+                            </select>
+                        </div>
+
+                        <!-- 左列 2: 製造メーカー -->
+                        <div class="form-group-unified">
+                            <label for="machine-manufacturer-input">製造メーカー</label>
+                            <input type="text" id="machine-manufacturer-input" name="manufacturer" readonly placeholder="型式を選択すると自動表示">
+                        </div>
+                        <!-- 右列 2: 型式 -->
+                        <div class="form-group-unified">
+                            <label for="machine-model-select">型式 *</label>
+                            <select id="machine-model-select" required>
+                                <option value="">-- 先に機種を選択してください --</option>
+                            </select>
+                        </div>
+
+                        <!-- 左列 3: 機械番号 -->
+                        <div class="form-group-unified">
+                            <label for="machine-number">機械番号 *</label>
+                            <input type="text" id="machine-number" name="machine_number" placeholder="空欄時は自動採番">
+                            <small style="color: #6b7280; font-size: 0.78rem; margin-top: 4px;">空欄の場合は機種に応じて MC001、HT001 等で自動採番します。</small>
+                        </div>
+                        <!-- 右列 3: 製造年月日 -->
+                        <div class="form-group-unified">
+                            <label for="machine-manufacture-date">製造年月日</label>
+                            <input type="date" id="machine-manufacture-date" name="manufacture_date">
+                        </div>
+                    </div>
                 </div>
 
-                <div class="form-group">
-                    <label for="machine-type-select">機種・型式 *</label>
-                    <select id="machine-type-select" name="machine_type_id" required>
-                        <option value="">-- 機種・型式を選択 --</option>
-                    </select>
-                </div>
+                <!-- 第2段：型式認定・補足情報 -->
+                <div class="form-section-card">
+                    <div class="form-section-title">第2段：型式認定・補足情報</div>
+                    <div class="form-grid-2col">
+                        <!-- 左列 1: 型式認定番号 -->
+                        <div class="form-group-unified">
+                            <label for="machine-type-certification">型式認定番号</label>
+                            <input type="text" id="machine-type-certification" name="type_certification" placeholder="例: ABC-123">
+                        </div>
+                        <!-- 右列 1: 型式認定年月日 -->
+                        <div class="form-group-unified">
+                            <label for="machine-certification-date">型式認定年月日</label>
+                            <input type="date" id="machine-certification-date" name="model_certification_date">
+                        </div>
 
-                <div class="form-group">
-                    <label for="machine-number">機械番号 *</label>
-                    <input type="text" id="machine-number" name="machine_number" placeholder="空欄の場合は機種に応じて自動採番">
-                    <small>空欄の場合は機種に応じて MC001、HT001、TT001、HPT001 形式で自動採番します。</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="machine-type-certification">型式認定番号</label>
-                    <input type="text" id="machine-type-certification" name="type_certification"
-                        placeholder="例: ABC-123">
-                </div>
-
-                <div class="form-group">
-                    <label for="machine-manufacture-date">製造年月日</label>
-                    <input type="date" id="machine-manufacture-date" name="manufacture_date">
-                </div>
-
-                <div class="form-group">
-                    <label for="machine-certification-date">型式認定年月日</label>
-                    <input type="date" id="machine-certification-date" name="model_certification_date">
-                </div>
-
-                <div class="form-group">
-                    <label for="machine-purchase-date">購入年月日</label>
-                    <input type="date" id="machine-purchase-date" name="purchase_date">
-                </div>
-
-                <div class="form-group">
-                    <label for="machine-notes">備考</label>
-                    <textarea id="machine-notes" name="notes" rows="3"></textarea>
+                        <!-- 記事（横幅全体） -->
+                        <div class="form-group-unified full-width">
+                            <label for="machine-notes">記事</label>
+                            <textarea id="machine-notes" name="notes" class="auto-expand-textarea" rows="3" placeholder="記事・備考を入力してください"></textarea>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="form-actions">
@@ -1255,7 +1403,7 @@
 
     <!-- 検修種別追加・編集モーダル -->
     <div id="inspection-type-modal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content modal-content-large">
             <div class="modal-header">
                 <h3 id="inspection-type-modal-title">検修種別を追加</h3>
                 <button class="modal-close" id="inspection-type-modal-close">&times;</button>
@@ -1263,60 +1411,48 @@
             <form id="inspection-type-form">
                 <input type="hidden" id="inspection-type-id" name="id">
 
-                <div class="form-group">
-                    <label for="inspection-type-category">機種 *</label>
-                    <select id="inspection-type-category" required>
-                        <option value="">-- 機種を選択 --</option>
-                    </select>
-                </div>
+                <div class="form-section-card">
+                    <div class="form-section-title">検修種別情報</div>
+                    <div class="form-grid-2col">
+                        <div class="form-group-unified">
+                            <label for="inspection-type-category">機種 *</label>
+                            <select id="inspection-type-category" required>
+                                <option value="">-- 機種を選択 --</option>
+                            </select>
+                        </div>
 
-                <div class="form-group">
-                    <label for="inspection-type-machine-type">型式 *</label>
-                    <select id="inspection-type-machine-type" name="machine_type_id" required>
-                        <option value="">-- 先に機種を選択してください --</option>
-                    </select>
-                </div>
+                        <div class="form-group-unified">
+                            <label for="inspection-type-machine-type">型式 *</label>
+                            <select id="inspection-type-machine-type" name="machine_type_id" required>
+                                <option value="">-- 先に機種を選択してください --</option>
+                            </select>
+                        </div>
 
-                <div class="form-group" style="display: none;">
-                    <label for="inspection-type-code">検修種別コード</label>
-                    <input type="text" id="inspection-type-code" name="type_code" readonly
-                        placeholder="型式を選択すると自動採番">
-                    <small>軌道モーターカー:MC、鉄トロ:TT、箱トロ:HTT、ホッパー車:HPT + 2桁で自動採番します。</small>
-                </div>
+                        <div class="form-group-unified" style="display: none;">
+                            <label for="inspection-type-code">検修種別コード</label>
+                            <input type="text" id="inspection-type-code" name="type_code" readonly placeholder="型式を選択すると自動採番">
+                        </div>
 
-                <div class="form-group">
-                    <label for="inspection-type-name">検修種別名 *</label>
-                    <input type="text" id="inspection-type-name" name="type_name" required placeholder="例: A検修">
-                </div>
+                        <div class="form-group-unified">
+                            <label for="inspection-type-name">検修種別名 *</label>
+                            <input type="text" id="inspection-type-name" name="type_name" required placeholder="例: A検修">
+                        </div>
 
-                <div class="form-group">
-                    <label for="inspection-type-cycle">検修周期（月単位） *</label>
-                    <input type="number" id="inspection-type-cycle" name="cycle_months" required min="1"
-                        placeholder="例: 12">
-                </div>
+                        <div class="form-group-unified">
+                            <label for="inspection-type-cycle">検修周期（月単位） *</label>
+                            <input type="number" id="inspection-type-cycle" name="cycle_months" required min="1" placeholder="例: 12">
+                        </div>
 
-                <div class="form-group">
-                    <label for="inspection-type-duration">検修期間（日数） *</label>
-                    <input type="number" id="inspection-type-duration" name="duration_days" required min="1"
-                        placeholder="例: 7">
-                </div>
+                        <div class="form-group-unified">
+                            <label for="inspection-type-duration">検修期間（日数） *</label>
+                            <input type="number" id="inspection-type-duration" name="duration_days" required min="1" placeholder="例: 7">
+                        </div>
 
-                <div class="form-group">
-                    <label for="inspection-type-description">説明</label>
-                    <textarea id="inspection-type-description" name="description" rows="3"
-                        placeholder="検修種別の説明を入力"></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label for="inspection-type-order">表示順序</label>
-                    <input type="number" id="inspection-type-order" name="display_order" value="0" min="0">
-                </div>
-
-                <div class="form-group">
-                    <label>
-                        <input type="checkbox" id="inspection-type-active" name="is_active" checked>
-                        有効
-                    </label>
+                        <div class="form-group-unified full-width">
+                            <label for="inspection-type-description">説明</label>
+                            <textarea id="inspection-type-description" name="description" class="auto-expand-textarea" rows="3" placeholder="検修種別の説明を入力"></textarea>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="form-actions">
@@ -1334,7 +1470,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="tenant-context.js?v=20261015-unify-v2"></script>
-    <script src="admin.js?v=20261015-unify-v2"></script>
+    <script src="admin.js?v=20261016-syssettings-v2"></script>
 </body>
 
 </html>

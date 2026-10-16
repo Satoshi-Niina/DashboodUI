@@ -598,18 +598,16 @@ async function getAllCompanyRoutingRows() {
 }
 
 function extractTenantIdFromRequest(req) {
-  // 1. Cookieセッションが存在する場合はセッションのtenant_keyを最優先
-  if (req.headers && req.headers.cookie) {
-    try {
-      const session = commonAuth.readSession(req);
-      if (session && (session.tenant_key || session.tenant_id)) {
-        const sessionTenant = String(session.tenant_key || session.tenant_id).trim().toLowerCase();
-        if (sessionTenant && sessionTenant !== 'demo_env' && sessionTenant !== 'demo') {
-          return mapTenantSegment(sessionTenant, true);
-        }
+  // 1. セッション（CookieまたはAuthorizationヘッダー）が存在する場合はセッションのtenant_keyを最優先
+  try {
+    const session = commonAuth.readSession(req);
+    if (session && (session.tenant_key || session.tenant_id)) {
+      const sessionTenant = String(session.tenant_key || session.tenant_id).trim().toLowerCase();
+      if (sessionTenant && sessionTenant !== 'demo_env' && sessionTenant !== 'demo') {
+        return mapTenantSegment(sessionTenant, true);
       }
-    } catch (_) { }
-  }
+    }
+  } catch (_) { }
 
   // 2. 端末証明書による特定結果が存在する場合はそれを採用
   if (req.deviceInfo && req.deviceInfo.tenantKey) {
@@ -1527,26 +1525,37 @@ app.use('/api', async (req, res, next) => {
         });
       }
 
-      if (req.headers.cookie) {
-        let session = null;
-        try {
-          session = commonAuth.readSession(req);
-        } catch (_) { }
-        if (session) {
-          const sessionTenantKey = String(session.tenant_key || '').trim().toLowerCase();
-          let resolvedSessionTenantKey = sessionTenantKey;
-          if (!resolvedSessionTenantKey) {
-            const sessionTenant = await resolveSessionTenant(getControlPlanePool(), session);
-            resolvedSessionTenantKey = String(sessionTenant?.tenant_key || '').trim().toLowerCase();
-          }
-          const requestedRouteTenantKey = String(runtime.resolvedTenantId || '').trim().toLowerCase();
-          if (requestedRouteTenantKey && (!resolvedSessionTenantKey || resolvedSessionTenantKey !== requestedRouteTenantKey)) {
-            return res.status(403).json({
-              success: false,
-              message: 'ログインユーザーの所属テナントと要求先が一致しません',
-              requestedTenantId: requestedRouteTenantKey || 'unknown'
-            });
-          }
+      let session = null;
+      try {
+        session = commonAuth.readSession(req);
+      } catch (_) { }
+      if (session) {
+        const sessionTenantKey = String(session.tenant_key || '').trim().toLowerCase();
+        let resolvedSessionTenantKey = sessionTenantKey;
+        if (!resolvedSessionTenantKey) {
+          const sessionTenant = await resolveSessionTenant(getControlPlanePool(), session);
+          resolvedSessionTenantKey = String(sessionTenant?.tenant_key || '').trim().toLowerCase();
+        }
+
+        // 端末証明書との不一致チェック
+        const certTenantKey = req.deviceInfo?.tenantKey ? String(req.deviceInfo.tenantKey).trim().toLowerCase() : null;
+        if (certTenantKey && resolvedSessionTenantKey && certTenantKey !== resolvedSessionTenantKey) {
+          console.warn(`[TenantRouting] Certificate/Session mismatch: cert=${certTenantKey}, session=${resolvedSessionTenantKey}`);
+          return res.status(403).json({
+            success: false,
+            code: 'DEVICE_MISMATCH',
+            message: '証明書とセッションの所属テナントが一致しません'
+          });
+        }
+
+        const requestedRouteTenantKey = String(runtime.resolvedTenantId || '').trim().toLowerCase();
+        if (requestedRouteTenantKey && (!resolvedSessionTenantKey || resolvedSessionTenantKey !== requestedRouteTenantKey)) {
+          return res.status(403).json({
+            success: false,
+            message: 'ログインユーザーの所属テナントと要求先が一致しません',
+            requestedTenantId: requestedRouteTenantKey || 'unknown'
+          });
+        }
           let sessionHasCurrentAccess = null;
           try {
             if (runtime && runtime.pool) {
@@ -1576,7 +1585,6 @@ app.use('/api', async (req, res, next) => {
           }
         }
       }
-    }
 
     requestTenantContextStorage.run(runtime, () => next());
   } catch (err) {
@@ -1784,7 +1792,8 @@ const DASHBOARD_TABLE_MAP = {
   machine_types: { schema: 'public', table: 'machine_types' },
   inspection_types: { schema: 'public', table: 'inspection_types' },
   inspection_schedules: { schema: 'public', table: 'inspection_schedules' },
-  app_config: { schema: 'public', table: 'app_config' } // ← この行を追加
+  app_config: { schema: 'public', table: 'app_config' },
+  system_settings: { schema: 'operations', table: 'system_settings' }
 };
 
 function quoteIdentifier(identifier) {
@@ -2708,7 +2717,9 @@ app.post('/api/login', async (req, res) => {
       user: {
         id: tenantUser.id,
         username: tenantUser.username,
+        display_name: tenantUser.display_name || tenantUser.username,
         displayName: tenantUser.display_name || tenantUser.username,
+        full_name: tenantUser.display_name || tenantUser.username,
         role: tenantUser.role || 'operator',
         tenant_id: officialTenantKey,
         tenant_key: officialTenantKey,
@@ -2768,6 +2779,8 @@ app.get('/api/auth/me', requireCookieSession, verifyDeviceSessionTenantMatch, as
         id: user.id,
         username: user.username,
         display_name: user.display_name || user.username,
+        displayName: user.display_name || user.username,
+        full_name: user.display_name || user.username,
         tenant_id: tenant.tenant_id,
         tenant_key: tenant.tenant_key,
         tenant_name: tenant.tenant_name,
@@ -3419,7 +3432,7 @@ async function requireSystemAdmin(req, res, next) {
   }
 
   if (decoded.role === 'system_admin') {
-    req.user = { id: decoded.sub, role: decoded.role, permissions: decoded.permissions || [] };
+    req.user = { id: decoded.sub, username: decoded.username || decoded.sub || 'system_admin', role: decoded.role, permissions: decoded.permissions || [] };
     return next();
   }
   return res.status(403).json({ success: false, message: 'アクセス権限がありません。システム管理者権限が必要です。' });
@@ -3517,6 +3530,272 @@ app.get('/api/config/history', requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('History get error:', err);
     res.status(500).json({ success: false, message: 'サーバーエラーが発生しました' });
+  }
+});
+
+// ========================================
+// システム共通設定（テナントDB operations.system_settings）
+// ========================================
+
+// 許可された設定キーのホワイトリストおよびバリデーション定義
+const SYSTEM_SETTINGS_WHITELIST = {
+  'company_name': { type: 'string', minLen: 1, maxLen: 100, label: '会社名' },
+  'system_title': { type: 'string', minLen: 1, maxLen: 100, label: 'システムタイトル' },
+  'logo_url': { type: 'string', minLen: 0, maxLen: 500, label: 'ロゴURL' },
+  'timezone': { type: 'string', minLen: 1, maxLen: 50, label: 'タイムゾーン' },
+  'enable_email': { type: 'boolean', label: 'メール通知有効化' },
+  'admin_email': { type: 'email', maxLen: 200, label: '管理者メール' },
+  'default_search_days': { type: 'number', min: 1, max: 365, label: 'デフォルト検索期間（日）' },
+  'max_display_records': { type: 'number', min: 10, max: 5000, label: '最大表示件数' },
+  'trend_analysis_count': { type: 'number', min: 2, max: 20, label: '推移分析回数' }
+};
+
+function validateSettingKeyValue(key, value) {
+  const rule = SYSTEM_SETTINGS_WHITELIST[key];
+  if (!rule) {
+    return { valid: false, error: `許可されていない未知の設定キーです: ${key}` };
+  }
+
+  const strVal = String(value ?? '').trim();
+
+  if (rule.type === 'string') {
+    if (rule.minLen && strVal.length < rule.minLen) {
+      return { valid: false, error: `${rule.label}は${rule.minLen}文字以上で入力してください` };
+    }
+    if (rule.maxLen && strVal.length > rule.maxLen) {
+      return { valid: false, error: `${rule.label}は${rule.maxLen}文字以内で入力してください` };
+    }
+    return { valid: true, sanitized: strVal };
+  }
+
+  if (rule.type === 'boolean') {
+    if (strVal !== 'true' && strVal !== 'false') {
+      return { valid: false, error: `${rule.label}は true または false を指定してください` };
+    }
+    return { valid: true, sanitized: strVal };
+  }
+
+  if (rule.type === 'email') {
+    if (strVal.length > 0) {
+      if (rule.maxLen && strVal.length > rule.maxLen) {
+        return { valid: false, error: `${rule.label}は${rule.maxLen}文字以内で入力してください` };
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(strVal)) {
+        return { valid: false, error: `${rule.label}に正しいメールアドレス形式を入力してください` };
+      }
+    }
+    return { valid: true, sanitized: strVal };
+  }
+
+  if (rule.type === 'number') {
+    const num = Number(strVal);
+    if (isNaN(num) || !Number.isInteger(num)) {
+      return { valid: false, error: `${rule.label}は整数値を入力してください` };
+    }
+    if (rule.min !== undefined && num < rule.min) {
+      return { valid: false, error: `${rule.label}は${rule.min}以上の値を入力してください` };
+    }
+    if (rule.max !== undefined && num > rule.max) {
+      return { valid: false, error: `${rule.label}は${rule.max}以下の値を入力してください` };
+    }
+    return { valid: true, sanitized: String(num) };
+  }
+
+  return { valid: true, sanitized: strVal };
+}
+
+// 全システム共通設定取得（管理者以上が閲覧可能）
+app.get('/api/system-settings', requireAdmin, async (req, res) => {
+  try {
+    const route = await resolveStrictRoutedTablePath('system_settings');
+    const { category } = req.query;
+    const activePool = getRequestDbPool(req);
+    
+    let query = `
+      SELECT 
+        id,
+        category,
+        setting_key,
+        setting_value,
+        value_type,
+        display_name,
+        description,
+        is_editable,
+        display_order,
+        created_at,
+        updated_at
+      FROM ${route.fullPath}
+    `;
+    const params = [];
+    if (category) {
+      query += ` WHERE category = $1`;
+      params.push(category);
+    }
+    query += ` ORDER BY category, display_order, setting_key`;
+
+    const result = await activePool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[GET /api/system-settings] Error:', err.message);
+    res.status(500).json({ error: 'システム設定の取得に失敗しました', details: err.message });
+  }
+});
+
+// システム共通設定の更新（ID指定：システム管理者のみ許可）
+app.put('/api/system-settings/:id', requireSystemAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { setting_value, display_name, description } = req.body;
+    const route = await resolveStrictRoutedTablePath('system_settings');
+    const activePool = getRequestDbPool(req);
+
+    // 存在および編集可能チェック
+    const check = await activePool.query(
+      `SELECT id, setting_key, is_editable FROM ${route.fullPath} WHERE id = $1`,
+      [id]
+    );
+    if (check.rows.length === 0) {
+      return res.status(404).json({ error: '指定された設定が見つかりません' });
+    }
+    const current = check.rows[0];
+    if (!current.is_editable) {
+      return res.status(403).json({ error: 'この設定項目は変更禁止です' });
+    }
+
+    // ホワイトリスト・バリデーションチェック
+    if (SYSTEM_SETTINGS_WHITELIST[current.setting_key]) {
+      const valCheck = validateSettingKeyValue(current.setting_key, setting_value);
+      if (!valCheck.valid) {
+        return res.status(400).json({ error: valCheck.error });
+      }
+    }
+
+    const updater = req.user?.username || 'system_admin';
+    console.log(`[PUT /api/system-settings/:id] Updating setting ${current.setting_key} by ${updater}`);
+
+    const result = await activePool.query(
+      `UPDATE ${route.fullPath}
+       SET setting_value = COALESCE($1, setting_value),
+           display_name = COALESCE($2, display_name),
+           description = COALESCE($3, description),
+           updated_at = now()
+       WHERE id = $4
+       RETURNING *`,
+      [setting_value, display_name, description, id]
+    );
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error('[PUT /api/system-settings/:id] Error:', err.message);
+    res.status(500).json({ error: 'システム設定の更新に失敗しました', details: err.message });
+  }
+});
+
+// システム共通設定の一括更新（システム管理者のみ許可・トランザクション処理・バリデーション付き）
+app.post('/api/system-settings/bulk', requireSystemAdmin, async (req, res) => {
+  const activePool = getRequestDbPool(req);
+  let client;
+
+  try {
+    const { settings } = req.body;
+    if (!settings || typeof settings !== 'object') {
+      return res.status(400).json({ error: 'settingsオブジェクトが指定されていません' });
+    }
+
+    const route = await resolveStrictRoutedTablePath('system_settings');
+
+    // 1. キーリストの正規化とバリデーション
+    const entries = [];
+    const seenKeys = new Set();
+
+    if (Array.isArray(settings)) {
+      for (const item of settings) {
+        const key = item.setting_key;
+        if (!key) {
+          return res.status(400).json({ error: '各要素に setting_key が必要です' });
+        }
+        if (seenKeys.has(key)) {
+          return res.status(400).json({ error: `重複した設定キーが指定されています: ${key}` });
+        }
+        seenKeys.add(key);
+
+        const valCheck = validateSettingKeyValue(key, item.setting_value);
+        if (!valCheck.valid) {
+          return res.status(400).json({ error: valCheck.error });
+        }
+        entries.push({ key, value: valCheck.sanitized });
+      }
+    } else {
+      for (const [key, value] of Object.entries(settings)) {
+        if (seenKeys.has(key)) {
+          return res.status(400).json({ error: `重複した設定キーが指定されています: ${key}` });
+        }
+        seenKeys.add(key);
+
+        const valCheck = validateSettingKeyValue(key, value);
+        if (!valCheck.valid) {
+          return res.status(400).json({ error: valCheck.error });
+        }
+        entries.push({ key, value: valCheck.sanitized });
+      }
+    }
+
+    if (entries.length === 0) {
+      return res.status(400).json({ error: '更新対象の設定項目がありません' });
+    }
+
+    // 2. トランザクション処理の開始
+    client = await activePool.connect();
+    await client.query('BEGIN');
+
+    const updater = req.user?.username || 'system_admin';
+    console.log(`[POST /api/system-settings/bulk] Starting transaction for ${entries.length} items by ${updater}`);
+
+    for (const { key, value } of entries) {
+      // 存在かつ編集可能かチェック
+      const checkRes = await client.query(
+        `SELECT id, is_editable FROM ${route.fullPath} WHERE setting_key = $1`,
+        [key]
+      );
+
+      if (checkRes.rows.length === 0) {
+        throw new Error(`設定項目が存在しません: ${key}`);
+      }
+      if (!checkRes.rows[0].is_editable) {
+        throw new Error(`設定項目「${key}」は変更が禁止されています`);
+      }
+
+      await client.query(
+        `UPDATE ${route.fullPath} 
+         SET setting_value = $1, updated_at = now() 
+         WHERE setting_key = $2 AND is_editable = true`,
+        [value, key]
+      );
+    }
+
+    await client.query('COMMIT');
+    console.log(`[POST /api/system-settings/bulk] Transaction committed successfully`);
+
+    res.json({ success: true, message: 'システム共通設定を更新しました', count: entries.length });
+  } catch (err) {
+    if (client) {
+      try {
+        await client.query('ROLLBACK');
+        console.log(`[POST /api/system-settings/bulk] Transaction rolled back due to error`);
+      } catch (rbErr) {
+        console.error('Rollback error:', rbErr.message);
+      }
+    }
+    console.error('[POST /api/system-settings/bulk] Error:', err.message);
+    res.status(err.message.includes('存在しません') || err.message.includes('禁止') ? 400 : 500).json({
+      error: 'システム共通設定の一括更新に失敗しました',
+      details: err.message
+    });
+  } finally {
+    if (client) {
+      client.release();
+    }
   }
 });
 

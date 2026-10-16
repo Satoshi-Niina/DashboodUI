@@ -2190,3 +2190,105 @@ body {
     border-top: 1px solid #eee;
     margin: 20px 0;
 }
+
+/* ============================================================
+   共通マスタ・保守用車マスタ・検修マスタ 統一UIスタイル
+   ============================================================ */
+.modal-content-large {
+    max-width: 760px !important;
+    width: 92% !important;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.form-section-card {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.form-section-title {
+    margin: 0 0 14px 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #1f2937;
+    border-left: 4px solid #2563eb;
+    padding-left: 8px;
+    display: flex;
+    align-items: center;
+}
+
+.form-grid-2col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 16px;
+}
+
+@media (max-width: 640px) {
+    .form-grid-2col {
+        grid-template-columns: 1fr;
+    }
+}
+
+.form-group-unified {
+    display: flex;
+    flex-direction: column;
+}
+
+.form-group-unified.full-width {
+    grid-column: 1 / -1;
+}
+
+.form-group-unified label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 6px;
+}
+
+.form-group-unified input[type="text"],
+.form-group-unified input[type="number"],
+.form-group-unified input[type="date"],
+.form-group-unified select {
+    width: 100%;
+    height: 40px;
+    padding: 8px 12px;
+    font-size: 0.925rem;
+    color: #1f2937;
+    background-color: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+
+.form-group-unified input[type="date"] {
+    font-family: inherit;
+}
+
+.form-group-unified input:focus,
+.form-group-unified select:focus,
+.form-group-unified textarea:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.form-group-unified textarea.auto-expand-textarea {
+    width: 100%;
+    min-height: 72px;
+    padding: 8px 12px;
+    font-size: 0.925rem;
+    color: #1f2937;
+    background-color: #fff;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    box-sizing: border-box;
+    resize: vertical;
+    line-height: 1.5;
+    font-family: inherit;
+    overflow-y: hidden;
+}
