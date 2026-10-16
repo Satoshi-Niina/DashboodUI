@@ -170,7 +170,8 @@ function writeAuditLogSync({
   details = {}
 }) {
   try {
-    if (process.env.SIMULATE_AUDIT_FAILURE === 'true' || req?.headers?.['x-simulate-audit-failure'] === 'true') {
+    const allowTestHooks = process.env.NODE_ENV !== 'production' && process.env.ENABLE_TEST_BENCHMARK_HOOKS === 'true';
+    if (allowTestHooks && (process.env.SIMULATE_AUDIT_FAILURE === 'true' || req?.headers?.['x-simulate-audit-failure'] === 'true')) {
       throw new Error('Simulated audit logging disk/stream failure for Fail-Closed verification');
     }
 
@@ -237,8 +238,9 @@ function writeAuditRecord(options) {
  */
 function requestLoggingMiddleware() {
   return (req, res, next) => {
-    // ベンチマーク比較用：ロギングバイパスモード
-    if (req.headers['x-bypass-logging'] === 'true') {
+    // ベンチマーク比較用：ロギングバイパスモード（非本番かつ明示的に許可された場合のみ）
+    const allowTestHooks = process.env.NODE_ENV !== 'production' && process.env.ENABLE_TEST_BENCHMARK_HOOKS === 'true';
+    if (allowTestHooks && req.headers['x-bypass-logging'] === 'true') {
       return next();
     }
 
