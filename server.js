@@ -81,7 +81,10 @@ app.use(express.json());
 
 // 内部ガードミドルウェア:
 // HTTPSリバースプロキシゲートウェイ（Port 8443）経由の通信のみを許可し、直接内部ポートへのアクセスを遮断する
-const INTERNAL_GATEWAY_SECRET = process.env.INTERNAL_GATEWAY_SECRET || 'dev-internal-gateway-secret-2026';
+const INTERNAL_GATEWAY_SECRET = process.env.INTERNAL_GATEWAY_SECRET;
+if (!INTERNAL_GATEWAY_SECRET || INTERNAL_GATEWAY_SECRET.trim() === '') {
+  throw new Error('[server] INTERNAL_GATEWAY_SECRET environment variable must be configured');
+}
 
 app.use(async (req, res, next) => {
   const isHealth = req.path === '/health' || req.path === '/_ah/health' || req.path === '/ready';
