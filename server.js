@@ -2141,7 +2141,7 @@ async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'],
  * @param {boolean} returning - RETURNING句を使うか (デフォルト: true)
  * @returns {Promise<Array>}
  */
-async function dynamicInsert(logicalTableName, data, returning = true) {
+async function dynamicInsert(logicalTableName, data, returning = true, clientOrPool = null) {
   let query = '';
   let route = null;
   let keys = Object.keys(data);
@@ -2169,7 +2169,8 @@ async function dynamicInsert(logicalTableName, data, returning = true) {
     console.log(`[DynamicDB] INSERT into ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
     console.log(`[DynamicDB] Values:`, values);
-    const result = await pool.query(query, values);
+    const executor = clientOrPool || pool;
+    const result = await executor.query(query, values);
     console.log(`[DynamicDB] ✅ INSERT success:`, result.rows[0]);
     return result.rows;
   } catch (err) {
@@ -2190,9 +2191,10 @@ async function dynamicInsert(logicalTableName, data, returning = true) {
  * @param {Object} data - 更新データ
  * @param {Object} conditions - WHERE条件
  * @param {boolean} returning - RETURNING句を使うか (デフォルト: true)
+ * @param {Object} [clientOrPool=null] - トランザクションクライアントまたはプール
  * @returns {Promise<Array>}
  */
-async function dynamicUpdate(logicalTableName, data, conditions, returning = true) {
+async function dynamicUpdate(logicalTableName, data, conditions, returning = true, clientOrPool = null) {
   let query = '';
   let route = null;
   let setKeys = Object.keys(data);
@@ -2235,7 +2237,8 @@ async function dynamicUpdate(logicalTableName, data, conditions, returning = tru
     console.log(`[DynamicDB] UPDATE ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
     console.log(`[DynamicDB] Params:`, [...setValues, ...conditionValues]);
-    const result = await pool.query(query, [...setValues, ...conditionValues]);
+    const executor = clientOrPool || pool;
+    const result = await executor.query(query, [...setValues, ...conditionValues]);
     console.log(`[DynamicDB] ✅ UPDATE success: ${result.rows.length} rows`);
     return result.rows;
   } catch (err) {
@@ -2255,9 +2258,11 @@ async function dynamicUpdate(logicalTableName, data, conditions, returning = tru
  * @param {string} logicalTableName - 論理テーブル名
  * @param {Object} conditions - WHERE条件
  * @param {boolean} returning - RETURNING句を使うか (デフォルト: false)
+ * @param {Object} [req=null] - Expressリクエストオブジェクト
+ * @param {Object} [clientOrPool=null] - トランザクションクライアントまたはプール
  * @returns {Promise<Array>}
  */
-async function dynamicDelete(logicalTableName, conditions, returning = false, req = null) {
+async function dynamicDelete(logicalTableName, conditions, returning = false, req = null, clientOrPool = null) {
   let query = '';
   let route = null;
   const conditionKeys = Object.keys(conditions);
@@ -2280,7 +2285,7 @@ async function dynamicDelete(logicalTableName, conditions, returning = false, re
 
     console.log(`[DynamicDB] DELETE from ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
-    const db = req ? getRequestDbPool(req) : pool;
+    const db = clientOrPool || (req ? getRequestDbPool(req) : pool);
     const result = await db.query(query, conditionValues);
     return result.rows;
   } catch (err) {
@@ -3775,22 +3780,28 @@ app.get('/api/system-settings', requireAdmin, async (req, res) => {
 
 // システム共通設定の更新（ID指定：システム管理者のみ許可）
 app.put('/api/system-settings/:id', requireSystemAdmin, async (req, res) => {
+  const activePool = getRequestDbPool(req);
+  let client;
   try {
     const { id } = req.params;
     const { setting_value, display_name, description } = req.body;
     const route = await resolveStrictRoutedTablePath('system_settings');
-    const activePool = getRequestDbPool(req);
+
+    client = await activePool.connect();
+    await client.query('BEGIN');
 
     // 存在および編集可能チェック
-    const check = await activePool.query(
+    const check = await client.query(
       `SELECT id, setting_key, is_editable FROM ${route.fullPath} WHERE id = $1`,
       [id]
     );
     if (check.rows.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: '指定された設定が見つかりません' });
     }
     const current = check.rows[0];
     if (!current.is_editable) {
+      await client.query('ROLLBACK');
       return res.status(403).json({ error: 'この設定項目は変更禁止です' });
     }
 
@@ -3798,6 +3809,7 @@ app.put('/api/system-settings/:id', requireSystemAdmin, async (req, res) => {
     if (SYSTEM_SETTINGS_WHITELIST[current.setting_key]) {
       const valCheck = validateSettingKeyValue(current.setting_key, setting_value);
       if (!valCheck.valid) {
+        await client.query('ROLLBACK');
         return res.status(400).json({ error: valCheck.error });
       }
     }
@@ -3805,7 +3817,7 @@ app.put('/api/system-settings/:id', requireSystemAdmin, async (req, res) => {
     const updater = req.user?.username || 'system_admin';
     console.log(`[PUT /api/system-settings/:id] Updating setting ${current.setting_key} by ${updater}`);
 
-    const result = await activePool.query(
+    const result = await client.query(
       `UPDATE ${route.fullPath}
        SET setting_value = COALESCE($1, setting_value),
            display_name = COALESCE($2, display_name),
@@ -3816,10 +3828,40 @@ app.put('/api/system-settings/:id', requireSystemAdmin, async (req, res) => {
       [setting_value, display_name, description, id]
     );
 
+    // 監査ログの同期保存（Fail-Closed 検証）
+    const auditResult = logger.writeAuditLogSync({
+      req,
+      severity: 'INFO',
+      eventType: 'admin_audit',
+      message: `管理者によるシステム設定変更: key='${current.setting_key}' by ${updater}`,
+      details: {
+        action: 'update_system_setting',
+        setting_id: id,
+        setting_key: current.setting_key,
+        updater
+      }
+    });
+
+    if (!auditResult.ok) {
+      await client.query('ROLLBACK');
+      console.error(`[Fail-Closed] Audit log failed for setting update (${current.setting_key}). Transaction rolled back.`);
+      return res.status(500).json({
+        success: false,
+        code: 'AUDIT_LOG_FAILED',
+        error: '監査ログの保存に失敗したため、安全確保のため設定更新を取り消しました'
+      });
+    }
+
+    await client.query('COMMIT');
     res.json(result.rows[0]);
   } catch (err) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
     console.error('[PUT /api/system-settings/:id] Error:', err.message);
     res.status(500).json({ error: 'システム設定の更新に失敗しました', details: err.message });
+  } finally {
+    if (client) client.release();
   }
 });
 
@@ -3903,6 +3945,24 @@ app.post('/api/system-settings/bulk', requireSystemAdmin, async (req, res) => {
          WHERE setting_key = $2 AND is_editable = true`,
         [value, key]
       );
+    }
+
+    // 監査ログの同期保存（Fail-Closed 検証）
+    const auditResult = logger.writeAuditLogSync({
+      req,
+      severity: 'INFO',
+      eventType: 'admin_audit',
+      message: `管理者によるシステム設定一括変更: ${entries.length}件 by ${updater}`,
+      details: {
+        action: 'bulk_update_system_settings',
+        count: entries.length,
+        keys: entries.map(e => e.key),
+        updater
+      }
+    });
+
+    if (!auditResult.ok) {
+      throw new Error(`[Fail-Closed] 監査ログの保存に失敗したため、システム設定の更新を取り消しました: ${auditResult.error?.message || 'audit write failure'}`);
     }
 
     await client.query('COMMIT');
@@ -4152,6 +4212,8 @@ app.get('/api/users/:id', requireAdmin, async (req, res) => {
 
 // ユーザー追加エンドポイント
 app.post('/api/users', requireAdmin, async (req, res) => {
+  const db = getRequestDbPool(req);
+  let client;
   try {
     const { username, password, display_name, role, email } = req.body;
     const normalizedRole = normalizeRoleForApp(role || 'user');
@@ -4173,15 +4235,18 @@ app.post('/api/users', requireAdmin, async (req, res) => {
       return res.status(403).json({ success: false, message: '自分の権限を超える管理者権限を付与することはできません' });
     }
 
-    const db = getRequestDbPool(req);
     const compatible = await resolveCompatibleTablePath('users', [
       { schema: 'public', table: 'users' },
       { schema: 'master_data', table: 'users', source: 'legacy-fallback' }
     ], ['id', 'username', 'display_name', 'role']);
     const route = compatible.route;
 
-    const checkResult = await db.query(`SELECT id FROM ${route.fullPath} WHERE username = $1 LIMIT 1`, [username]);
+    client = await db.connect();
+    await client.query('BEGIN');
+
+    const checkResult = await client.query(`SELECT id FROM ${route.fullPath} WHERE username = $1 LIMIT 1`, [username]);
     if (checkResult.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ success: false, message: 'このユーザー名は既に使用されています' });
     }
 
@@ -4197,9 +4262,35 @@ app.post('/api/users', requireAdmin, async (req, res) => {
       userData.email = email;
     }
 
-    const users = await dynamicInsert('users', userData);
+    const users = await dynamicInsert('users', userData, true, client);
     const created = users[0] || {};
     const { password: _p, password_hash: _ph, token: _t, ...safeCreated } = created;
+
+    // 監査ログの同期保存（Fail-Closed 検証）
+    const auditResult = logger.writeAuditLogSync({
+      req,
+      severity: 'INFO',
+      eventType: 'admin_audit',
+      message: `管理者によるユーザー新規作成: username='${username}', role='${normalizedRole}'`,
+      details: {
+        action: 'create_user',
+        created_user_id: created.id,
+        created_username: username,
+        role: normalizedRole
+      }
+    });
+
+    if (!auditResult.ok) {
+      await client.query('ROLLBACK');
+      console.error(`[Fail-Closed] Audit log failed for user creation (${username}). Transaction rolled back.`);
+      return res.status(500).json({
+        success: false,
+        code: 'AUDIT_LOG_FAILED',
+        message: '監査ログの保存に失敗したため、安全確保のためユーザー作成を取り消しました'
+      });
+    }
+
+    await client.query('COMMIT');
 
     res.json({
       success: true,
@@ -4207,11 +4298,16 @@ app.post('/api/users', requireAdmin, async (req, res) => {
       message: 'ユーザーを追加しました'
     });
   } catch (err) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
     console.error('[POST /api/users Error]', {
       message: err.message,
       code: err.code
     });
     res.status(500).json({ success: false, message: 'ユーザー登録処理でエラーが発生しました' });
+  } finally {
+    if (client) client.release();
   }
 });
 
@@ -4222,6 +4318,8 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
     return res.status(400).json({ success: false, message: 'ユーザーIDが指定されていません' });
   }
 
+  const db = getRequestDbPool(req);
+  let client;
   try {
     const { username, display_name, password, role, email } = req.body;
     const normalizedRole = normalizeRoleForApp(role || 'user');
@@ -4235,18 +4333,21 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       return res.status(403).json({ success: false, message: '自分の権限を超える管理者権限を付与することはできません' });
     }
 
-    const db = getRequestDbPool(req);
     const compatible = await resolveCompatibleTablePath('users', [
       { schema: 'public', table: 'users' },
       { schema: 'master_data', table: 'users', source: 'legacy-fallback' }
     ], ['id', 'username', 'display_name', 'role']);
     const route = compatible.route;
 
-    const checkResult = await db.query(
+    client = await db.connect();
+    await client.query('BEGIN');
+
+    const checkResult = await client.query(
       `SELECT id FROM ${route.fullPath} WHERE username = $1 AND id::text != $2 LIMIT 1`,
       [username, String(userId)]
     );
     if (checkResult.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ success: false, message: 'このユーザー名は既に使用されています' });
     }
 
@@ -4264,6 +4365,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
     if (password) {
       const passwordRegex = /^(?=.*[A-Z])(?=.*[a-z0-9])(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
       if (!passwordRegex.test(password)) {
+        await client.query('ROLLBACK');
         return res.status(400).json({
           success: false,
           message: 'パスワードは英大文字・英小文字または数字・記号をそれぞれ1文字以上含む8文字以上で設定してください'
@@ -4275,13 +4377,41 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       updateData.password_hash = hashedPassword;
     }
 
-    const users = await dynamicUpdate('users', updateData, { id: userId });
+    const users = await dynamicUpdate('users', updateData, { id: userId }, true, client);
     if (!users || users.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ success: false, message: '指定されたユーザーが見つかりません' });
     }
 
     const updated = users[0];
     const { password: _p, password_hash: _ph, token: _t, ...safeUpdated } = updated;
+
+    // 監査ログの同期保存（Fail-Closed 検証）
+    const auditResult = logger.writeAuditLogSync({
+      req,
+      severity: 'INFO',
+      eventType: 'admin_audit',
+      message: `管理者によるユーザー情報更新: target_user='${username}', role='${normalizedRole}'`,
+      details: {
+        action: 'update_user',
+        target_user_id: userId,
+        target_username: username,
+        role: normalizedRole,
+        password_changed: Boolean(password)
+      }
+    });
+
+    if (!auditResult.ok) {
+      await client.query('ROLLBACK');
+      console.error(`[Fail-Closed] Audit log failed for user update (${username}, id=${userId}). Transaction rolled back.`);
+      return res.status(500).json({
+        success: false,
+        code: 'AUDIT_LOG_FAILED',
+        message: '監査ログの保存に失敗したため、安全確保のためユーザー更新を取り消しました'
+      });
+    }
+
+    await client.query('COMMIT');
 
     res.json({
       success: true,
@@ -4292,12 +4422,17 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       message: 'ユーザーを更新しました'
     });
   } catch (err) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
     console.error('[PUT /api/users/:id Error]', {
       userId,
       message: err.message,
       code: err.code
     });
     res.status(500).json({ success: false, message: 'ユーザー情報の更新中にエラーが発生しました' });
+  } finally {
+    if (client) client.release();
   }
 });
 
@@ -4308,24 +4443,62 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
     return res.status(400).json({ success: false, message: 'ユーザーIDが指定されていません' });
   }
 
+  const db = getRequestDbPool(req);
+  let client;
   try {
     if (String(req.user?.id) === String(userId)) {
       return res.status(400).json({ success: false, message: '自分自身のユーザーアカウントは削除できません' });
     }
 
-    const users = await dynamicDelete('users', { id: userId }, true, req);
+    client = await db.connect();
+    await client.query('BEGIN');
+
+    const users = await dynamicDelete('users', { id: userId }, true, req, client);
     if (!users || users.length === 0) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ success: false, message: '指定されたユーザーが見つかりません' });
     }
 
+    const deletedUser = users[0];
+
+    // 監査ログの同期保存（Fail-Closed 検証）
+    const auditResult = logger.writeAuditLogSync({
+      req,
+      severity: 'WARNING',
+      eventType: 'admin_audit',
+      message: `管理者によるユーザー削除: id=${userId}, username='${deletedUser.username || 'unknown'}'`,
+      details: {
+        action: 'delete_user',
+        deleted_user_id: userId,
+        deleted_username: deletedUser.username || null
+      }
+    });
+
+    if (!auditResult.ok) {
+      await client.query('ROLLBACK');
+      console.error(`[Fail-Closed] Audit log failed for user deletion (id=${userId}). Transaction rolled back.`);
+      return res.status(500).json({
+        success: false,
+        code: 'AUDIT_LOG_FAILED',
+        message: '監査ログの保存に失敗したため、安全確保のためユーザー削除を取り消しました'
+      });
+    }
+
+    await client.query('COMMIT');
+
     res.json({ success: true, message: 'ユーザーを削除しました' });
   } catch (err) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
     console.error('[DELETE /api/users/:id Error]', {
       userId,
       message: err.message,
       code: err.code
     });
     res.status(500).json({ success: false, message: 'ユーザーの削除処理中にエラーが発生しました' });
+  } finally {
+    if (client) client.release();
   }
 });
 

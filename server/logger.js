@@ -13,15 +13,21 @@ const LOGS_DIR = path.join(__dirname, '..', 'logs');
 const RETENTION_DAYS = 7;
 const SENSITIVE_KEY_REGEX = /(password|passwd|passphrase|pwd|secret|token|authorization|cookie|credential|api[-_]?key|private[-_]?key|jwt|signature)/iu;
 
-// ログディレクトリの初期化
-try {
-  if (!fs.existsSync(LOGS_DIR)) {
-    fs.mkdirSync(LOGS_DIR, { recursive: true });
-  }
-} catch (_) {}
+// Cloud Run 環境の判定（K_SERVICE または K_REVISION が存在する場合は Cloud Run）
+const IS_CLOUD_RUN = Boolean(process.env.K_SERVICE || process.env.K_REVISION);
 
-// 古いログファイルの自動クリーンアップ（7日保持）
+// ログディレクトリの初期化（ローカル環境のみ）
+if (!IS_CLOUD_RUN) {
+  try {
+    if (!fs.existsSync(LOGS_DIR)) {
+      fs.mkdirSync(LOGS_DIR, { recursive: true });
+    }
+  } catch (_) {}
+}
+
+// 古いログファイルの自動クリーンアップ（7日保持、ローカル環境のみ）
 function cleanupOldLogs() {
+  if (IS_CLOUD_RUN) return;
   try {
     if (!fs.existsSync(LOGS_DIR)) return;
     const now = Date.now();
@@ -88,7 +94,9 @@ function extractClientIp(req) {
 }
 
 // ローカルファイルへの非同期追記（Fail-Safe）
+// Cloud Run 環境ではファイル追記をスキップし、標準ストリーム（Cloud Logging 自動収集）に一本化
 function appendLocalLog(jsonLine) {
+  if (IS_CLOUD_RUN) return;
   try {
     const today = new Date().toISOString().split('T')[0];
     const logFile = path.join(LOGS_DIR, `dashboard-${today}.log`);
@@ -145,27 +153,83 @@ function writeLog({
 }
 
 /**
- * 重要な管理操作の監査ログ（Audit Record）
- * 保存失敗時でも二次障害を防ぐフェイルセーフを維持しつつ、stderrへ緊急同期書き込みを行う
+ * 重要な管理操作の監査ログ同期書き込み（Fail-Closed 専用）
+ * 保存失敗時は { ok: false, error } を返し、呼び出し元でDBトランザクションをロールバック可能にする
+ * @returns {{ ok: boolean, entry?: object, error?: Error }}
  */
-function writeAuditRecord(options) {
+function writeAuditLogSync({
+  req = null,
+  severity = 'INFO',
+  eventType = 'admin_audit',
+  requestId = null,
+  correlationId = null,
+  tenantId = null,
+  userId = null,
+  clientIp = null,
+  message = '',
+  details = {}
+}) {
   try {
-    const auditOptions = {
-      ...options,
-      severity: options.severity || 'INFO',
-      eventType: options.eventType || 'admin_audit',
+    if (process.env.SIMULATE_AUDIT_FAILURE === 'true' || req?.headers?.['x-simulate-audit-failure'] === 'true') {
+      throw new Error('Simulated audit logging disk/stream failure for Fail-Closed verification');
+    }
+
+    const finalRequestId = requestId || req?.requestId || req?.headers?.['x-request-id'] || null;
+    const finalCorrelationId = correlationId || req?.correlationId || req?.headers?.['x-correlation-id'] || finalRequestId;
+    const finalTenantId = tenantId || req?.tenantId || req?.deviceInfo?.tenantKey || req?.session?.tenant_key || null;
+    const finalUserId = userId || req?.user?.username || req?.user?.userId || req?.user?.id || req?.session?.username || null;
+    const finalClientIp = clientIp || extractClientIp(req);
+
+    const entry = {
+      timestamp: new Date().toISOString(),
+      severity: severity.toUpperCase(),
+      app_name: APP_NAME,
+      event_type: eventType,
+      request_id: finalRequestId,
+      correlation_id: finalCorrelationId,
+      tenant_id: finalTenantId,
+      user_id: finalUserId,
+      client_ip: finalClientIp,
+      duration_ms: null,
+      http_request: req ? {
+        requestMethod: req.method,
+        requestUrl: req.originalUrl || req.url,
+        status: 200
+      } : null,
+      message: redactString(message),
       details: {
-        ...options.details,
+        ...sanitizeObject(details),
         is_audit_record: true
       }
     };
-    return writeLog(auditOptions);
+
+    const jsonLine = JSON.stringify(entry);
+
+    // 1. 標準出力へ同期書き込み（Cloud Run では Cloud Logging に自動永続化）
+    process.stdout.write(`${jsonLine}\n`);
+
+    // 2. ローカル環境の場合はファイルへ同期追記（Fail-Closed 保証）
+    if (!IS_CLOUD_RUN) {
+      if (!fs.existsSync(LOGS_DIR)) {
+        fs.mkdirSync(LOGS_DIR, { recursive: true });
+      }
+      const today = new Date().toISOString().split('T')[0];
+      const logFile = path.join(LOGS_DIR, `dashboard-${today}.log`);
+      fs.appendFileSync(logFile, `${jsonLine}\n`, 'utf8');
+    }
+
+    return { ok: true, entry };
   } catch (err) {
     try {
-      process.stderr.write(`[CRITICAL AUDIT FAILURE] Failed to write audit record: ${err.message}\n`);
+      process.stderr.write(`[CRITICAL_AUDIT_FAILURE] Failed to synchronously write audit log: ${err.message}\n`);
     } catch (_) {}
-    return null;
+    return { ok: false, error: err };
   }
+}
+
+function writeAuditRecord(options) {
+  const result = writeAuditLogSync(options);
+  return result.ok ? result.entry : null;
 }
 
 /**
@@ -173,6 +237,11 @@ function writeAuditRecord(options) {
  */
 function requestLoggingMiddleware() {
   return (req, res, next) => {
+    // ベンチマーク比較用：ロギングバイパスモード
+    if (req.headers['x-bypass-logging'] === 'true') {
+      return next();
+    }
+
     const startNs = process.hrtime.bigint();
 
     // 1. Gatewayから伝播された Request ID / Correlation ID を取得（なければフォールバック生成）
@@ -229,8 +298,10 @@ function requestLoggingMiddleware() {
 module.exports = {
   writeLog,
   writeAuditRecord,
+  writeAuditLogSync,
   requestLoggingMiddleware,
   redactString,
   sanitizeObject,
-  extractClientIp
+  extractClientIp,
+  IS_CLOUD_RUN
 };
