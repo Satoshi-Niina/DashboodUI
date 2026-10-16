@@ -313,11 +313,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 greeting = 'こんばんは';
             }
 
-            // ディスプレイ表示ではなく、実際のユーザー名（username）を表示
-            headerUserName.textContent = `${greeting}、${userInfo.username}さん`;
+            // ユーザーマスタで登録した表示名を優先して表示（未設定時はusername）
+            const displayName = userInfo.display_name || userInfo.displayName || userInfo.full_name || userInfo.username;
+            headerUserName.textContent = `${greeting}、${displayName}さん`;
         }
         if (headerAvatar) {
-            headerAvatar.src = `https://ui-avatars.com/api/?name=${userInfo.username}&background=random`;
+            const avatarName = encodeURIComponent(userInfo.display_name || userInfo.displayName || userInfo.username);
+            headerAvatar.src = `https://ui-avatars.com/api/?name=${avatarName}&background=random`;
         }
     }
 
