@@ -50,11 +50,16 @@ function issueSession(res, session) {
   return token;
 }
 
-function readSession(req) {
-  let token = parseCookies(req.headers.cookie)[COOKIE_NAME];
+function extractToken(req) {
+  let token = parseCookies(req.headers?.cookie)[COOKIE_NAME];
   if (!token && req.headers?.authorization && /^Bearer\s+/i.test(req.headers.authorization)) {
     token = req.headers.authorization.replace(/^Bearer\s+/i, '').trim();
   }
+  return token || null;
+}
+
+function readSession(req) {
+  const token = extractToken(req);
   if (!token) return null;
   return jwt.verify(token, getJwtSecret(), { issuer: JWT_ISSUER, audience: JWT_AUDIENCE });
 }
@@ -158,5 +163,6 @@ module.exports = {
   getUserAccess,
   getTenantUserAccess,
   issueSession,
-  readSession
+  readSession,
+  extractToken
 };

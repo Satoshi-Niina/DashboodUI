@@ -13,6 +13,8 @@ const { randomUUID } = crypto;
 const configRoutes = require('./server/routes/config');
 const dbGateway = require('./server/db-gateway');
 const commonAuth = require('./server/common-auth');
+const securityGuard = require('./server/security-guard');
+const tokenRevocation = require('./server/token-revocation');
 
 // Load .env file if it exists (for local development)
 // In Cloud Run, environment variables are provided by the platform
@@ -1552,6 +1554,16 @@ app.use('/api', async (req, res, next) => {
         session = commonAuth.readSession(req);
       } catch (_) { }
       if (session) {
+        const rawToken = commonAuth.extractToken(req);
+        if (rawToken && await tokenRevocation.isTokenRevoked(rawToken, getControlPlanePool())) {
+          return res.status(401).json({
+            success: false,
+            code: 'TOKEN_REVOKED',
+            message: 'このセッションは失効しています。再度ログインしてください。',
+            requestId: req.requestId || req.headers['x-request-id'] || null
+          });
+        }
+
         const sessionTenantKey = String(session.tenant_key || '').trim().toLowerCase();
         let resolvedSessionTenantKey = sessionTenantKey;
         if (!resolvedSessionTenantKey) {
@@ -1562,6 +1574,16 @@ app.use('/api', async (req, res, next) => {
         // 端末証明書との不一致チェック
         const certTenantKey = req.deviceInfo?.tenantKey ? String(req.deviceInfo.tenantKey).trim().toLowerCase() : null;
         if (certTenantKey && resolvedSessionTenantKey && certTenantKey !== resolvedSessionTenantKey) {
+          securityGuard.recordFailure({
+            clientIp: logger.extractClientIp(req),
+            tenantId: resolvedSessionTenantKey,
+            identifier: session.sub || session.username,
+            eventType: 'device_mismatch',
+            weight: 3,
+            reason: 'DEVICE_MISMATCH',
+            req
+          });
+
           logger.writeLog({
             severity: 'WARNING',
             eventType: 'authz_denied',
@@ -1586,7 +1608,8 @@ app.use('/api', async (req, res, next) => {
           return res.status(403).json({
             success: false,
             code: 'DEVICE_MISMATCH',
-            message: '証明書とセッションの所属テナントが一致しません'
+            message: '証明書とセッションの所属テナントが一致しません',
+            requestId: req.requestId || req.headers['x-request-id'] || null
           });
         }
 
@@ -1594,8 +1617,10 @@ app.use('/api', async (req, res, next) => {
         if (requestedRouteTenantKey && (!resolvedSessionTenantKey || resolvedSessionTenantKey !== requestedRouteTenantKey)) {
           return res.status(403).json({
             success: false,
+            code: 'TENANT_MISMATCH',
             message: 'ログインユーザーの所属テナントと要求先が一致しません',
-            requestedTenantId: requestedRouteTenantKey || 'unknown'
+            requestedTenantId: requestedRouteTenantKey || 'unknown',
+            requestId: req.requestId || req.headers['x-request-id'] || null
           });
         }
           let sessionHasCurrentAccess = null;
@@ -2631,8 +2656,16 @@ async function resolveDeviceTenant(req, cpPool) {
     }
 
     if (!deviceAuth.authorized) {
-      console.warn('[DeviceAuth] Client certificate is unauthorized by Root CA:', deviceAuth.authError);
-      return { ok: false, error: 'certificate_unauthorized' };
+      console.warn('[DeviceAuth] Client certificate is unauthorized by Root CA (TLS level):', deviceAuth.authError);
+      securityGuard.recordFailure({
+        clientIp: logger.extractClientIp(req),
+        identifier: deviceAuth.fingerprint256 || 'unauthorized_cert',
+        eventType: 'tls_cert_unauthorized',
+        weight: 3,
+        reason: 'TLS_CERTIFICATE_UNAUTHORIZED',
+        req
+      });
+      return { ok: false, error: 'TLS_CERTIFICATE_UNAUTHORIZED', message: 'クライアント証明書がRoot CAによって検証できませんでした', detail: deviceAuth.authError, level: 'tls' };
     }
 
     try {
@@ -2655,23 +2688,58 @@ async function resolveDeviceTenant(req, cpPool) {
 
       const certRow = certRes.rows[0];
       if (!certRow) {
-        console.warn(`[DeviceAuth] Certificate fingerprint not registered: ${deviceAuth.fingerprint256}`);
-        return { ok: false, error: 'device_not_registered' };
+        console.warn(`[DeviceAuth] Certificate fingerprint not registered in DB: ${deviceAuth.fingerprint256}`);
+        securityGuard.recordFailure({
+          clientIp: logger.extractClientIp(req),
+          identifier: deviceAuth.fingerprint256,
+          eventType: 'device_not_registered',
+          weight: 2,
+          reason: 'DEVICE_NOT_REGISTERED',
+          req
+        });
+        return { ok: false, error: 'DEVICE_NOT_REGISTERED', message: '提示された証明書は会社管理端末として登録されていません', level: 'db' };
       }
 
       if (certRow.is_revoked) {
-        console.warn(`[DeviceAuth] Certificate is revoked: ${certRow.serial_number}`);
-        return { ok: false, error: 'certificate_revoked' };
+        console.warn(`[DeviceAuth] Certificate is revoked in DB: serial=${certRow.serial_number}`);
+        securityGuard.recordFailure({
+          clientIp: logger.extractClientIp(req),
+          tenantId: certRow.tenant_id,
+          identifier: deviceAuth.fingerprint256,
+          eventType: 'cert_revoked_in_db',
+          weight: 3,
+          reason: 'CERTIFICATE_REVOKED_IN_DB',
+          req
+        });
+        return { ok: false, error: 'CERTIFICATE_REVOKED_IN_DB', message: 'クライアント証明書が管理DB上で停止されています', serialNumber: certRow.serial_number, level: 'db' };
       }
 
       if (!certRow.device_active) {
-        console.warn(`[DeviceAuth] Device is inactive: ${certRow.device_identifier}`);
-        return { ok: false, error: 'device_inactive' };
+        console.warn(`[DeviceAuth] Device is inactive in DB: ${certRow.device_identifier}`);
+        securityGuard.recordFailure({
+          clientIp: logger.extractClientIp(req),
+          tenantId: certRow.tenant_id,
+          identifier: deviceAuth.fingerprint256,
+          eventType: 'device_inactive_in_db',
+          weight: 3,
+          reason: 'DEVICE_INACTIVE_IN_DB',
+          req
+        });
+        return { ok: false, error: 'DEVICE_INACTIVE_IN_DB', message: '会社管理端末が管理DB上で停止されています', deviceIdentifier: certRow.device_identifier, level: 'db' };
       }
 
       if (certRow.valid_to && new Date(certRow.valid_to) < new Date()) {
-        console.warn(`[DeviceAuth] Certificate is expired: valid_to=${certRow.valid_to}`);
-        return { ok: false, error: 'certificate_expired' };
+        console.warn(`[DeviceAuth] Certificate is expired in DB: valid_to=${certRow.valid_to}`);
+        securityGuard.recordFailure({
+          clientIp: logger.extractClientIp(req),
+          tenantId: certRow.tenant_id,
+          identifier: deviceAuth.fingerprint256,
+          eventType: 'cert_expired',
+          weight: 2,
+          reason: 'CERTIFICATE_EXPIRED',
+          req
+        });
+        return { ok: false, error: 'CERTIFICATE_EXPIRED', message: 'クライアント証明書の有効期限が切れています', validTo: certRow.valid_to, level: 'db' };
       }
 
       return {
@@ -2695,24 +2763,50 @@ async function resolveDeviceTenant(req, cpPool) {
 app.post('/api/login', async (req, res) => {
   const username = String(req.body?.username || '').trim();
   const password = String(req.body?.password || '');
+  const clientIp = logger.extractClientIp(req);
+  const requestId = req.requestId || req.headers['x-request-id'] || null;
+
   if (!username || !password) {
-    return res.status(400).json({ success: false, message: 'ユーザー名とパスワードを入力してください' });
+    return res.status(400).json({ success: false, message: 'ユーザー名とパスワードを入力してください', requestId });
+  }
+
+  // 段階的制限・遮断チェック (IP / テナント / ユーザー複合キー)
+  const tenantKey = req.deviceInfo?.tenantKey || null;
+  const guard = securityGuard.checkAccess({
+    clientIp,
+    tenantId: tenantKey,
+    identifier: username
+  });
+
+  if (!guard.allowed) {
+    res.setHeader('Retry-After', guard.retryAfterSeconds);
+    return res.status(guard.status).json({
+      success: false,
+      code: guard.code,
+      message: guard.message,
+      retryAfterSeconds: guard.retryAfterSeconds,
+      requestId
+    });
+  }
+
+  // レベル2: 遅延ペナルティ (総当たり攻撃の低速化)
+  if (guard.shouldThrottle && guard.delayMs > 0) {
+    await new Promise(resolve => setTimeout(resolve, guard.delayMs));
   }
 
   try {
     const cpPool = getControlPlanePool();
 
     // 1. テナント特定（端末認証方針）:
-    // URL、要求本文、ヘッダー、localStorage 等のクライアント入力は一切接続先決定の根拠にしない。
-    // demoなどへの暗黙フォールバックも廃止。
     let tenantInfo = null;
     const deviceResult = await resolveDeviceTenant(req, cpPool);
     if (!deviceResult.ok) {
       console.warn(`[TenantAuth] Device verification rejected: ${deviceResult.error}`);
       return res.status(403).json({
         success: false,
-        message: '端末の登録を確認してください',
-        code: 'DEVICE_UNVERIFIED'
+        message: deviceResult.message || '端末の登録を確認してください',
+        code: deviceResult.error || 'DEVICE_UNVERIFIED',
+        requestId
       });
     }
 
@@ -2759,7 +2853,16 @@ app.post('/api/login', async (req, res) => {
         message: `ログイン認証失敗: ユーザーが存在しないか無効です (username='${username}', tenant='${effectiveTenantKey}')`,
         details: { reason: 'user_not_found_or_inactive' }
       });
-      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+      securityGuard.recordFailure({
+        clientIp: logger.extractClientIp(req),
+        tenantId: effectiveTenantKey,
+        identifier: username,
+        eventType: 'auth_failure',
+        weight: 1,
+        reason: 'user_not_found_or_inactive',
+        req
+      });
+      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません', requestId });
     }
 
     const candidateHashes = [tenantUser.password_hash, tenantUser.password].filter(Boolean);
@@ -2775,7 +2878,16 @@ app.post('/api/login', async (req, res) => {
         message: `ログイン認証失敗: パスワードハッシュ未設定 (username='${username}', tenant='${effectiveTenantKey}')`,
         details: { reason: 'no_password_hash' }
       });
-      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+      securityGuard.recordFailure({
+        clientIp: logger.extractClientIp(req),
+        tenantId: effectiveTenantKey,
+        identifier: username,
+        eventType: 'auth_failure',
+        weight: 1,
+        reason: 'no_password_hash',
+        req
+      });
+      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません', requestId });
     }
 
     let passwordMatches = false;
@@ -2803,7 +2915,16 @@ app.post('/api/login', async (req, res) => {
         message: `ログイン認証失敗: パスワード不一致 (username='${username}', tenant='${effectiveTenantKey}')`,
         details: { reason: 'password_mismatch' }
       });
-      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
+      securityGuard.recordFailure({
+        clientIp: logger.extractClientIp(req),
+        tenantId: effectiveTenantKey,
+        identifier: username,
+        eventType: 'auth_failure',
+        weight: 1,
+        reason: 'password_mismatch',
+        req
+      });
+      return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません', requestId });
     }
 
     // 4. 認証成功: テナント情報取得とセッション発行
@@ -2845,6 +2966,12 @@ app.post('/api/login', async (req, res) => {
         role: tenantUser.role || 'operator',
         authMethod: 'password'
       }
+    });
+
+    securityGuard.recordSuccess({
+      clientIp: logger.extractClientIp(req),
+      tenantId: officialTenantKey,
+      identifier: tenantUser.username
     });
 
     return res.json({
@@ -3493,7 +3620,17 @@ async function requireAdmin(req, res, next) {
     decoded = commonAuth.readSession(req);
     if (!decoded) throw new Error('missing session');
   } catch (err) {
-    return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
+    return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです', requestId: req.requestId || req.headers['x-request-id'] || null });
+  }
+
+  const rawToken = commonAuth.extractToken(req);
+  if (rawToken && await tokenRevocation.isTokenRevoked(rawToken, getControlPlanePool())) {
+    return res.status(401).json({
+      success: false,
+      code: 'TOKEN_REVOKED',
+      message: 'このセッションは失効しています。再度ログインしてください。',
+      requestId: req.requestId || req.headers['x-request-id'] || null
+    });
   }
 
   if (['system_admin', 'tenant_admin', 'manager', 'operation_admin', 'user', 'admin'].includes(decoded.role)) {
@@ -3564,7 +3701,17 @@ async function requireSystemAdmin(req, res, next) {
     decoded = commonAuth.readSession(req);
     if (!decoded) throw new Error('missing session');
   } catch (err) {
-    return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです' });
+    return res.status(401).json({ success: false, message: 'トークンが無効または期限切れです', requestId: req.requestId || req.headers['x-request-id'] || null });
+  }
+
+  const rawToken = commonAuth.extractToken(req);
+  if (rawToken && await tokenRevocation.isTokenRevoked(rawToken, getControlPlanePool())) {
+    return res.status(401).json({
+      success: false,
+      code: 'TOKEN_REVOKED',
+      message: 'このセッションは失効しています。再度ログインしてください。',
+      requestId: req.requestId || req.headers['x-request-id'] || null
+    });
   }
 
   if (decoded.role === 'system_admin') {
@@ -7695,6 +7842,257 @@ app.get('/api/security/devices', requireSystemAdmin, async (req, res) => {
       message: '登録デバイスの取得に失敗しました'
     });
   }
+});
+
+// 現在のアクティブな遮断一覧取得
+app.get('/api/security/blocks', requireAdmin, (req, res) => {
+  const blocks = securityGuard.getActiveBlocks();
+  res.json({ success: true, data: blocks, requestId: req.requestId || req.headers['x-request-id'] || null });
+});
+
+// 手動遮断
+app.post('/api/security/block', requireAdmin, async (req, res) => {
+  const { target, durationMinutes, reason } = req.body;
+  const requestId = req.requestId || req.headers['x-request-id'] || null;
+  const blockedBy = req.user?.username || 'admin';
+
+  if (!target) {
+    return res.status(400).json({ success: false, message: '遮断対象を指定してください', requestId });
+  }
+
+  const result = securityGuard.manualBlock({
+    target,
+    durationMinutes: Number(durationMinutes) || 60,
+    reason: reason || '管理者による手動遮断',
+    blockedBy,
+    requestId
+  });
+
+  res.json({ success: true, ...result, requestId });
+});
+
+// 手動解除
+app.post('/api/security/unblock', requireAdmin, async (req, res) => {
+  const { target, reason } = req.body;
+  const requestId = req.requestId || req.headers['x-request-id'] || null;
+  const unblockedBy = req.user?.username || 'admin';
+
+  if (!target) {
+    return res.status(400).json({ success: false, message: '解除対象を指定してください', requestId });
+  }
+
+  const result = securityGuard.manualUnblock({
+    target,
+    unblockedBy,
+    reason: reason || '管理者による手動解除',
+    requestId
+  });
+
+  res.json({ success: true, ...result, requestId });
+});
+
+// 端末証明書の停止（失効）
+app.post('/api/security/revoke-certificate', requireAdmin, async (req, res) => {
+  const { fingerprint256, serialNumber, reason } = req.body;
+  const requestId = req.requestId || req.headers['x-request-id'] || null;
+  const adminUser = req.user?.username || 'admin';
+
+  if (!fingerprint256 && !serialNumber) {
+    return res.status(400).json({ success: false, message: 'fingerprint256 または serialNumber を指定してください', requestId });
+  }
+
+  const cpPool = getControlPlanePool();
+  let client;
+  try {
+    client = await cpPool.connect();
+    await client.query('BEGIN');
+
+    const updateRes = await client.query(`
+      UPDATE public.device_certificates
+      SET is_revoked = true, revoked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE (fingerprint256 = $1 OR serial_number = $2) AND is_revoked = false
+      RETURNING id, serial_number, fingerprint256
+    `, [fingerprint256 || null, serialNumber || null]);
+
+    if (updateRes.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: '対象の有効な証明書が見つかりませんでした', requestId });
+    }
+
+    const row = updateRes.rows[0];
+
+    // 同期監査ログ (Fail-Closed)
+    const auditRes = logger.writeAuditLogSync({
+      req,
+      severity: 'WARNING',
+      eventType: 'cert_revoked_by_admin',
+      message: `管理者(${adminUser})が端末証明書を停止しました: serial='${row.serial_number}', reason='${reason || 'none'}'`,
+      details: {
+        action: 'revoke_certificate',
+        serialNumber: row.serial_number,
+        fingerprint256: row.fingerprint256,
+        reason: reason || '管理者による手動失効'
+      }
+    });
+
+    if (!auditRes.ok) {
+      await client.query('ROLLBACK');
+      return res.status(500).json({ success: false, code: 'AUDIT_LOG_FAILED', message: '監査ログの保存に失敗したため証明書停止を取り消しました', requestId });
+    }
+
+    try {
+      await client.query('COMMIT');
+    } catch (commitErr) {
+      logger.writeLog({
+        severity: 'CRITICAL',
+        eventType: 'transaction_commit_unknown',
+        requestId,
+        message: `DB COMMIT実行時にエラーが発生しました。状態はUNKNOWN（不明）です。DBの照合確認が必要です: ${commitErr.message}`,
+        details: {
+          action: 'revoke_certificate',
+          transactionStatus: 'UNKNOWN',
+          requiresManualCheck: true,
+          serialNumber: row.serial_number,
+          error: commitErr.message
+        }
+      });
+      return res.status(500).json({
+        success: false,
+        code: 'TRANSACTION_COMMIT_UNKNOWN',
+        message: 'コミット結果の確定に失敗しました。状態確認が必要です。',
+        requestId
+      });
+    }
+
+    res.json({ success: true, message: '証明書を停止しました', certificate: row, requestId });
+  } catch (err) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
+    res.status(500).json({ success: false, error: err.message, requestId });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// 端末証明書の停止解除（再有効化）
+app.post('/api/security/unrevoke-certificate', requireAdmin, async (req, res) => {
+  const { fingerprint256, serialNumber, reason } = req.body;
+  const requestId = req.requestId || req.headers['x-request-id'] || null;
+  const adminUser = req.user?.username || 'admin';
+
+  if (!fingerprint256 && !serialNumber) {
+    return res.status(400).json({ success: false, message: 'fingerprint256 または serialNumber を指定してください', requestId });
+  }
+
+  const cpPool = getControlPlanePool();
+  let client;
+  try {
+    client = await cpPool.connect();
+    await client.query('BEGIN');
+
+    const updateRes = await client.query(`
+      UPDATE public.device_certificates
+      SET is_revoked = false, revoked_at = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE (fingerprint256 = $1 OR serial_number = $2) AND is_revoked = true
+      RETURNING id, serial_number, fingerprint256
+    `, [fingerprint256 || null, serialNumber || null]);
+
+    if (updateRes.rowCount === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, message: '対象の停止中証明書が見つかりませんでした', requestId });
+    }
+
+    const row = updateRes.rows[0];
+
+    // 同期監査ログ (Fail-Closed)
+    const auditRes = logger.writeAuditLogSync({
+      req,
+      severity: 'INFO',
+      eventType: 'cert_unrevoked_by_admin',
+      message: `管理者(${adminUser})が端末証明書の停止を解除しました: serial='${row.serial_number}', reason='${reason || 'none'}'`,
+      details: {
+        action: 'unrevoke_certificate',
+        serialNumber: row.serial_number,
+        fingerprint256: row.fingerprint256,
+        reason: reason || '管理者による停止解除'
+      }
+    });
+
+    if (!auditRes.ok) {
+      await client.query('ROLLBACK');
+      return res.status(500).json({ success: false, code: 'AUDIT_LOG_FAILED', message: '監査ログの保存に失敗したため停止解除を取り消しました', requestId });
+    }
+
+    try {
+      await client.query('COMMIT');
+    } catch (commitErr) {
+      logger.writeLog({
+        severity: 'CRITICAL',
+        eventType: 'transaction_commit_unknown',
+        requestId,
+        message: `DB COMMIT実行時にエラーが発生しました。状態はUNKNOWN（不明）です。DBの照合確認が必要です: ${commitErr.message}`,
+        details: {
+          action: 'unrevoke_certificate',
+          transactionStatus: 'UNKNOWN',
+          requiresManualCheck: true,
+          serialNumber: row.serial_number,
+          error: commitErr.message
+        }
+      });
+      return res.status(500).json({
+        success: false,
+        code: 'TRANSACTION_COMMIT_UNKNOWN',
+        message: 'コミット結果の確定に失敗しました。状態確認が必要です。',
+        requestId
+      });
+    }
+
+    res.json({ success: true, message: '証明書の停止を解除しました', certificate: row, requestId });
+  } catch (err) {
+    if (client) {
+      try { await client.query('ROLLBACK'); } catch (_) {}
+    }
+    res.status(500).json({ success: false, error: err.message, requestId });
+  } finally {
+    if (client) client.release();
+  }
+});
+
+// JWTトークンの即時失効
+app.post('/api/security/revoke-token', requireAdmin, async (req, res) => {
+  const { token, reason, userId, tenantId } = req.body;
+  const requestId = req.requestId || req.headers['x-request-id'] || null;
+  const targetToken = token || commonAuth.extractToken(req);
+
+  if (!targetToken) {
+    return res.status(400).json({ success: false, message: '失効対象のトークンが指定されていません', requestId });
+  }
+
+  const cpPool = getControlPlanePool();
+  const result = await tokenRevocation.revokeToken({
+    token: targetToken,
+    userId: userId || null,
+    tenantId: tenantId || null,
+    reason: reason || '管理者によるトークン失効',
+    revokedBy: req.user?.username || 'admin',
+    pool: cpPool
+  });
+
+  if (!result.ok) {
+    return res.status(500).json({ success: false, message: 'トークンの失効処理に失敗しました', error: result.error?.message, requestId });
+  }
+
+  logger.writeAuditRecord({
+    severity: 'WARNING',
+    eventType: 'token_revoked_by_admin',
+    requestId,
+    userId: req.user?.username || 'admin',
+    message: `管理者(${req.user?.username || 'admin'})がトークンを即時失効させました (reason='${reason || 'none'}')`,
+    details: { reason: reason || '管理者によるトークン失効', targetUserId: userId }
+  });
+
+  res.json({ success: true, message: 'トークンを即時失効させました', requestId });
 });
 
 // 一時ファイル削除
