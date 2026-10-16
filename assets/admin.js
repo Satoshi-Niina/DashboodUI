@@ -4441,7 +4441,22 @@ async function loadSystemOperationsData() {
 /**
  * セキュリデ��アラートを読み込み
  */
+function formatSecurityDateTime(isoStr) {
+    if (!isoStr) return '未取得';
+    try {
+        const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return '未取得';
+        return d.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+    } catch (_) {
+        return '未取得';
+    }
+}
+
 async function loadSecurityAlerts(token) {
+    const badgeElement = document.querySelector('.security-panel .badge-alert');
+    const alertCount = document.querySelector('.alert-count');
+    const alertDetails = document.querySelector('.alert-details');
+
     try {
         const response = await tenantFetch('/api/security/alerts', {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -4449,37 +4464,81 @@ async function loadSecurityAlerts(token) {
 
         const data = await response.json();
 
-        if (data.success) {
-            // アラート件数を更新
-            const badge者lement = document.querySelector('.security-panel .badge-alert');
-            if (badge者lement && data.summary) {
-                badge者lement.textContent = `${data.summary.totalAlerts || 0}件`;
-            }
+        if (data.success && data.summary) {
+            const total = data.summary.totalAlerts || 0;
+            const lastSuccessText = formatSecurityDateTime(data.lastSuccessAt || data.summary.timestamp);
 
-            // アラート詳細を更新
-            const alertCount = document.querySelector('.alert-count');
-            if (alertCount && data.summary) {
-                alertCount.innerHTML = `<span class="text-danger">${data.summary.totalAlerts || 0}件</span>`;
+            if (total === 0) {
+                if (badgeElement) {
+                    badgeElement.textContent = '0件 (正常)';
+                    badgeElement.style.background = '#28a745';
+                }
+                if (alertCount) {
+                    alertCount.innerHTML = '<span class="text-success">0件（検出なし）</span>';
+                }
+                if (alertDetails) {
+                    alertDetails.innerHTML = `
+                        <li>・検出された不正アクセス試行はありません</li>
+                        <li>・ブロックされたIPはありません</li>
+                        <li class="text-muted" style="margin-top: 4px; font-size: 0.85em;">最終取得成功: ${lastSuccessText}</li>
+                    `;
+                }
+            } else {
+                if (badgeElement) {
+                    badgeElement.textContent = `${total}件`;
+                    badgeElement.style.background = '#dc3545';
+                }
+                if (alertCount) {
+                    alertCount.innerHTML = `<span class="text-danger">${total}件</span>`;
+                }
+                if (alertDetails) {
+                    alertDetails.innerHTML = `
+                        <li>・不正アクセス試行: ${data.summary.unauthorizedAttempts || 0}回</li>
+                        <li>・ブロックされたIP: ${data.summary.blockedIPs || 0}個</li>
+                        <li class="text-muted" style="margin-top: 4px; font-size: 0.85em;">最終取得成功: ${lastSuccessText}</li>
+                    `;
+                }
             }
-
-            // アラート詳細リストを更新
-            const alertDetails = document.querySelector('.alert-details');
-            if (alertDetails && data.summary) {
+        } else {
+            // 取得失敗状態
+            const lastSuccessText = formatSecurityDateTime(data.lastSuccessAt);
+            if (badgeElement) {
+                badgeElement.textContent = '取得不可';
+                badgeElement.style.background = '#6c757d';
+            }
+            if (alertCount) {
+                alertCount.innerHTML = '<span class="text-warning">監視データ取得不可</span>';
+            }
+            if (alertDetails) {
                 alertDetails.innerHTML = `
-                    <li>・不正アクセス試行 ${data.summary.unauthorizedAttempts || 0}件</li>
-                    <li>・ブロックされたIP: ${data.summary.blockedIPs || 0}件</li>
+                    <li class="text-warning">・状態: Cloud Logging 連携エラー</li>
+                    <li class="text-muted" style="margin-top: 4px; font-size: 0.85em;">最終取得成功: ${lastSuccessText}</li>
                 `;
             }
         }
     } catch (error) {
-        console.error('[System Operations] 者rror loading security alerts:', error);
+        console.error('[System Operations] Error loading security alerts:', error);
+        if (badgeElement) {
+            badgeElement.textContent = '取得不可';
+            badgeElement.style.background = '#6c757d';
+        }
+        if (alertCount) {
+            alertCount.innerHTML = '<span class="text-warning">監視データ取得不可</span>';
+        }
+        if (alertDetails) {
+            alertDetails.innerHTML = `
+                <li class="text-warning">・通信エラーにより取得できません</li>
+                <li class="text-muted" style="margin-top: 4px; font-size: 0.85em;">最終取得成功: 未取得</li>
+            `;
+        }
     }
 }
 
 /**
- * ブロデ��されたアクセスを読み込み
+ * ブロックされたアクセスを読み込み
  */
 async function loadBlockedAccess(token) {
+    const table = document.querySelector('.security-list-section table tbody');
     try {
         const response = await tenantFetch('/api/security/blocked-access', {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -4487,26 +4546,50 @@ async function loadBlockedAccess(token) {
 
         const result = await response.json();
 
-        if (result.success && result.data) {
-            const table = document.querySelector('.security-list-section table tbody');
+        if (result.success && Array.isArray(result.data)) {
             if (table) {
-                table.innerHTML = result.data.slice(0, 5).map(item => `
+                if (result.data.length === 0) {
+                    table.innerHTML = `
+                        <tr>
+                            <td colspan="2" class="text-muted" style="text-align: center; padding: 12px;">ブロックされたアクセスはありません（正常）</td>
+                        </tr>
+                    `;
+                } else {
+                    table.innerHTML = result.data.slice(0, 5).map(item => `
+                        <tr>
+                            <td>${item.ip} ${item.country ? `(${item.country})` : ''}</td>
+                            <td><span class="badge-gray">${item.attempts}回試行</span></td>
+                        </tr>
+                    `).join('');
+                }
+            }
+        } else {
+            if (table) {
+                const lastSuccessText = formatSecurityDateTime(result?.lastSuccessAt);
+                table.innerHTML = `
                     <tr>
-                        <td>${item.ip} ${item.country ? `(${item.country})` : ''}</td>
-                        <td><span class="badge-gray">${item.attempts}回試行</span></td>
+                        <td colspan="2" class="text-muted" style="text-align: center; padding: 12px;">監視データ取得不可（最終成功: ${lastSuccessText}）</td>
                     </tr>
-                `).join('');
+                `;
             }
         }
     } catch (error) {
-        console.error('[System Operations] 者rror loading blocked access:', error);
+        console.error('[System Operations] Error loading blocked access:', error);
+        if (table) {
+            table.innerHTML = `
+                <tr>
+                    <td colspan="2" class="text-muted" style="text-align: center; padding: 12px;">監視データ取得不可（通信エラー）</td>
+                </tr>
+            `;
+        }
     }
 }
 
 /**
- * 登録デ��イスを読み込み
+ * 登録デバイスを読み込み
  */
 async function loadRegisteredDevices(token) {
+    const devicesContainer = document.querySelector('.security-list-section:nth-child(3)');
     try {
         const response = await tenantFetch('/api/security/devices', {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -4514,40 +4597,47 @@ async function loadRegisteredDevices(token) {
 
         const result = await response.json();
 
-        if (result.success && result.data) {
-            const devicesContainer = document.querySelector('.security-list-section:nth-child(3)');
+        if (result.success && Array.isArray(result.data)) {
             if (devicesContainer) {
-                const devicesHtml = result.data.slice(0, 5).map(device => `
-                    <div class="device-item">
-                        <div class="device-info">
-                            <span class="device-name">${device.name} (${device.user})</span>
-                            <span class="device-meta">最終アクセス: ${device.lastAccess}</span>
+                if (result.data.length === 0) {
+                    devicesContainer.innerHTML = `
+                        <h4>登録デバイス</h4>
+                        <div style="padding: 12px; color: #6c757d; text-align: center;">登録された稼働デバイスはありません</div>
+                    `;
+                } else {
+                    const devicesHtml = result.data.slice(0, 5).map(device => `
+                        <div class="device-item">
+                            <div class="device-info">
+                                <span class="device-name">${device.name} (${device.user})</span>
+                                <span class="device-meta">最終アクセス: ${device.lastAccess}</span>
+                            </div>
+                            <span class="status-badge ${device.status === 'active' ? 'success' : 'inactive'}">${device.status === 'active' ? '稼働中' : '非稼働'}</span>
                         </div>
-                        <span class="status-badge ${device.status === 'active' ? 'success' : 'inactive'}">${device.status === 'active' ? '稼働中' : '非稼働'}</span>
-                    </div>
-                `).join('');
+                    `).join('');
 
-                // デ��イス一覧を更新�者�詳細ボタンは保持�者�者
-                const existingButton = devicesContainer.querySelector('.panel-footer');
-                const devicesList = devicesContainer.querySelector('h4').next者lementSibling;
-                if (devicesList && devicesList.classList.contains('device-item')) {
-                    // 既存�者デ��イス項目��をすべて削除
-                    while (devicesList && devicesList.classList.contains('device-item')) {
-                        const next = devicesList.next者lementSibling;
-                        devicesList.remove();
-                        devicesList = next;
-                    }
+                    devicesContainer.innerHTML = `
+                        <h4>登録デバイス</h4>
+                        ${devicesHtml}
+                    `;
                 }
-
-                // 新しいデ��イスを追加
-                const h4 = devicesContainer.querySelector('h4');
-                if (h4 && existingButton) {
-                    h4.insertAdjacentHTML('afterend', devicesHtml);
-                }
+            }
+        } else {
+            if (devicesContainer) {
+                const lastSuccessText = formatSecurityDateTime(result?.lastSuccessAt);
+                devicesContainer.innerHTML = `
+                    <h4>登録デバイス</h4>
+                    <div style="padding: 12px; color: #856404; text-align: center;">登録デバイス取得不可（最終成功: ${lastSuccessText}）</div>
+                `;
             }
         }
     } catch (error) {
-        console.error('[System Operations] 者rror loading registered devices:', error);
+        console.error('[System Operations] Error loading registered devices:', error);
+        if (devicesContainer) {
+            devicesContainer.innerHTML = `
+                <h4>登録デバイス</h4>
+                <div style="padding: 12px; color: #856404; text-align: center;">登録デバイス取得不可（通信エラー）</div>
+            `;
+        }
     }
 }
 

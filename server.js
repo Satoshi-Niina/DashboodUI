@@ -77,7 +77,9 @@ console.log('CORS configured:', corsOptions.origin);
 
 // Middleware
 app.use(cors(corsOptions));
+const logger = require('./server/logger');
 app.use(express.json());
+app.use(logger.requestLoggingMiddleware());
 
 // 内部ガードミドルウェア:
 // HTTPSリバースプロキシゲートウェイ（Port 8443）経由の通信のみを許可し、直接内部ポートへのアクセスを遮断する
@@ -119,6 +121,23 @@ app.use(async (req, res, next) => {
   }
 
   // 内部ポートへの直接アクセスを遮断
+  logger.writeLog({
+    severity: 'WARNING',
+    eventType: 'direct_access_blocked',
+    requestId: req.requestId,
+    correlationId: req.correlationId,
+    clientIp: logger.extractClientIp(req),
+    httpRequest: {
+      requestMethod: req.method,
+      requestUrl: req.originalUrl || req.url,
+      status: 403
+    },
+    message: '内部ポートへの直接アクセス遮断 (DirectAccessForbidden)',
+    details: {
+      error: 'DirectAccessForbidden'
+    }
+  });
+
   return res.status(403).json({
     success: false,
     error: 'DirectAccessForbidden',
@@ -1505,8 +1524,8 @@ app.use('/api', async (req, res, next) => {
     // ログインまたはセッションブートストラップリクエストの場合は、テナントDB分離チェックおよびセッション権限チェックを完全にスキップ
     if (!isBootstrap) {
       const normalizedRequestedTenantId = String(requestedTenantId || '').trim().toLowerCase();
-      const normalizedResolvedTenantId = String(runtime.resolvedTenantId || 'demo_env').trim().toLowerCase();
-      const normalizedResolvedDbName = String(runtime.dbName || '').trim().toLowerCase();
+      const normalizedResolvedTenantId = String(runtime?.resolvedTenantId || 'demo_env').trim().toLowerCase();
+      const normalizedResolvedDbName = String(runtime?.dbName || '').trim().toLowerCase();
       const normalizedDefaultDbName = String(defaultDbName || '').trim().toLowerCase();
       const isDemoTenant = (tenantKey) => {
         const key = String(tenantKey || '').trim().toLowerCase();
@@ -1515,7 +1534,7 @@ app.use('/api', async (req, res, next) => {
       const requiresIsolation = !(isDemoTenant(normalizedRequestedTenantId) && isDemoTenant(normalizedResolvedTenantId));
 
       if (requiresIsolation && (!normalizedResolvedDbName || normalizedResolvedDbName === normalizedDefaultDbName)) {
-        const isolationError = new Error(`[TenantRouting] Isolation violation: requested=${normalizedRequestedTenantId || 'empty'}, resolved=${normalizedResolvedTenantId || 'empty'}, db=${runtime.dbName || 'empty'}, defaultDb=${defaultDbName}. Check public.tenant_app_routings (app_id='_config') for db_name and tenant_path.`);
+        const isolationError = new Error(`[TenantRouting] Isolation violation: requested=${normalizedRequestedTenantId || 'empty'}, resolved=${normalizedResolvedTenantId || 'empty'}, db=${runtime?.dbName || 'empty'}, defaultDb=${defaultDbName}. Check public.tenant_app_routings (app_id='_config') for db_name and tenant_path.`);
         applyTenantErrorHeaders(res, isolationError);
         return res.status(503).json({
           success: false,
@@ -1523,7 +1542,7 @@ app.use('/api', async (req, res, next) => {
           error: isolationError.message,
           requestedTenantId: normalizedRequestedTenantId || 'demo_env',
           resolvedTenantId: normalizedResolvedTenantId || 'demo_env',
-          resolvedDbName: runtime.dbName || '',
+          resolvedDbName: runtime?.dbName || '',
           defaultDbName
         });
       }
@@ -1543,7 +1562,27 @@ app.use('/api', async (req, res, next) => {
         // 端末証明書との不一致チェック
         const certTenantKey = req.deviceInfo?.tenantKey ? String(req.deviceInfo.tenantKey).trim().toLowerCase() : null;
         if (certTenantKey && resolvedSessionTenantKey && certTenantKey !== resolvedSessionTenantKey) {
-          console.warn(`[TenantRouting] Certificate/Session mismatch: cert=${certTenantKey}, session=${resolvedSessionTenantKey}`);
+          logger.writeLog({
+            severity: 'WARNING',
+            eventType: 'authz_denied',
+            requestId: req.requestId,
+            correlationId: req.correlationId,
+            tenantId: resolvedSessionTenantKey,
+            userId: session.sub || session.username,
+            clientIp: logger.extractClientIp(req),
+            httpRequest: {
+              requestMethod: req.method,
+              requestUrl: req.originalUrl || req.url,
+              status: 403
+            },
+            message: `証明書とセッションの所属テナント不一致によるアクセス遮断 (DEVICE_MISMATCH: cert=${certTenantKey}, session=${resolvedSessionTenantKey})`,
+            details: {
+              code: 'DEVICE_MISMATCH',
+              certTenantKey,
+              sessionTenantKey: resolvedSessionTenantKey
+            }
+          });
+
           return res.status(403).json({
             success: false,
             code: 'DEVICE_MISMATCH',
@@ -1551,7 +1590,7 @@ app.use('/api', async (req, res, next) => {
           });
         }
 
-        const requestedRouteTenantKey = String(runtime.resolvedTenantId || '').trim().toLowerCase();
+        const requestedRouteTenantKey = String(runtime?.resolvedTenantId || '').trim().toLowerCase();
         if (requestedRouteTenantKey && (!resolvedSessionTenantKey || resolvedSessionTenantKey !== requestedRouteTenantKey)) {
           return res.status(403).json({
             success: false,
@@ -2488,6 +2527,22 @@ async function verifyDeviceSessionTenantMatch(req, res, next) {
   const deviceAuth = req.deviceAuth;
   if (!deviceAuth || !deviceAuth.hasCert || !deviceAuth.fingerprint256) {
     console.warn('[SessionGuard] Request has session but missing verified device certificate');
+    logger.writeLog({
+      severity: 'WARNING',
+      eventType: 'authz_denied',
+      requestId: req.requestId,
+      correlationId: req.correlationId,
+      tenantId: req.session?.tenant_key || null,
+      userId: req.session?.username || null,
+      clientIp: logger.extractClientIp(req),
+      httpRequest: {
+        requestMethod: req.method,
+        requestUrl: req.originalUrl || req.url,
+        status: 403
+      },
+      message: '認証済みセッションの端末証明書未提示によるアクセス拒否',
+      details: { code: 'DEVICE_UNVERIFIED', reason: 'missing_device_certificate' }
+    });
     return res.status(403).json({
       success: false,
       code: 'DEVICE_UNVERIFIED',
@@ -2499,6 +2554,22 @@ async function verifyDeviceSessionTenantMatch(req, res, next) {
   const deviceResult = await resolveDeviceTenant(req, cpPool);
   if (!deviceResult.ok) {
     console.warn(`[SessionGuard] Device rejected: ${deviceResult.error}`);
+    logger.writeLog({
+      severity: 'WARNING',
+      eventType: 'authz_denied',
+      requestId: req.requestId,
+      correlationId: req.correlationId,
+      tenantId: req.session?.tenant_key || null,
+      userId: req.session?.username || null,
+      clientIp: logger.extractClientIp(req),
+      httpRequest: {
+        requestMethod: req.method,
+        requestUrl: req.originalUrl || req.url,
+        status: 403
+      },
+      message: `端末証明書拒否によるアクセス遮断: ${deviceResult.error}`,
+      details: { code: 'DEVICE_UNVERIFIED', reason: deviceResult.error }
+    });
     return res.status(403).json({
       success: false,
       code: 'DEVICE_UNVERIFIED',
@@ -2512,6 +2583,22 @@ async function verifyDeviceSessionTenantMatch(req, res, next) {
   // セッションのテナントと端末証明書の所属テナントの厳格な一致確認
   if (sessionTenant && certTenant && sessionTenant !== certTenant) {
     console.warn(`[SessionGuard] Tenant mismatch: sessionTenant=${sessionTenant}, certTenant=${certTenant}`);
+    logger.writeLog({
+      severity: 'WARNING',
+      eventType: 'authz_denied',
+      requestId: req.requestId,
+      correlationId: req.correlationId,
+      tenantId: sessionTenant,
+      userId: req.session?.username || null,
+      clientIp: logger.extractClientIp(req),
+      httpRequest: {
+        requestMethod: req.method,
+        requestUrl: req.originalUrl || req.url,
+        status: 403
+      },
+      message: `セッションテナントと証明書テナントの不一致 (DEVICE_MISMATCH: session=${sessionTenant}, cert=${certTenant})`,
+      details: { code: 'TENANT_MISMATCH', sessionTenant, certTenant }
+    });
     res.clearCookie('token', { path: '/' });
     res.setHeader('Clear-Site-Data', '"cache", "cookies", "storage"');
     return res.status(403).json({
@@ -2656,13 +2743,33 @@ app.post('/api/login', async (req, res) => {
     console.log(`[LoginTrace:3] Querying user in ${runtime.dbName}: attemptedUsername='${username}', userFound=${Boolean(tenantUser)}, role=${tenantUser?.role || 'none'}, isActive=${tenantUser?.is_active ?? 'none'}`);
 
     if (!tenantUser) {
-      console.warn(`[LoginTrace:401] User '${username}' not found or inactive in database '${runtime.dbName}' for tenant '${effectiveTenantKey}'`);
+      logger.writeLog({
+        severity: 'WARNING',
+        eventType: 'auth_failure',
+        requestId: req.requestId,
+        correlationId: req.correlationId,
+        tenantId: effectiveTenantKey,
+        userId: username,
+        clientIp: logger.extractClientIp(req),
+        message: `ログイン認証失敗: ユーザーが存在しないか無効です (username='${username}', tenant='${effectiveTenantKey}')`,
+        details: { reason: 'user_not_found_or_inactive' }
+      });
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
     }
 
     const candidateHashes = [tenantUser.password_hash, tenantUser.password].filter(Boolean);
     if (candidateHashes.length === 0) {
-      console.warn(`[LoginTrace:401] User '${username}' has no password hash set in database '${runtime.dbName}'`);
+      logger.writeLog({
+        severity: 'WARNING',
+        eventType: 'auth_failure',
+        requestId: req.requestId,
+        correlationId: req.correlationId,
+        tenantId: effectiveTenantKey,
+        userId: username,
+        clientIp: logger.extractClientIp(req),
+        message: `ログイン認証失敗: パスワードハッシュ未設定 (username='${username}', tenant='${effectiveTenantKey}')`,
+        details: { reason: 'no_password_hash' }
+      });
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
     }
 
@@ -2679,14 +2786,20 @@ app.post('/api/login', async (req, res) => {
       }
     }
 
-    console.log(`[LoginTrace:4] Password verification: username='${username}', passwordMatches=${passwordMatches}`);
-
     if (!passwordMatches) {
-      console.warn(`[LoginTrace:401] Password mismatch for user '${username}' in database '${runtime.dbName}'`);
+      logger.writeLog({
+        severity: 'WARNING',
+        eventType: 'auth_failure',
+        requestId: req.requestId,
+        correlationId: req.correlationId,
+        tenantId: effectiveTenantKey,
+        userId: username,
+        clientIp: logger.extractClientIp(req),
+        message: `ログイン認証失敗: パスワード不一致 (username='${username}', tenant='${effectiveTenantKey}')`,
+        details: { reason: 'password_mismatch' }
+      });
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません' });
     }
-
-    console.log(`[LoginTrace:Success] Authenticated successfully: username='${username}', tenantKey='${effectiveTenantKey}', role='${tenantUser.role || 'operator'}'`);
 
     // 4. 認証成功: テナント情報取得とセッション発行
     if (!tenantInfo) {
@@ -2712,6 +2825,21 @@ app.post('/api/login', async (req, res) => {
       authSource: 'tenant',
       role: tenantUser.role || 'operator',
       permissions: []
+    });
+
+    logger.writeLog({
+      severity: 'INFO',
+      eventType: 'auth_success',
+      requestId: req.requestId,
+      correlationId: req.correlationId,
+      tenantId: officialTenantKey,
+      userId: tenantUser.username,
+      clientIp: logger.extractClientIp(req),
+      message: `ログイン認証成功: user='${tenantUser.username}', tenant='${officialTenantKey}', role='${tenantUser.role || 'operator'}'`,
+      details: {
+        role: tenantUser.role || 'operator',
+        authMethod: 'password'
+      }
     });
 
     return res.json({

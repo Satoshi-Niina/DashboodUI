@@ -6,15 +6,22 @@
 const { Logging } = require('@google-cloud/logging');
 const { MonitoringServiceClient } = require('@google-cloud/monitoring').v3;
 
+let lastAlertSuccessAt = null;
+let lastBlockedSuccessAt = null;
+let lastDeviceSuccessAt = null;
+
 /**
  * セキュリティアラートを取得
  * Cloud Logging から認証失敗やセキュリティイベントを検出
  */
 async function getSecurityAlerts() {
     try {
-        const logging = new Logging({
-            projectId: process.env.GOOGLE_CLOUD_PROJECT_ID
-        });
+        const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
+        if (!projectId) {
+            throw new Error('GOOGLE_CLOUD_PROJECT_ID is not configured');
+        }
+
+        const logging = new Logging({ projectId });
 
         // 24時間以内のログを取得
         const yesterday = new Date();
@@ -90,41 +97,33 @@ async function getSecurityAlerts() {
             unauthorizedAttempts += stats.count;
         });
 
+        lastAlertSuccessAt = new Date().toISOString();
+
         return {
             success: true,
+            status: 'AVAILABLE',
             summary: {
                 totalAlerts: alerts.length,
                 unauthorizedAttempts: unauthorizedAttempts,
                 blockedIPs: blockedIPs,
-                timestamp: new Date().toISOString()
+                timestamp: lastAlertSuccessAt
             },
-            alerts: alerts
+            alerts: alerts,
+            lastSuccessAt: lastAlertSuccessAt
         };
 
     } catch (error) {
-        console.error('[Security Monitor] Error getting security alerts:', error);
+        console.error('[Security Monitor] Error getting security alerts:', error.message);
         
-        // エラー時はモックデータを返す
+        // 本番環境および通常時はモックデータを返さず、取得失敗状態を返す
         return {
             success: false,
+            status: 'UNAVAILABLE',
             error: error.message,
-            summary: {
-                totalAlerts: 3,
-                unauthorizedAttempts: 2,
-                blockedIPs: 1,
-                timestamp: new Date().toISOString()
-            },
-            alerts: [
-                {
-                    type: 'blocked_ip',
-                    ip: '192.168.1.100',
-                    attempts: 5,
-                    country: '中国',
-                    firstSeen: new Date(Date.now() - 7200000).toISOString(),
-                    lastSeen: new Date(Date.now() - 3600000).toISOString()
-                }
-            ],
-            mockData: true
+            message: '監視データ取得不可 (Cloud Logging 接続エラー)',
+            summary: null,
+            alerts: [],
+            lastSuccessAt: lastAlertSuccessAt
         };
     }
 }
@@ -134,9 +133,12 @@ async function getSecurityAlerts() {
  */
 async function getBlockedAccess() {
     try {
-        const logging = new Logging({
-            projectId: process.env.GOOGLE_CLOUD_PROJECT_ID
-        });
+        const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
+        if (!projectId) {
+            throw new Error('GOOGLE_CLOUD_PROJECT_ID is not configured');
+        }
+
+        const logging = new Logging({ projectId });
 
         // 過去7日間のログを取得
         const weekAgo = new Date();
@@ -187,31 +189,37 @@ async function getBlockedAccess() {
             }
         });
 
+        lastBlockedSuccessAt = new Date().toISOString();
+
         return {
             success: true,
-            data: Object.values(ipSummary)
+            status: 'AVAILABLE',
+            data: Object.values(ipSummary),
+            lastSuccessAt: lastBlockedSuccessAt
         };
 
     } catch (error) {
-        console.error('[Security Monitor] Error getting blocked access:', error);
+        console.error('[Security Monitor] Error getting blocked access:', error.message);
         return {
             success: false,
+            status: 'UNAVAILABLE',
             error: error.message,
-            data: [
-                { ip: '192.168.1.100', attempts: 5, lastAttempt: new Date().toISOString(), country: '中国' },
-                { ip: '203.0.113.50', attempts: 2, lastAttempt: new Date().toISOString(), country: '未登録' }
-            ],
-            mockData: true
+            message: '監視データ取得不可 (Cloud Logging 接続エラー)',
+            data: [],
+            lastSuccessAt: lastBlockedSuccessAt
         };
     }
 }
 
 /**
  * 登録デバイスの一覧を取得
- * JWTトークン発行ログから取得
  */
 async function getRegisteredDevices(pool) {
     try {
+        if (!pool) {
+            throw new Error('Database pool not available');
+        }
+
         // データベースから最近のログイン情報を取得
         const query = `
             SELECT DISTINCT
@@ -252,21 +260,24 @@ async function getRegisteredDevices(pool) {
             };
         });
 
+        lastDeviceSuccessAt = new Date().toISOString();
+
         return {
             success: true,
-            data: devices
+            status: 'AVAILABLE',
+            data: devices,
+            lastSuccessAt: lastDeviceSuccessAt
         };
 
     } catch (error) {
-        console.error('[Security Monitor] Error getting registered devices:', error);
+        console.error('[Security Monitor] Error getting registered devices:', error.message);
         return {
             success: false,
+            status: 'UNAVAILABLE',
             error: error.message,
-            data: [
-                { id: 1, name: 'iPad-001', user: '山田太郎', lastAccess: '2時間前', status: 'active' },
-                { id: 2, name: 'Tablet-002', user: '佐藤花子', lastAccess: '5分前', status: 'active' }
-            ],
-            mockData: true
+            message: '登録デバイス取得不可 (DB接続エラー)',
+            data: [],
+            lastSuccessAt: lastDeviceSuccessAt
         };
     }
 }
@@ -276,3 +287,4 @@ module.exports = {
     getBlockedAccess,
     getRegisteredDevices
 };
+
