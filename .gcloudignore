@@ -1,10 +1,53 @@
+# Version control & IDEs
 .git/
 .github/
+.cursor/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Node.js
 node_modules/
-npm-debug.log
+npm-debug.log*
+yarn-error.log*
+
+# Environment variables & secrets
 .env
 .env.*
-.DS_Store
+cloudrun-env.yaml
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*credentials*.json
+*-key.json
+
+# Logs & backups
+logs/
+*.log
+backups/
+*.dump
+
+# Documentation, scratch & temporary
+README.md
+AGENTS.md
+docs/
+scratch/
+*.tmp
+*.temp
+.cache/
+
+# Tests & verification
+test/
+test_*.mjs
+*.test.js
+*.test.mjs
+scripts/e2e_verify.cjs
+
+# Deployment scripts
 *.ps1
 *.sh
-test/
+
+# Duplicate legacy root assets (canonical asset is assets/admin.js)
+/admin.js

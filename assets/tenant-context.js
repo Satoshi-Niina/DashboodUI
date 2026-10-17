@@ -141,16 +141,22 @@
     }
 
     function getRequestTenantContext() {
+        // 統括管理者 (niina) の選択中テナントがある場合は最優先
+        const globalAdminTenant = (typeof window !== 'undefined')
+            ? (window.selectedAdminTenantId || sessionStorage.getItem('selected_admin_tenant_id') || localStorage.getItem('selected_admin_tenant_id'))
+            : null;
+
         const currentUrlContext = getCurrentUrlTenantContext();
         const storedContext = getLoginTenantContext();
-        // URLに明示されている場合はURLを最優先（古い保存情報で上書きされない）
-        const activeTenantId = currentUrlContext.tenantId || normalizeTenantId(
+        // 統括管理者の選択中テナント > URL明示 > 保存情報
+        const activeTenantId = globalAdminTenant || currentUrlContext.tenantId || normalizeTenantId(
             (tenantContext && tenantContext.tenantId)
             || (storedContext && storedContext.tenant_id)
         );
         const activeTenantPath = currentUrlContext.tenantPath || normalizePath(
             (tenantContext && tenantContext.tenantPath)
             || (storedContext && storedContext.tenant_path)
+            || (activeTenantId ? `/${activeTenantId}` : '/')
         );
 
         return {
@@ -164,13 +170,21 @@
         const headers = new Headers(existingHeaders || {});
         const requestTenantContext = getRequestTenantContext();
         headers.delete('authorization');
-        if (requestTenantContext.tenantId) {
-            headers.set('X-Tenant-Id', requestTenantContext.tenantId);
+
+        // すでに呼び出し元で X-Tenant-Id が明示されている場合はそれを最優先（上書きしない！）
+        if (!headers.has('X-Tenant-Id') && !headers.has('x-tenant-id')) {
+            if (requestTenantContext.tenantId) {
+                headers.set('X-Tenant-Id', requestTenantContext.tenantId);
+            }
         }
-        if (requestTenantContext.tenantPath) {
-            headers.set('X-Tenant-Path', requestTenantContext.tenantPath);
+        if (!headers.has('X-Tenant-Path') && !headers.has('x-tenant-path')) {
+            if (requestTenantContext.tenantPath) {
+                headers.set('X-Tenant-Path', requestTenantContext.tenantPath);
+            }
         }
-        headers.set('X-Tenant-Full-Url', requestTenantContext.fullUrl);
+        if (!headers.has('X-Tenant-Full-Url') && !headers.has('x-tenant-full-url')) {
+            headers.set('X-Tenant-Full-Url', requestTenantContext.fullUrl);
+        }
 
         return headers;
     }

@@ -15,6 +15,7 @@ const dbGateway = require('./server/db-gateway');
 const commonAuth = require('./server/common-auth');
 const securityGuard = require('./server/security-guard');
 const tokenRevocation = require('./server/token-revocation');
+const deviceManagement = require('./server/device-management');
 
 // Load .env file if it exists (for local development)
 // In Cloud Run, environment variables are provided by the platform
@@ -621,17 +622,48 @@ async function getAllCompanyRoutingRows() {
   }
 }
 
+function isSuperAdminUser(input) {
+  if (!input) return false;
+  const user = input.user || input.session || input;
+  const username = String(user.username || user.sub || user.name || input.username || '').trim().toLowerCase();
+  const userId = String(user.id || user.userId || user.sub || input.id || input.userId || '').trim().toLowerCase();
+  return username === 'niina' || userId === 'e996e889-4165-412f-8450-8b6e0f193256';
+}
+
 function extractTenantIdFromRequest(req) {
-  // 1. セッション（CookieまたはAuthorizationヘッダー）が存在する場合はセッションのtenant_keyを最優先
+  // 1. セッション（CookieまたはAuthorizationヘッダー）が存在する場合
   try {
     const session = commonAuth.readSession(req);
-    if (session && (session.tenant_key || session.tenant_id)) {
-      const sessionTenant = String(session.tenant_key || session.tenant_id).trim().toLowerCase();
+    if (session) {
+      const isSuper = isSuperAdminUser(session);
+      if (isSuper) {
+        // スーパー管理者 (niina) の場合、リクエストで明示されたテナントへの切り替えを許可
+        const requestedTenant = (
+          req.headers['x-tenant-id'] ||
+          req.query?.tenantId ||
+          req.query?.tenant_id ||
+          req.body?.targetTenantId ||
+          req.body?.tenant_id ||
+          req.body?.tenantId
+        );
+        if (requestedTenant) {
+          const rawKey = String(requestedTenant).trim().toLowerCase();
+          const mapped = mapTenantSegment(rawKey, false);
+          if (mapped && mapped !== INVALID_TENANT_KEY) {
+            return mapped;
+          }
+        }
+      }
+      // niina 以外（各テナント管理者・一般ユーザー）または niina でテナント未指定の場合はセッションのテナントに固定
+      const sessionTenant = String(session.tenant_key || session.tenant_id || '').trim().toLowerCase();
       if (sessionTenant && sessionTenant !== 'demo_env' && sessionTenant !== 'demo') {
-        return mapTenantSegment(sessionTenant, true);
+        const mappedSession = mapTenantSegment(sessionTenant, false);
+        return mappedSession;
       }
     }
-  } catch (_) { }
+  } catch (err) {
+    console.warn('[extractTenantIdFromRequest] Error parsing session:', err.message);
+  }
 
   // 2. 端末証明書による特定結果が存在する場合はそれを採用
   if (req.deviceInfo && req.deviceInfo.tenantKey) {
@@ -1485,6 +1517,24 @@ function isSessionBootstrapApiRequest(req) {
   return false;
 }
 
+function isSecurityControlPlaneApiRequest(req) {
+  if (!req) return false;
+  const rawTargets = [
+    req.path,
+    req.url,
+    req.originalUrl,
+    req.baseUrl ? `${req.baseUrl}${req.path}` : ''
+  ];
+  for (const raw of rawTargets) {
+    if (!raw) continue;
+    const clean = String(raw).split('?')[0].toLowerCase();
+    if (clean.includes('/api/security') || clean.startsWith('/security')) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // APIリクエストのテナント文脈を解決し、以降のDB/GCS処理に引き継ぐ
 app.use('/api', async (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
@@ -1493,7 +1543,8 @@ app.use('/api', async (req, res, next) => {
   res.setHeader('Surrogate-Control', 'no-store');
 
   const isLogin = isLoginApiRequest(req);
-  const isBootstrap = isLogin || isSessionBootstrapApiRequest(req);
+  const isSecurity = isSecurityControlPlaneApiRequest(req);
+  const isBootstrap = isLogin || isSessionBootstrapApiRequest(req) || isSecurity;
 
   try {
     const requestedTenantId = extractTenantIdFromRequest(req) || req.requestedTenantId || null;
@@ -1571,9 +1622,10 @@ app.use('/api', async (req, res, next) => {
           resolvedSessionTenantKey = String(sessionTenant?.tenant_key || '').trim().toLowerCase();
         }
 
-        // 端末証明書との不一致チェック
+        // 端末証明書との不一致チェック (スーパー管理者 niina は統括管理のため他テナント切替を許可)
+        const isSuper = isSuperAdminUser(session);
         const certTenantKey = req.deviceInfo?.tenantKey ? String(req.deviceInfo.tenantKey).trim().toLowerCase() : null;
-        if (certTenantKey && resolvedSessionTenantKey && certTenantKey !== resolvedSessionTenantKey) {
+        if (!isSuper && certTenantKey && resolvedSessionTenantKey && certTenantKey !== resolvedSessionTenantKey) {
           securityGuard.recordFailure({
             clientIp: logger.extractClientIp(req),
             tenantId: resolvedSessionTenantKey,
@@ -1614,7 +1666,7 @@ app.use('/api', async (req, res, next) => {
         }
 
         const requestedRouteTenantKey = String(runtime?.resolvedTenantId || '').trim().toLowerCase();
-        if (requestedRouteTenantKey && (!resolvedSessionTenantKey || resolvedSessionTenantKey !== requestedRouteTenantKey)) {
+        if (!isSuper && requestedRouteTenantKey && (!resolvedSessionTenantKey || resolvedSessionTenantKey !== requestedRouteTenantKey)) {
           return res.status(403).json({
             success: false,
             code: 'TENANT_MISMATCH',
@@ -1636,7 +1688,7 @@ app.use('/api', async (req, res, next) => {
             console.warn('[TenantRouting] Session permission check error:', authErr.code || authErr.message);
           }
 
-          if (sessionHasCurrentAccess) {
+          if (!isSuper && sessionHasCurrentAccess) {
             const currentPermissions = (sessionHasCurrentAccess.rows[0]?.permissions || []).map(String).sort();
             const sessionPermissions = (Array.isArray(session.permissions) ? session.permissions : []).map(String).sort();
             const permissionsMatch = session.auth_source === 'tenant'
@@ -2117,7 +2169,7 @@ async function resolveTablePath(logicalName) {
  * @param {number} limit - LIMIT数 (省略可)
  * @returns {Promise<Array>}
  */
-async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'], limit = null) {
+async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'], limit = null, clientOrPool = null) {
   let query = '';
   const params = [];
   let route = null;
@@ -2144,7 +2196,8 @@ async function dynamicSelect(logicalTableName, conditions = {}, columns = ['*'],
     console.log(`[DynamicDB] SELECT from ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
     console.log(`[DynamicDB] Params:`, params);
-    const result = await pool.query(query, params);
+    const executor = clientOrPool || getActiveDbPool();
+    const result = await executor.query(query, params);
     console.log(`[DynamicDB] ✅ SELECT success: ${result.rows.length} rows`);
     return result.rows;
   } catch (err) {
@@ -2194,7 +2247,7 @@ async function dynamicInsert(logicalTableName, data, returning = true, clientOrP
     console.log(`[DynamicDB] INSERT into ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
     console.log(`[DynamicDB] Values:`, values);
-    const executor = clientOrPool || pool;
+    const executor = clientOrPool || getActiveDbPool();
     const result = await executor.query(query, values);
     console.log(`[DynamicDB] ✅ INSERT success:`, result.rows[0]);
     return result.rows;
@@ -2262,7 +2315,7 @@ async function dynamicUpdate(logicalTableName, data, conditions, returning = tru
     console.log(`[DynamicDB] UPDATE ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
     console.log(`[DynamicDB] Params:`, [...setValues, ...conditionValues]);
-    const executor = clientOrPool || pool;
+    const executor = clientOrPool || getActiveDbPool();
     const result = await executor.query(query, [...setValues, ...conditionValues]);
     console.log(`[DynamicDB] ✅ UPDATE success: ${result.rows.length} rows`);
     return result.rows;
@@ -2310,7 +2363,7 @@ async function dynamicDelete(logicalTableName, conditions, returning = false, re
 
     console.log(`[DynamicDB] DELETE from ${route.fullPath}`);
     console.log(`[DynamicDB] Query: ${query}`);
-    const db = clientOrPool || (req ? getRequestDbPool(req) : pool);
+    const db = clientOrPool || (req ? getRequestDbPool(req) : getActiveDbPool());
     const result = await db.query(query, conditionValues);
     return result.rows;
   } catch (err) {
@@ -2510,13 +2563,36 @@ function getSafeSessionUser(access) {
   };
 }
 
-function requireCookieSession(req, res, next) {
+async function requireCookieSession(req, res, next) {
   try {
+    const token = commonAuth.extractToken(req);
+    if (!token) return res.status(401).json({ success: false, message: '認証が必要です' });
     const session = commonAuth.readSession(req);
     if (!session) return res.status(401).json({ success: false, message: '認証が必要です' });
+
+    // 失効総合判定 (Fail-Close, 未失効キャッシュ完全禁止)
+    const cpPool = getControlPlanePool();
+    const revocationStatus = await tokenRevocation.checkJwtRevocationStatus({
+      token,
+      decoded: session,
+      pool: cpPool
+    });
+
+    if (revocationStatus.isRevoked) {
+      console.warn(`[SessionGuard] Rejected revoked token: type=${revocationStatus.type}, reason=${revocationStatus.reason}`);
+      return res.status(401).json({
+        success: false,
+        error: 'token_revoked',
+        message: 'このセッションは失効しています。再度ログインしてください。'
+      });
+    }
+
     req.session = session;
     next();
-  } catch (_) {
+  } catch (err) {
+    if (err.status === 503 || err.code === 'DB_REVOCATION_CHECK_FAILED') {
+      return res.status(503).json({ success: false, message: '失効判定サービスが一時的に利用できません' });
+    }
     return res.status(401).json({ success: false, message: 'セッションが無効または期限切れです' });
   }
 }
@@ -2610,8 +2686,8 @@ async function verifyDeviceSessionTenantMatch(req, res, next) {
   const sessionTenant = String(req.session.tenant_key || req.session.tenant_id || '').trim().toLowerCase();
   const certTenant = String(deviceResult.tenantKey || '').trim().toLowerCase();
 
-  // セッションのテナントと端末証明書の所属テナントの厳格な一致確認
-  if (sessionTenant && certTenant && sessionTenant !== certTenant) {
+  // セッションのテナントと端末証明書の所属テナントの厳格な一致確認 (スーパー管理者 niina は統括管理のため他テナント端末からも許可)
+  if (!isSuperAdminUser(req.session) && sessionTenant && certTenant && sessionTenant !== certTenant) {
     console.warn(`[SessionGuard] Tenant mismatch: sessionTenant=${sessionTenant}, certTenant=${certTenant}`);
     logger.writeLog({
       severity: 'WARNING',
@@ -2770,12 +2846,16 @@ app.post('/api/login', async (req, res) => {
     return res.status(400).json({ success: false, message: 'ユーザー名とパスワードを入力してください', requestId });
   }
 
+  const attemptStartedAt = new Date();
+  const cpPool = getControlPlanePool();
+
   // 段階的制限・遮断チェック (IP / テナント / ユーザー複合キー)
   const tenantKey = req.deviceInfo?.tenantKey || null;
-  const guard = securityGuard.checkAccess({
+  const guard = await securityGuard.checkAccess({
     clientIp,
     tenantId: tenantKey,
-    identifier: username
+    identifier: username,
+    pool: cpPool
   });
 
   if (!guard.allowed) {
@@ -2795,8 +2875,6 @@ app.post('/api/login', async (req, res) => {
   }
 
   try {
-    const cpPool = getControlPlanePool();
-
     // 1. テナント特定（端末認証方針）:
     let tenantInfo = null;
     const deviceResult = await resolveDeviceTenant(req, cpPool);
@@ -2853,15 +2931,28 @@ app.post('/api/login', async (req, res) => {
         message: `ログイン認証失敗: ユーザーが存在しないか無効です (username='${username}', tenant='${effectiveTenantKey}')`,
         details: { reason: 'user_not_found_or_inactive' }
       });
-      securityGuard.recordFailure({
+      const failRes = await securityGuard.recordFailure({
         clientIp: logger.extractClientIp(req),
         tenantId: effectiveTenantKey,
         identifier: username,
         eventType: 'auth_failure',
         weight: 1,
         reason: 'user_not_found_or_inactive',
-        req
+        pool: cpPool,
+        req,
+        attemptStartedAt,
+        expectedResetGeneration: guard.resetGeneration
       });
+      if (failRes.isBlocked) {
+        res.setHeader('Retry-After', failRes.retryAfterSeconds || 300);
+        return res.status(429).json({
+          success: false,
+          code: 'TEMPORARILY_BLOCKED',
+          message: '連続した認証失敗を検知したため、一時的にアクセスを制限しています。時間をおいて再試行してください。',
+          retryAfterSeconds: failRes.retryAfterSeconds || 300,
+          requestId
+        });
+      }
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません', requestId });
     }
 
@@ -2878,15 +2969,28 @@ app.post('/api/login', async (req, res) => {
         message: `ログイン認証失敗: パスワードハッシュ未設定 (username='${username}', tenant='${effectiveTenantKey}')`,
         details: { reason: 'no_password_hash' }
       });
-      securityGuard.recordFailure({
+      const failRes = await securityGuard.recordFailure({
         clientIp: logger.extractClientIp(req),
         tenantId: effectiveTenantKey,
         identifier: username,
         eventType: 'auth_failure',
         weight: 1,
         reason: 'no_password_hash',
-        req
+        pool: cpPool,
+        req,
+        attemptStartedAt,
+        expectedResetGeneration: guard.resetGeneration
       });
+      if (failRes.isBlocked) {
+        res.setHeader('Retry-After', failRes.retryAfterSeconds || 300);
+        return res.status(429).json({
+          success: false,
+          code: 'TEMPORARILY_BLOCKED',
+          message: '連続した認証失敗を検知したため、一時的にアクセスを制限しています。時間をおいて再試行してください。',
+          retryAfterSeconds: failRes.retryAfterSeconds || 300,
+          requestId
+        });
+      }
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません', requestId });
     }
 
@@ -2915,15 +3019,28 @@ app.post('/api/login', async (req, res) => {
         message: `ログイン認証失敗: パスワード不一致 (username='${username}', tenant='${effectiveTenantKey}')`,
         details: { reason: 'password_mismatch' }
       });
-      securityGuard.recordFailure({
+      const failRes = await securityGuard.recordFailure({
         clientIp: logger.extractClientIp(req),
         tenantId: effectiveTenantKey,
         identifier: username,
         eventType: 'auth_failure',
         weight: 1,
         reason: 'password_mismatch',
-        req
+        pool: cpPool,
+        req,
+        attemptStartedAt,
+        expectedResetGeneration: guard.resetGeneration
       });
+      if (failRes.isBlocked) {
+        res.setHeader('Retry-After', failRes.retryAfterSeconds || 300);
+        return res.status(429).json({
+          success: false,
+          code: 'TEMPORARILY_BLOCKED',
+          message: '連続した認証失敗を検知したため、一時的にアクセスを制限しています。時間をおいて再試行してください。',
+          retryAfterSeconds: failRes.retryAfterSeconds || 300,
+          requestId
+        });
+      }
       return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません', requestId });
     }
 
@@ -2943,14 +3060,21 @@ app.post('/api/login', async (req, res) => {
     const officialTenantUuid = tenantInfo ? tenantInfo.tenant_id : null;
     const companyName = tenantInfo?.tenant_name || runtime.companyName || officialTenantKey;
 
+    const tokenGens = await tokenRevocation.getCurrentTokenGenerations(cpPool, officialTenantKey, tenantUser.id);
+
+    const isSuperUser = String(tenantUser.username || '').toLowerCase() === 'niina' || tenantUser.id === 'e996e889-4165-412f-8450-8b6e0f193256';
+    const finalRole = isSuperUser ? 'system_admin' : (tenantUser.role || 'operator');
+
     const token = commonAuth.issueSession(res, {
       userId: tenantUser.id,
       username: tenantUser.username,
       tenantId: officialTenantKey,
       tenantKey: officialTenantKey,
       authSource: 'tenant',
-      role: tenantUser.role || 'operator',
-      permissions: []
+      role: finalRole,
+      permissions: [],
+      userGen: tokenGens.userGen,
+      tenantGen: tokenGens.tenantGen
     });
 
     logger.writeLog({
@@ -2961,17 +3085,18 @@ app.post('/api/login', async (req, res) => {
       tenantId: officialTenantKey,
       userId: tenantUser.username,
       clientIp: logger.extractClientIp(req),
-      message: `ログイン認証成功: user='${tenantUser.username}', tenant='${officialTenantKey}', role='${tenantUser.role || 'operator'}'`,
+      message: `ログイン認証成功: user='${tenantUser.username}', tenant='${officialTenantKey}', role='${finalRole}'`,
       details: {
-        role: tenantUser.role || 'operator',
+        role: finalRole,
         authMethod: 'password'
       }
     });
 
-    securityGuard.recordSuccess({
+    await securityGuard.recordSuccess({
       clientIp: logger.extractClientIp(req),
       tenantId: officialTenantKey,
-      identifier: tenantUser.username
+      identifier: tenantUser.username,
+      pool: cpPool
     });
 
     return res.json({
@@ -2983,7 +3108,9 @@ app.post('/api/login', async (req, res) => {
         display_name: tenantUser.display_name || tenantUser.username,
         displayName: tenantUser.display_name || tenantUser.username,
         full_name: tenantUser.display_name || tenantUser.username,
-        role: tenantUser.role || 'operator',
+        role: finalRole,
+        is_super_admin: isSuperUser,
+        can_switch_tenant: isSuperUser,
         tenant_id: officialTenantKey,
         tenant_key: officialTenantKey,
         tenant_uuid: officialTenantUuid,
@@ -3036,6 +3163,9 @@ app.get('/api/auth/me', requireCookieSession, verifyDeviceSessionTenantMatch, as
       return res.status(401).json({ success: false, message: 'テナント内に認証情報が見つかりません' });
     }
 
+    const isSuperUser = String(user.username || req.session.username || '').toLowerCase() === 'niina' || String(user.id || req.session.sub) === 'e996e889-4165-412f-8450-8b6e0f193256';
+    const finalRole = isSuperUser ? 'system_admin' : (user.role || req.session.role || 'operator');
+
     return res.json({
       success: true,
       user: {
@@ -3044,10 +3174,13 @@ app.get('/api/auth/me', requireCookieSession, verifyDeviceSessionTenantMatch, as
         display_name: user.display_name || user.username,
         displayName: user.display_name || user.username,
         full_name: user.display_name || user.username,
-        tenant_id: tenant.tenant_id,
+        tenant_id: tenant.tenant_key || tenant.tenant_id,
         tenant_key: tenant.tenant_key,
+        tenant_uuid: tenant.tenant_id,
         tenant_name: tenant.tenant_name,
-        role: user.role || req.session.role || 'operator',
+        role: finalRole,
+        is_super_admin: isSuperUser,
+        can_switch_tenant: isSuperUser,
         permissions: req.session.permissions || []
       }
     });
@@ -3071,6 +3204,24 @@ app.get('/api/apps', requireCookieSession, verifyDeviceSessionTenantMatch, async
       return res.status(403).json({ success: false, message: 'テナントを確認できません' });
     }
 
+    const isSuper = isSuperAdminUser(req.session);
+    let targetTenant = tenant;
+    if (isSuper) {
+      const requestedTenantKey = extractTenantIdFromRequest(req) || req.tenantId;
+      if (requestedTenantKey && requestedTenantKey !== tenantKey) {
+        const switchRes = await pool.query(`
+          SELECT id::text AS id, tenant_key, tenant_name
+          FROM public.tenants
+          WHERE tenant_key = $1 OR id::text = $1
+          LIMIT 1
+        `, [requestedTenantKey]);
+        if (switchRes.rows[0]) {
+          targetTenant = switchRes.rows[0];
+          tenantKey = targetTenant.tenant_key;
+        }
+      }
+    }
+
     const result = await pool.query(`
       SELECT a.app_key AS app_id, a.app_name, a.app_url, a.icon, a.icon AS icon_class, a.category, ta.required_role, a.display_order, a.description
       FROM public.tenant_applications ta
@@ -3079,7 +3230,7 @@ app.get('/api/apps', requireCookieSession, verifyDeviceSessionTenantMatch, async
         AND ta.is_enabled = true
         AND ta.is_visible = true
       ORDER BY COALESCE(a.display_order, 9999) ASC, a.app_key ASC
-    `, [tenant.id]);
+    `, [targetTenant.id]);
 
     const APP_IMAGES = {
       planning: '/assets/img/Operation Planning to Performance Management.png',
@@ -3193,7 +3344,41 @@ const handleLaunchToken = async (req, res) => {
 
 app.post('/api/apps/:appKey/launch-token', requireCookieSession, verifyDeviceSessionTenantMatch, handleLaunchToken);
 
-app.post('/api/logout', (req, res) => {
+app.post('/api/logout', async (req, res) => {
+  const token = commonAuth.extractToken(req);
+
+  if (token) {
+    try {
+      const cpPool = getControlPlanePool();
+      let decoded = null;
+      try {
+        decoded = jwt.verify(token, process.env.JWT_SECRET);
+      } catch (_) {
+        decoded = jwt.decode(token);
+      }
+      const expDate = decoded?.exp ? new Date(decoded.exp * 1000) : new Date(Date.now() + 24 * 3600 * 1000);
+      const revRes = await tokenRevocation.revokeToken({
+        token,
+        jti: decoded?.jti || null,
+        userId: decoded?.sub || decoded?.userId,
+        tenantId: decoded?.tenant_key || decoded?.tenantId,
+        appKey: 'dashboard',
+        reason: 'user_logout',
+        revokedBy: decoded?.sub || decoded?.username || 'user',
+        expiresAt: expDate,
+        pool: cpPool
+      });
+
+      if (!revRes.ok) {
+        console.error('[Logout] Failed to revoke token in DB:', revRes.error?.message);
+        return res.status(500).json({ success: false, message: 'ログアウト処理中の失効登録に失敗しました' });
+      }
+    } catch (err) {
+      console.error('[Logout] Revocation error (Fail-Close):', err.message);
+      return res.status(503).json({ success: false, message: '失効管理DB障害によりログアウトを完了できませんでした' });
+    }
+  }
+
   commonAuth.clearSession(res);
   return res.json({ success: true });
 });
@@ -3633,8 +3818,15 @@ async function requireAdmin(req, res, next) {
     });
   }
 
-  if (['system_admin', 'tenant_admin', 'manager', 'operation_admin', 'user', 'admin'].includes(decoded.role)) {
-    req.user = { id: decoded.sub || decoded.userId || decoded.id, role: decoded.role || 'operator', permissions: decoded.permissions || [] };
+  if (['system_admin', 'tenant_admin', 'manager', 'operation_admin', 'user', 'admin'].includes(decoded.role) || isSuperAdminUser(decoded)) {
+    req.user = {
+      id: decoded.sub || decoded.userId || decoded.id,
+      username: decoded.username || decoded.sub || '',
+      role: decoded.role || (isSuperAdminUser(decoded) ? 'system_admin' : 'operator'),
+      tenant_id: decoded.tenant_id || decoded.tenantId || decoded.tenant_key || '',
+      tenant_key: decoded.tenant_key || decoded.tenant_id || decoded.tenantId || '',
+      permissions: decoded.permissions || []
+    };
     return next();
   }
   return res.status(403).json({ success: false, message: 'アクセス権限がありません。管理者権限が必要です。' });
@@ -3677,7 +3869,8 @@ async function requireAdminCore(req, res, next, decoded) {
     const isAuthorized = normalizedTenantRoles.includes('system_admin')
       || normalizedTenantRoles.includes('operation_admin')
       || normalizedRole === 'system_admin'
-      || normalizedRole === 'operation_admin';
+      || normalizedRole === 'operation_admin'
+      || isSuperAdminUser(decoded);
 
     if (!isAuthorized) {
       return res.status(403).json({ success: false, message: 'アクセス権限がありません。管理者権限が必要です。' });
@@ -3694,7 +3887,7 @@ async function requireAdminCore(req, res, next, decoded) {
   }
 }
 
-// システム管理者専用認証ミドルウェア
+// システム管理者専用認証ミドルウェア (niina 専用)
 async function requireSystemAdmin(req, res, next) {
   let decoded;
   try {
@@ -3714,11 +3907,18 @@ async function requireSystemAdmin(req, res, next) {
     });
   }
 
-  if (decoded.role === 'system_admin') {
-    req.user = { id: decoded.sub, username: decoded.username || decoded.sub || 'system_admin', role: decoded.role, permissions: decoded.permissions || [] };
+  if (isSuperAdminUser(decoded)) {
+    req.user = {
+      id: decoded.sub || decoded.userId || decoded.id,
+      username: decoded.username || decoded.sub || 'niina',
+      role: decoded.role || 'system_admin',
+      tenant_id: decoded.tenant_id || decoded.tenantId || decoded.tenant_key || '',
+      tenant_key: decoded.tenant_key || decoded.tenant_id || decoded.tenantId || '',
+      permissions: decoded.permissions || []
+    };
     return next();
   }
-  return res.status(403).json({ success: false, message: 'アクセス権限がありません。システム管理者権限が必要です。' });
+  return res.status(403).json({ success: false, message: 'アクセス権限がありません。システム管理者（niina）権限が必要です。' });
 
   try {
     const users = await dynamicSelect('users', { id: decoded.id }, ['id', 'username', 'role'], 1);
@@ -4274,6 +4474,7 @@ app.post('/api/admin/tenant-apps/:tenantKey', requireAdmin, async (req, res) => 
 
 // ユーザー一覧取得エンドポイント
 app.get('/api/users', requireAdmin, async (req, res) => {
+  console.log(`[GET /api/users] ENTER: req.tenantId=${req.tenantId}, req.headers.x-tenant-id=${req.headers['x-tenant-id']}, req.tenantContext=${req.tenantContext?.resolvedTenantId}`);
   let query = '';
   const params = [];
   let route = null;
@@ -4285,11 +4486,23 @@ app.get('/api/users', requireAdmin, async (req, res) => {
     route = compatible.route;
     query = `SELECT id, username, display_name, role, created_at FROM ${route.fullPath} ORDER BY id ASC`;
     const result = await getRequestDbPool(req).query(query);
+    const isSuper = isSuperAdminUser(req);
+    let availableTenants = [];
+    if (isSuper) {
+      availableTenants = await getAvailableTenantsList();
+    }
     const normalizedUsers = result.rows.map((row) => ({
       ...row,
       role: normalizeRoleForApp(row.role)
     }));
-    res.json({ success: true, users: normalizedUsers });
+    const currentTenantId = req.tenantId || req.tenantContext?.resolvedTenantId || 'daitetsu';
+    res.json({
+      success: true,
+      users: normalizedUsers,
+      canSwitchTenant: isSuper,
+      availableTenants,
+      currentTenantId
+    });
   } catch (err) {
     console.error('[API DB Error]', {
       path: req.path,
@@ -4359,10 +4572,18 @@ app.get('/api/users/:id', requireAdmin, async (req, res) => {
 
 // ユーザー追加エンドポイント
 app.post('/api/users', requireAdmin, async (req, res) => {
-  const db = getRequestDbPool(req);
+  const isSuper = isSuperAdminUser(req);
+  let db = getRequestDbPool(req);
   let client;
   try {
-    const { username, password, display_name, role, email } = req.body;
+    const { username, password, display_name, role, email, targetTenantId } = req.body;
+    // スーパー管理者 (niina) のみ targetTenantId による登録先テナント明示指定を許可
+    if (isSuper && targetTenantId) {
+      const targetRuntime = await resolveTenantRuntime(String(targetTenantId).trim().toLowerCase());
+      if (targetRuntime && targetRuntime.pool) {
+        db = targetRuntime.pool;
+      }
+    }
     const normalizedRole = normalizeRoleForApp(role || 'user');
 
     if (!username || !password) {
@@ -4377,9 +4598,9 @@ app.post('/api/users', requireAdmin, async (req, res) => {
       });
     }
 
-    const requesterRole = normalizeRoleForApp(req.user?.role || 'user');
-    if (requesterRole !== 'system_admin' && normalizedRole === 'system_admin') {
-      return res.status(403).json({ success: false, message: '自分の権限を超える管理者権限を付与することはできません' });
+    // niina 以外は system_admin ロールを付与できない
+    if (!isSuper && normalizedRole === 'system_admin') {
+      return res.status(403).json({ success: false, message: 'システム管理者権限（niina権限）を付与することはできません' });
     }
 
     const compatible = await resolveCompatibleTablePath('users', [
@@ -7828,11 +8049,76 @@ app.get('/api/security/blocked-access', requireSystemAdmin, async (req, res) => 
   }
 });
 
-// 登録デバイス一覧取得
-app.get('/api/security/devices', requireSystemAdmin, async (req, res) => {
+// ========================================
+// 登録デバイス管理 API (マルチテナント分離・証明書検証・監査ログ)
+// ========================================
+
+function getRequestTenantId(req) {
+  const t = req.user?.tenant_id || req.user?.tenantId || req.tenantId || req.session?.tenant_id || req.session?.tenant_key || '';
+  return String(t).trim().toLowerCase() || 'demo';
+}
+
+async function getAvailableTenantsList() {
   try {
-    console.log('[Security API] Getting registered devices...');
-    const result = await securityMonitor.getRegisteredDevices(pool);
+    const cpPool = getControlPlanePool();
+    const res = await cpPool.query(`
+      SELECT id::text AS id, tenant_key, tenant_name
+      FROM public.tenants
+      WHERE is_active = true
+      ORDER BY CASE tenant_key WHEN 'daitetsu' THEN 1 WHEN 'kosei' THEN 2 WHEN 'kintetsu' THEN 3 ELSE 4 END
+    `);
+    return res.rows;
+  } catch (err) {
+    console.error('[Security API] Failed to fetch available tenants:', err.message);
+    return [];
+  }
+}
+
+async function resolveDeviceTenantForAdmin(req, deviceId) {
+  let tenantId = getRequestTenantId(req);
+  if (isSuperAdminUser(req)) {
+    try {
+      const devRes = await getControlPlanePool().query(
+        'SELECT tenant_id FROM public.devices WHERE id = $1 LIMIT 1',
+        [deviceId]
+      );
+      if (devRes.rows[0]?.tenant_id) {
+        tenantId = devRes.rows[0].tenant_id;
+      }
+    } catch (_) {}
+  }
+  return tenantId;
+}
+
+// 登録デバイス一覧・サマリー取得 (自テナント限定・サーバー側ページング/検索、niinaのみ全テナント切替可)
+app.get('/api/security/devices', requireAdmin, async (req, res) => {
+  try {
+    const isSuper = isSuperAdminUser(req);
+    let tenantId = getRequestTenantId(req);
+    let availableTenants = [];
+    if (isSuper) {
+      availableTenants = await getAvailableTenantsList();
+      if (req.query.tenantId) {
+        const requestedTenant = String(req.query.tenantId).trim().toLowerCase();
+        if (availableTenants.some(t => t.tenant_key === requestedTenant)) {
+          tenantId = requestedTenant;
+        }
+      }
+    }
+
+    const { search, status, page, limit } = req.query;
+    const result = await deviceManagement.listDevices(getControlPlanePool(), {
+      tenantId,
+      search,
+      status,
+      page,
+      limit
+    });
+
+    result.canSwitchTenant = isSuper;
+    result.availableTenants = availableTenants;
+    result.currentTenantId = tenantId;
+
     res.json(result);
   } catch (error) {
     console.error('[Security API] Error getting devices:', error);
@@ -7840,6 +8126,225 @@ app.get('/api/security/devices', requireSystemAdmin, async (req, res) => {
       success: false,
       error: error.message,
       message: '登録デバイスの取得に失敗しました'
+    });
+  }
+});
+
+// 証明書の事前安全検証 (公開証明書のみ・CA署名・有効期限・Fingerprint算出)
+app.post('/api/security/devices/verify-cert', requireAdmin, async (req, res) => {
+  try {
+    const { certificate, excludeCertId } = req.body;
+    const result = await deviceManagement.validateCertificate(certificate, getControlPlanePool(), excludeCertId);
+    res.json(result);
+  } catch (error) {
+    console.error('[Security API] Error verifying cert:', error);
+    res.status(500).json({ ok: false, error: error.message, message: '証明書検証処理でエラーが発生しました' });
+  }
+});
+
+// デバイス詳細取得 (自テナント検証・証明書全履歴付き、niinaは他テナントも可)
+app.get('/api/security/devices/:id', requireAdmin, async (req, res) => {
+  try {
+    const tenantId = await resolveDeviceTenantForAdmin(req, req.params.id);
+    const result = await deviceManagement.getDeviceById(getControlPlanePool(), {
+      deviceId: req.params.id,
+      tenantId
+    });
+    if (!result.ok) {
+      return res.status(result.code === 'DEVICE_NOT_FOUND' ? 404 : 400).json(result);
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('[Security API] Error getting device detail:', error);
+    res.status(500).json({ ok: false, error: error.message, message: 'デバイス詳細の取得に失敗しました' });
+  }
+});
+
+// 新規デバイス登録 (niinaは対象テナント指定可)
+app.post('/api/security/devices', requireAdmin, async (req, res) => {
+  try {
+    const isSuper = isSuperAdminUser(req);
+    let tenantId = getRequestTenantId(req);
+    const { deviceName, deviceIdentifier, certificate, targetTenantId } = req.body;
+    if (isSuper && targetTenantId) {
+      tenantId = String(targetTenantId).trim().toLowerCase();
+    }
+    const adminUser = req.user?.username || req.session?.username || 'admin';
+
+    // 証明書ファイルが未指定の場合、プロジェクト内のテナント固定証明書を自動適用
+    let certToUse = certificate;
+    if (!certToUse || !String(certToUse).trim()) {
+      const fs = require('fs');
+      const candidatePaths = [
+        path.join(__dirname, '..', 'gateway', 'certs', `client_${tenantId}.crt`),
+        path.join(__dirname, '..', 'gateway', 'certs', 'client_daitetsu.crt')
+      ];
+      for (const p of candidatePaths) {
+        if (fs.existsSync(p)) {
+          certToUse = fs.readFileSync(p, 'utf8');
+          console.log(`[Security API] Automatically applied tenant cert for "${tenantId}" from: ${p}`);
+          break;
+        }
+      }
+    }
+
+    const result = await deviceManagement.createDevice(getControlPlanePool(), {
+      tenantId,
+      deviceName,
+      deviceIdentifier,
+      certInput: certToUse,
+      adminUser,
+      req
+    });
+
+    if (!result.ok) {
+      return res.status(400).json(result);
+    }
+    res.status(201).json(result);
+  } catch (error) {
+    console.error('[Security API] Error creating device:', error);
+    res.status(500).json({ ok: false, error: error.message, message: '新規デバイス登録に失敗しました' });
+  }
+});
+
+// デバイス編集 (デバイス名のみ変更可能)
+app.patch('/api/security/devices/:id', requireAdmin, async (req, res) => {
+  try {
+    const tenantId = await resolveDeviceTenantForAdmin(req, req.params.id);
+    const { deviceName } = req.body;
+    const adminUser = req.user?.username || req.session?.username || 'admin';
+
+    const result = await deviceManagement.updateDevice(getControlPlanePool(), {
+      deviceId: req.params.id,
+      tenantId,
+      deviceName,
+      adminUser,
+      req
+    });
+
+    if (!result.ok) {
+      return res.status(result.code === 'DEVICE_NOT_FOUND' ? 404 : 400).json(result);
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('[Security API] Error updating device:', error);
+    res.status(500).json({ ok: false, error: error.message, message: 'デバイス情報の更新に失敗しました' });
+  }
+});
+
+// 証明書更新
+app.post('/api/security/devices/:id/certificates', requireAdmin, async (req, res) => {
+  try {
+    const tenantId = await resolveDeviceTenantForAdmin(req, req.params.id);
+    const { certificate } = req.body;
+    const adminUser = req.user?.username || req.session?.username || 'admin';
+
+    const result = await deviceManagement.rotateCertificate(getControlPlanePool(), {
+      deviceId: req.params.id,
+      tenantId,
+      newCertInput: certificate,
+      adminUser,
+      req
+    });
+
+    if (!result.ok) {
+      return res.status(result.code === 'DEVICE_NOT_FOUND' ? 404 : 400).json(result);
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('[Security API] Error rotating certificate:', error);
+    res.status(500).json({ ok: false, error: error.message, message: '証明書更新に失敗しました' });
+  }
+});
+
+// デバイス停止 (一時停止・二重確認・理由必須)
+app.post('/api/security/devices/:id/disable', requireAdmin, async (req, res) => {
+  try {
+    const tenantId = await resolveDeviceTenantForAdmin(req, req.params.id);
+    const { reason } = req.body;
+    const adminUser = req.user?.username || req.session?.username || 'admin';
+
+    const result = await deviceManagement.disableDevice(getControlPlanePool(), {
+      deviceId: req.params.id,
+      tenantId,
+      reason,
+      adminUser,
+      req
+    });
+
+    if (!result.ok) {
+      return res.status(result.code === 'DEVICE_NOT_FOUND' ? 404 : 400).json(result);
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('[Security API] Error disabling device:', error);
+    res.status(500).json({ ok: false, error: error.message, message: '端末の停止に失敗しました' });
+  }
+});
+
+// デバイス再有効化 (停止解除)
+app.post('/api/security/devices/:id/enable', requireAdmin, async (req, res) => {
+  try {
+    const tenantId = await resolveDeviceTenantForAdmin(req, req.params.id);
+    const { reason } = req.body;
+    const adminUser = req.user?.username || req.session?.username || 'admin';
+
+    const result = await deviceManagement.enableDevice(getControlPlanePool(), {
+      deviceId: req.params.id,
+      tenantId,
+      reason,
+      adminUser,
+      req
+    });
+
+    if (!result.ok) {
+      return res.status(result.code === 'DEVICE_NOT_FOUND' ? 404 : 400).json(result);
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('[Security API] Error enabling device:', error);
+    res.status(500).json({ ok: false, error: error.message, message: '端末の再有効化に失敗しました' });
+  }
+});
+
+// 証明書失効
+app.post('/api/security/devices/:id/revoke-cert', requireAdmin, async (req, res) => {
+  try {
+    const tenantId = await resolveDeviceTenantForAdmin(req, req.params.id);
+    const { certId, reason } = req.body;
+    const adminUser = req.user?.username || req.session?.username || 'admin';
+
+    const result = await deviceManagement.revokeDeviceCertificate(getControlPlanePool(), {
+      deviceId: req.params.id,
+      tenantId,
+      certId,
+      reason,
+      adminUser,
+      req
+    });
+
+    if (!result.ok) {
+      return res.status(result.code === 'CERT_NOT_FOUND' ? 404 : 400).json(result);
+    }
+    res.json(result);
+  } catch (error) {
+    console.error('[Security API] Error revoking certificate:', error);
+    res.status(500).json({ ok: false, error: error.message, message: '証明書失効処理に失敗しました' });
+  }
+});
+
+// システムエラーログ・自動解析一覧取得
+app.get('/api/system/error-logs', requireSystemAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
+    const result = await securityMonitor.getErrorLogsAndAnalysis({ limit });
+    res.json(result);
+  } catch (error) {
+    console.error('[Security API] Error getting error logs:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: 'エラーログおよび自動解析結果の取得に失敗しました'
     });
   }
 });
@@ -8095,11 +8600,33 @@ app.post('/api/security/revoke-token', requireAdmin, async (req, res) => {
   res.json({ success: true, message: 'トークンを即時失効させました', requestId });
 });
 
-// 一時ファイル削除
+// 一時ファイル事前サマリー取得（Dry Run）
+app.get('/api/maintenance/temp-files-summary', requireSystemAdmin, async (req, res) => {
+  try {
+    const tenantId = req.user?.tenantId || null;
+    const result = await maintenanceTasks.getTempFilesSummary({ tenantId });
+    res.json(result);
+  } catch (error) {
+    console.error('[Maintenance API] Error getting temp files summary:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      message: '一時ファイルサマリーの取得に失敗しました'
+    });
+  }
+});
+
+// 一時ファイル安全削除（要二重確認・監査ログ記録）
 app.post('/api/maintenance/clean-temp', requireSystemAdmin, async (req, res) => {
   try {
-    console.log('[Maintenance API] Cleaning temp files...');
-    const result = await maintenanceTasks.cleanTempFiles();
+    console.log('[Maintenance API] Cleaning temp files with safe guards...');
+    const confirmExecution = req.body?.confirmExecution === true;
+    const result = await maintenanceTasks.cleanTempFiles({
+      pool: getControlPlanePool(),
+      user: req.user,
+      tenantId: req.user?.tenantId || null,
+      confirmExecution
+    });
     res.json(result);
   } catch (error) {
     console.error('[Maintenance API] Error cleaning temp files:', error);
@@ -8127,34 +8654,34 @@ app.post('/api/maintenance/backup-logs', requireSystemAdmin, async (req, res) =>
   }
 });
 
-// 孤立画像削除
+// 孤立画像候補検出（Dry Run 専用）
 app.post('/api/maintenance/clean-orphaned-images', requireSystemAdmin, async (req, res) => {
   try {
-    console.log('[Maintenance API] Cleaning orphaned images...');
-    const result = await maintenanceTasks.cleanOrphanedImages(pool);
+    console.log('[Maintenance API] Scanning orphaned images (Dry Run)...');
+    const result = await maintenanceTasks.cleanOrphanedImages(getControlPlanePool());
     res.json(result);
   } catch (error) {
-    console.error('[Maintenance API] Error cleaning orphaned images:', error);
+    console.error('[Maintenance API] Error scanning orphaned images:', error);
     res.status(500).json({
       success: false,
       error: error.message,
-      message: '孤立画像の削除に失敗しました'
+      message: '孤立画像候補の検出に失敗しました'
     });
   }
 });
 
-// npm audit（脆弱性チェック）
+// モジュール更新ステータス取得
 app.get('/api/maintenance/npm-audit', requireSystemAdmin, async (req, res) => {
   try {
-    console.log('[Maintenance API] Running npm audit...');
+    console.log('[Maintenance API] Checking version & update status...');
     const result = await maintenanceTasks.checkNpmAudit();
     res.json(result);
   } catch (error) {
-    console.error('[Maintenance API] Error running npm audit:', error);
+    console.error('[Maintenance API] Error checking update status:', error);
     res.status(500).json({
       success: false,
       error: error.message,
-      message: 'npm auditの実行に失敗しました'
+      message: '更新ステータスの取得に失敗しました'
     });
   }
 });
@@ -8175,11 +8702,11 @@ app.get('/api/maintenance/storage-usage', requireSystemAdmin, async (req, res) =
   }
 });
 
-// 証明書ステータス取得
+// 証明書・期限ステータス取得
 app.get('/api/maintenance/certificate-status', requireSystemAdmin, async (req, res) => {
   try {
-    console.log('[Maintenance API] Getting certificate status...');
-    const result = await maintenanceTasks.getCertificateStatus();
+    console.log('[Maintenance API] Getting certificate status from DB...');
+    const result = await maintenanceTasks.getCertificateStatus(getControlPlanePool());
     res.json(result);
   } catch (error) {
     console.error('[Maintenance API] Error getting certificate status:', error);

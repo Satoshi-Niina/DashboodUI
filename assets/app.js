@@ -223,6 +223,50 @@ document.addEventListener('DOMContentLoaded', async () => {
             : (tenantId === 'demo' ? 'デモ環境' : 'テナント専用環境');
         tenantEnvironmentLabel.textContent = tenantLabel;
     }
+
+    // スーパー管理者 (niina) の場合、ヘッダーに統括切替セレクタを表示・連動
+    const isSuperAdmin = String(userInfo?.username || '').toLowerCase() === 'niina' || userInfo?.id === 'e996e889-4165-412f-8450-8b6e0f193256';
+    const switcherEl = document.getElementById('super-admin-tenant-switcher');
+    const selectEl = document.getElementById('dashboard-tenant-select');
+
+    if (isSuperAdmin && switcherEl && selectEl) {
+        switcherEl.style.display = 'inline-flex';
+        const savedTenant = sessionStorage.getItem('selected_admin_tenant_id') || localStorage.getItem('selected_admin_tenant_id') || userInfo.tenant_key || 'daitetsu';
+        window.selectedAdminTenantId = savedTenant;
+
+        const tenants = [
+            { key: 'daitetsu', name: '大鉄工業' },
+            { key: 'kosei', name: '広成建設' },
+            { key: 'kintetsu', name: '近鉄' }
+        ];
+        selectEl.innerHTML = tenants.map(t =>
+            `<option value="${t.key}" ${t.key === savedTenant ? 'selected' : ''}>${t.name} (${t.key})</option>`
+        ).join('');
+        selectEl.value = savedTenant;
+
+        const currentTenantObj = tenants.find(t => t.key === savedTenant);
+        if (tenantEnvironmentLabel && currentTenantObj) {
+            tenantEnvironmentLabel.textContent = `${currentTenantObj.name} 様環境 (統括中)`;
+        }
+
+        selectEl.addEventListener('change', async () => {
+            const nextTenant = selectEl.value;
+            console.log(`[Dashboard] Switching tenant to: ${nextTenant}`);
+            window.selectedAdminTenantId = nextTenant;
+            sessionStorage.setItem('selected_admin_tenant_id', nextTenant);
+            localStorage.setItem('selected_admin_tenant_id', nextTenant);
+
+            const nextTenantObj = tenants.find(t => t.key === nextTenant);
+            if (tenantEnvironmentLabel && nextTenantObj) {
+                tenantEnvironmentLabel.textContent = `${nextTenantObj.name} 様環境 (統括中)`;
+            }
+
+            await loadTenantApps();
+            if (typeof renderAppCards === 'function') {
+                renderAppCards();
+            }
+        });
+    }
     
     const appGrid = document.getElementById('app-grid');
     const tooltip = document.getElementById('app-tooltip');
@@ -284,6 +328,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                 adminLink.style.display = 'inline';
                 adminLink.style.visibility = 'visible';
                 adminLink.style.opacity = '1';
+                adminLink.addEventListener('click', () => {
+                    if (window.selectedAdminTenantId) {
+                        sessionStorage.setItem('selected_admin_tenant_id', window.selectedAdminTenantId);
+                        localStorage.setItem('selected_admin_tenant_id', window.selectedAdminTenantId);
+                    }
+                });
                 console.log('[App] ✅ System settings link SHOWN for role:', userInfo.role);
                 console.log('[App] After setting - display:', adminLink.style.display);
             } else {
@@ -328,68 +378,69 @@ document.addEventListener('DOMContentLoaded', async () => {
     // ========================================
     // アプリカードの動的生成
     // ========================================
-    // DBから取得した tenant_app_routings のデータを元に、
-    // 各アプリのカードを動的に生成して画面に表示します。
-    console.log('[App] ========================================');
-    console.log('[App] Generating app cards dynamically...');
-    console.log(`[App] Total apps to render: ${apps.length}`);
-    console.log('[App] ========================================');
-    
-    if (apps.length === 0) {
-        console.warn('[App] ⚠️  No apps to render! Check if tenant_app_routings table has data.');
-        appGrid.innerHTML = `
-            <div style="grid-column: 1 / -1; text-align: center; padding: 2rem;">
-                <p style="font-size: 1.2rem; color: #666;">アプリケーションが登録されていません。</p>
-                <p style="font-size: 0.9rem; color: #999;">システム管理者に連絡してください。</p>
-            </div>
-        `;
+    function renderAppCards() {
+        if (!appGrid) return;
+        appGrid.innerHTML = '';
+        console.log('[App] ========================================');
+        console.log('[App] Generating app cards dynamically...');
+        console.log(`[App] Total apps to render: ${apps.length}`);
+        console.log('[App] ========================================');
+
+        if (apps.length === 0) {
+            console.warn('[App] ⚠️  No apps to render! Check if tenant_app_routings table has data.');
+            appGrid.innerHTML = `
+                <div style="grid-column: 1 / -1; text-align: center; padding: 2rem;">
+                    <p style="font-size: 1.2rem; color: #666;">アプリケーションが登録されていません。</p>
+                    <p style="font-size: 0.9rem; color: #999;">システム管理者に連絡してください。</p>
+                </div>
+            `;
+            return;
+        }
+
+        apps.forEach((app, index) => {
+            console.log(`[App] [${index + 1}/${apps.length}] Rendering card:`, {
+                id: app.id,
+                title: app.title,
+                icon: app.icon,
+                iconClass: app.iconClass,
+                hasDescription: !!app.description
+            });
+
+            const card = document.createElement('div');
+            card.className = 'app-card';
+
+            const iconDisplay = app.iconClass 
+                ? `<i class="${app.iconClass}" style="font-size: 2.5rem; color: var(--primary-color);"></i>`
+                : `<span style="font-size: 2.5rem;">${app.icon || '📱'}</span>`;
+
+            card.innerHTML = `
+                <div class="app-card-header">
+                    <h3>${app.title}</h3>
+                </div>
+                <div class="app-image-container">
+                    <img src="${app.image}" alt="${app.title}" class="app-image" data-fallback-applied="false" onerror="handleAppImageError(this)">
+                    <div class="app-icon-floating">${iconDisplay}</div>
+                </div>
+                <div class="app-card-info">
+                    <p class="app-sub-desc">${app.description || 'アプリケーションの説明がありません。'}</p>
+                    <button class="launch-btn-small">アプリ起動</button>
+                </div>
+            `;
+
+            card.addEventListener('click', (e) => {
+                showTooltip(e, app);
+            });
+
+            appGrid.appendChild(card);
+            console.log(`[App] ✅ Card rendered: ${app.title}`);
+        });
+
+        console.log('[App] ========================================');
+        console.log('[App] All app cards rendered successfully!');
+        console.log('[App] ========================================');
     }
-    
-    apps.forEach((app, index) => {
-        console.log(`[App] [${index + 1}/${apps.length}] Rendering card:`, {
-            id: app.id,
-            title: app.title,
-            icon: app.icon,
-            iconClass: app.iconClass,
-            hasDescription: !!app.description
-        });
-        
-        const card = document.createElement('div');
-        card.className = 'app-card';
-        
-        // アイコン表示の決定ロジック:
-        // 1. icon_class（Bootstrap Icons等）が指定されている場合 → <i>タグでアイコンフォントを表示
-        // 2. icon_class がない場合 → 絵文字（icon）を表示
-        // これにより、DBでアイコンの種類を柔軟に管理できます
-        const iconDisplay = app.iconClass 
-            ? `<i class="${app.iconClass}" style="font-size: 2.5rem; color: var(--primary-color);"></i>`
-            : `<span style="font-size: 2.5rem;">${app.icon || '📱'}</span>`;
-        
-        card.innerHTML = `
-            <div class="app-card-header">
-                <h3>${app.title}</h3>
-            </div>
-            <div class="app-image-container">
-                <img src="${app.image}" alt="${app.title}" class="app-image" data-fallback-applied="false" onerror="handleAppImageError(this)">
-                <div class="app-icon-floating">${iconDisplay}</div>
-            </div>
-            <div class="app-card-info">
-                <p class="app-sub-desc">${app.description || 'アプリケーションの説明がありません。'}</p>
-                <button class="launch-btn-small">アプリ起動</button>
-            </div>
-        `;
 
-        card.addEventListener('click', (e) => {
-            showTooltip(e, app);
-        });
-
-        appGrid.appendChild(card);
-        console.log(`[App] ✅ Card rendered: ${app.title}`);
-    });
-    
-    console.log('[App] ========================================');
-    console.log('[App] All app cards rendered successfully!');
-    console.log('[App] ========================================');
+    renderAppCards();
 
     /**
      * 吹き出しを表示する関数
@@ -567,19 +618,41 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // 終了ボタン（ダッシュボード画面を閉じる）
+    // 終了ボタン（ダッシュボード画面およびブラウザを閉じる）
     const exitBtn = document.getElementById('exit-btn');
     if (exitBtn) {
-        exitBtn.addEventListener('click', () => {
-            if (confirm('ダッシュボード画面を閉じますか？')) {
-                // ウィンドウを閉じる（ブラウザによっては機能しない場合がある）
-                window.close();
+        exitBtn.addEventListener('click', async () => {
+            if (confirm('システムを終了してブラウザを閉じますか？')) {
+                // セッション破棄を試行
+                try {
+                    await fetch(getTenantApiPath('/api/logout'), { method: 'POST', credentials: 'same-origin' });
+                } catch (_) {}
 
-                // window.close()が機能しない場合の代替処理
-                // 500ms後に確認してまだ開いている場合はメッセージを表示
+                // ブラウザ・タブを閉じる処理（Edge/Chrome等のセキュリティ制限を回避する手法を含む）
+                window.close();
+                try {
+                    window.open('', '_self');
+                    window.close();
+                } catch (_) {}
+
+                // 念のためのフォールバック処理 (about:blank で閉じる試行)
                 setTimeout(() => {
-                    alert('ブラウザのタブを手動で閉じてください。\nまたはログアウトボタンでログイン画面に戻ることができます。');
-                }, 500);
+                    try {
+                        window.open('about:blank', '_self');
+                        window.close();
+                    } catch (_) {}
+                }, 100);
+
+                // ブラウザ設定等により完全にタブが閉じない場合の終了画面表示
+                setTimeout(() => {
+                    document.body.innerHTML = `
+                        <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; height:100vh; background:#0f172a; color:#f8fafc; font-family:'Inter', sans-serif; text-align:center;">
+                            <div style="font-size:3.5rem; margin-bottom:1rem;">🚪</div>
+                            <h2 style="font-size:1.5rem; font-weight:700; margin:0 0 0.5rem 0;">システムを正常に終了しました</h2>
+                            <p style="color:#94a3b8; font-size:0.95rem; margin:0;">ブラウザのタブを閉じて終了してください。</p>
+                        </div>
+                    `;
+                }, 300);
             }
         });
     }

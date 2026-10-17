@@ -42,10 +42,15 @@ Thumbs.db
 dist/
 build/
 
-# Temporary files
+# Temporary files & Scratch
 *.tmp
 *.temp
 .cache/
+scratch/
+test_*.mjs
+
+# Legacy unnecessary files (root admin.js is obsolete, assets/admin.js is active)
+/admin.js
 
 # Docker
 docker-compose.override.yml

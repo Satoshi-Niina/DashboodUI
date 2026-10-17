@@ -19,7 +19,42 @@ function getAuthToken() {
     }
 }
 
+// テナント日本語表示マップ
+const GLOBAL_TENANT_NAME_MAP = {
+    demo: 'デモ環境',
+    demo_env: 'デモ環境',
+    daitetsu: '大鉄工業',
+    kosei: '広成建設',
+    kintetsu: '近鉄'
+};
+
+function formatTenantDisplayName(tenantId) {
+    const key = String(tenantId || '').trim().toLowerCase();
+    return GLOBAL_TENANT_NAME_MAP[key] || key || '未設定';
+}
+
+// 統括管理者の選択中テナント (niina用)
+window.selectedAdminTenantId = null;
+window.canSwitchAdminTenant = false;
+window.availableAdminTenants = [];
+window.isSuperAdmin = false;
+window.currentAdminUsername = null;
+window.adminHomeTenantId = null;
+
 function getCurrentTenantId() {
+    // 統括管理者 (niina) の選択中テナント (window またはストレージ) を最優先
+    const savedTenant = window.selectedAdminTenantId 
+        || sessionStorage.getItem('selected_admin_tenant_id') 
+        || localStorage.getItem('selected_admin_tenant_id');
+
+    if (savedTenant && (window.canSwitchAdminTenant || window.isSuperAdmin || savedTenant !== 'demo')) {
+        return savedTenant;
+    }
+
+    if (window.adminHomeTenantId) {
+        return window.adminHomeTenantId;
+    }
+
     const pathSegments = window.location.pathname
         .split("/")
         .filter(Boolean);
@@ -37,7 +72,7 @@ function getCurrentTenantId() {
     ];
 
     if (!firstSegment || excludedPaths.includes(firstSegment)) {
-        return "demo";
+        return savedTenant || "daitetsu";
     }
 
     return firstSegment;
@@ -54,7 +89,20 @@ async function tenantFetch(url, options = {}) {
     );
     headers.set("X-Tenant-Full-Url", window.location.href);
 
-    return fetch(url, {
+    // URL にも query parameter (tenantId) を付与してプロキシ等のヘッダー脱落時にも確実に届くように多重化
+    let targetUrl = url;
+    try {
+        const urlObj = new URL(url, window.location.origin);
+        if (!urlObj.searchParams.has('tenantId') && !urlObj.searchParams.has('tenant_id')) {
+            urlObj.searchParams.set('tenantId', tenantId);
+        }
+        targetUrl = urlObj.pathname + urlObj.search + urlObj.hash;
+    } catch (_) {
+        const sep = targetUrl.includes('?') ? '&' : '?';
+        targetUrl = `${targetUrl}${sep}tenantId=${encodeURIComponent(tenantId)}`;
+    }
+
+    return fetch(targetUrl, {
         ...options,
         headers
     });
@@ -146,158 +194,247 @@ function getRoleDisplayName(role) {
     return '一般ユーザー';
 }
 
+// ========================================
+// 共通ユーティリティ関数 (XSS防止 & 通知)
+// ========================================
+function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+window.escapeHtml = escapeHtml;
+
+function showToast(message, type = 'success') {
+    const toast = document.getElementById('toast');
+    if (!toast) {
+        console.log(`[Toast ${type}]`, message);
+        return;
+    }
+    toast.textContent = message;
+    toast.className = `toast show ${type}`;
+
+    setTimeout(() => {
+        toast.className = 'toast';
+    }, 3000);
+}
+window.showToast = showToast;
+
 document.addEventListener('DOMContentLoaded', async () => {
-    if (window.TenantContext && typeof window.TenantContext.init === 'function') {
-        await window.TenantContext.init();
+    console.log('[Admin] Initializing admin page (fault-tolerant)...');
+
+    // 1. テナントコンテキスト初期化
+    try {
+        if (window.TenantContext && typeof window.TenantContext.init === 'function') {
+            await window.TenantContext.init();
+        }
+    } catch (e) {
+        console.warn('[Admin Init] TenantContext.init warning:', e);
     }
 
-    const buildTenantPath = (targetPath) => targetPath;
+    // 2. 認証・セッション確認
+    let normalizedRole = 'user';
+    try {
+        const authResponse = await fetch('/api/auth/me', { credentials: 'same-origin' });
+        if (!authResponse.ok) {
+            console.error('[Admin] No active session, redirecting to login');
+            window.location.href = '/login.html';
+            return;
+        }
 
-    // HttpOnly Cookieをサーバ�者で検証し、表示用の最小ユーザー情報��だけを取得すめ者
-    const authResponse = await fetch('/api/auth/me', { credentials: 'same-origin' });
-    console.log('[Admin] Version: 20260107-1400');
-    console.log('[Admin] Initializing admin page...');
+        const authData = await authResponse.json();
+        const userInfo = authData.user || {};
+        console.log('[Admin] User info:', userInfo);
+        const adminDisplayName = userInfo.display_name || userInfo.displayName || userInfo.full_name || userInfo.username;
+        const adminUserEl = document.getElementById('admin-user');
+        if (adminUserEl) adminUserEl.textContent = adminDisplayName;
 
-    if (!authResponse.ok) {
-        console.error('[Admin] No active session, redirecting to login');
-        window.location.href = '/login.html';
-        return;
+        normalizedRole = normalizeUserRole(userInfo.role);
+        window.currentAdminUserRole = normalizedRole;
+        window.currentAdminUsername = String(userInfo.username || '').trim().toLowerCase();
+        window.currentAdminUserInfo = userInfo;
+
+        // niina または system_admin をスーパー管理者として判定
+        window.isSuperAdmin = Boolean(
+            window.currentAdminUsername === 'niina' ||
+            userInfo.is_super_admin ||
+            userInfo.id === 'e996e889-4165-412f-8450-8b6e0f193256'
+        );
+        window.canSwitchAdminTenant = window.isSuperAdmin;
+        const rawHomeTenant = userInfo.tenant_key || userInfo.tenantId || (String(userInfo.tenant_id).length > 20 ? 'daitetsu' : userInfo.tenant_id) || 'daitetsu';
+        window.adminHomeTenantId = String(rawHomeTenant).trim().toLowerCase();
+
+        // セッションストレージ等から以前選択したテナントを復元
+        const savedSelectedTenant = sessionStorage.getItem('selected_admin_tenant_id') || localStorage.getItem('selected_admin_tenant_id');
+        if (window.isSuperAdmin && savedSelectedTenant) {
+            window.selectedAdminTenantId = savedSelectedTenant;
+        } else if (!window.selectedAdminTenantId) {
+            window.selectedAdminTenantId = window.adminHomeTenantId;
+        }
+
+        // グローバルテナント切替セレクタ初期化
+        setupGlobalTenantSelector();
+
+        const isAllowed = normalizedRole === 'system_admin' || normalizedRole === 'operation_admin' || window.isSuperAdmin;
+
+        if (!isAllowed) {
+            console.error('[Admin] Access denied - role:', userInfo.role);
+            alert('アクセス権限がありません。管理者権限が必要です。');
+            window.location.href = '/index.html';
+            return;
+        }
+        console.log('[Admin] Access granted for role:', normalizedRole, 'isSuperAdmin:', window.isSuperAdmin);
+    } catch (e) {
+        console.error('[Admin Init] Auth verification failed:', e);
     }
 
-    // ユーザー情報��の表示とロールチェック��
-    const authData = await authResponse.json();
-    const userInfo = authData.user || {};
-    console.log('[Admin] User info:', userInfo);
-    const adminDisplayName = userInfo.display_name || userInfo.displayName || userInfo.full_name || userInfo.username;
-    document.getElementById('admin-user').textContent = adminDisplayName;
-
-    // シスデ��管理��者��た�者運用管理��者�者みアクセス可能
-    const normalizedRole = normalizeUserRole(userInfo.role);
-    window.currentAdminUserRole = normalizedRole;
-    const isAllowed = normalizedRole === 'system_admin' || normalizedRole === 'operation_admin';
-
-    if (!isAllowed) {
-        console.error('[Admin] Access denied - role:', userInfo.role);
-        alert('アクセス権限がありません。管理者権限が必要です。');
-        window.location.href = '/index.html';
-        return;
+    // 3. ロールに基づくタブ表示制御
+    try {
+        applyRoleBasedTabVisibility(normalizedRole || 'user');
+    } catch (e) {
+        console.error('[Admin Init] applyRoleBasedTabVisibility error:', e);
     }
 
-    console.log('[Admin] Access granted for admin user');
-
-    // ロールに基づい��タブ�者表示制御
-    applyRoleBasedTabVisibility(normalizedRole || 'user');
-
-    // メイン画面に戻め者
-    document.getElementById('back-to-main-btn').addEventListener('click', () => {
-        window.location.href = '/index.html';
-    });
-
-    // タブ機�者の初期匁者
-    initializeTabs();
-
-    // 初期ローデ- 最初�者タブ（ユーザー管理���者み読み込む
-    loadUsers();
-
-    // 汎用デ�者ブルフィルター関数
-    window.applyTableFilter = function (table) {
-        const filters = Array.from(table.querySelectorAll('.column-filter'));
-        const activeFilters = filters.map(f => ({
-            index: parseInt(f.dataset.col),
-            value: f.value
-        })).filter(f => f.value !== "");
-
-        console.log('[applyTableFilter] Active filters:', activeFilters);
-
-        const rows = Array.from(table.querySelector('tbody').rows);
-        let visibleCount = 0;
-
-        rows.forEach(row => {
-            const isMatch = activeFilters.every(f => {
-                const cellText = row.cells[f.index].textContent.trim();
-                const matches = cellText === f.value;
-                return matches;
+    // 4. メイン画面に戻るボタン
+    try {
+        const backBtn = document.getElementById('back-to-main-btn');
+        if (backBtn) {
+            backBtn.addEventListener('click', () => {
+                window.location.href = '/index.html';
             });
-            row.style.display = isMatch ? "" : "none";
-            if (isMatch) visibleCount++;
-        });
+        }
+    } catch (e) {
+        console.error('[Admin Init] back-to-main-btn error:', e);
+    }
 
-        console.log('[applyTableFilter] Visible rows:', visibleCount, '/', rows.length);
-    };
+    // 5. 汎用テーブルフィルター関数
+    window.applyTableFilter = function (table) {
+        try {
+            const filters = Array.from(table.querySelectorAll('.column-filter'));
+            const activeFilters = filters.map(f => ({
+                index: parseInt(f.dataset.col),
+                value: f.value
+            })).filter(f => f.value !== "");
 
-    // フィルタの選択肢を�者動生成する関数
-    window.updateFilterOptions = function (table) {
-        const filters = Array.from(table.querySelectorAll('.column-filter'));
-        const rows = Array.from(table.querySelector('tbody').rows);
+            const rows = Array.from(table.querySelector('tbody').rows);
+            let visibleCount = 0;
 
-        console.log('[updateFilterOptions] Called with rows:', rows.length);
-
-        filters.forEach(select => {
-            const colIndex = parseInt(select.dataset.col);
-
-            // アクデ��ブなフィルター�者�他�者列）を取征者
-            const activeFilters = filters.map((f, idx) => {
-                if (idx === filters.indexOf(select)) return null; // 自切�者身は除夁者
-                return {
-                    index: parseInt(f.dataset.col),
-                    value: f.value
-                };
-            }).filter(f => f && f.value !== "");
-
-            console.log(`[updateFilterOptions] Column ${colIndex} active filters:`, activeFilters);
-
-            // アクデ��ブなフィルターにマッチする行を抽出
-            const filteredRows = rows.filter(row => {
-                return activeFilters.every(f => {
+            rows.forEach(row => {
+                const isMatch = activeFilters.every(f => {
                     const cellText = row.cells[f.index].textContent.trim();
                     return cellText === f.value;
                 });
+                row.style.display = isMatch ? "" : "none";
+                if (isMatch) visibleCount++;
             });
-
-            console.log(`[updateFilterOptions] Filtered rows for column ${colIndex}:`, filteredRows.length);
-
-            // フィルター済み行から選択肢を抽出
-            const values = new Set();
-            filteredRows.forEach(row => {
-                const text = row.cells[colIndex].textContent.trim();
-                if (text) values.add(text);
-            });
-
-            const currentVal = select.value;
-            let optionsHtml = '<option value="">(全て)</option>';
-            Array.from(values).sort().forEach(val => {
-                optionsHtml += `<option value="${val}">${val}</option>`;
-            });
-            select.innerHTML = optionsHtml;
-            select.value = currentVal;
-
-            console.log(`[updateFilterOptions] Column ${colIndex}: ${Array.from(values).length} options`);
-        });
+            console.log('[applyTableFilter] Visible rows:', visibleCount, '/', rows.length);
+        } catch (e) {
+            console.error('[applyTableFilter] error:', e);
+        }
     };
 
-    // イベントリスナ�者の初期匁者
-    initializeEventListeners();
-    initializeCorsSettings();
+    // 6. フィルタの選択肢を自動生成する関数 (XSS防止 escapeHtml 適用)
+    window.updateFilterOptions = function (table) {
+        try {
+            const filters = Array.from(table.querySelectorAll('.column-filter'));
+            const rows = Array.from(table.querySelector('tbody').rows);
+
+            filters.forEach(select => {
+                const colIndex = parseInt(select.dataset.col);
+                const activeFilters = filters.map((f, idx) => {
+                    if (idx === filters.indexOf(select)) return null;
+                    return {
+                        index: parseInt(f.dataset.col),
+                        value: f.value
+                    };
+                }).filter(f => f && f.value !== "");
+
+                const filteredRows = rows.filter(row => {
+                    return activeFilters.every(f => {
+                        const cellText = row.cells[f.index].textContent.trim();
+                        return cellText === f.value;
+                    });
+                });
+
+                const values = new Set();
+                filteredRows.forEach(row => {
+                    const text = row.cells[colIndex].textContent.trim();
+                    if (text) values.add(text);
+                });
+
+                const currentVal = select.value;
+                let optionsHtml = '<option value="">(全て)</option>';
+                Array.from(values).sort().forEach(val => {
+                    optionsHtml += `<option value="${escapeHtml(val)}">${escapeHtml(val)}</option>`;
+                });
+                select.innerHTML = optionsHtml;
+                select.value = currentVal;
+            });
+        } catch (e) {
+            console.error('[updateFilterOptions] error:', e);
+        }
+    };
+
+    // 7. タブ機能の初期化
+    try {
+        initializeTabs();
+    } catch (e) {
+        console.error('[Admin Init] initializeTabs error:', e);
+    }
+
+    // 8. 共通イベントリスナーの初期化
+    try {
+        initializeEventListeners();
+    } catch (e) {
+        console.error('[Admin Init] initializeEventListeners error:', e);
+    }
+
+    // 9. 登録デバイス管理の初期化
+    try {
+        initializeDeviceManagement();
+    } catch (e) {
+        console.error('[Admin Init] initializeDeviceManagement error:', e);
+    }
+
+    // 10. システム操作（メンテナンス・ガバナンス）の初期化
+    try {
+        initializeSystemOperations();
+    } catch (e) {
+        console.error('[Admin Init] initializeSystemOperations error:', e);
+    }
+
+    // 11. 初期データロード (最初のタブ: ユーザー管理)
+    try {
+        loadUsers();
+    } catch (e) {
+        console.error('[Admin Init] loadUsers error:', e);
+    }
 });
 
-// ロールに基づい��タブ�者表示制御
 function applyRoleBasedTabVisibility(role) {
     console.log('[applyRoleBasedTabVisibility] Applying visibility for role:', role);
     const normalizedRole = normalizeUserRole(role) || 'user';
 
     // シスデ��管理��者��用のタデ
+    const isSuper = Boolean(window.isSuperAdmin || window.currentAdminUsername === 'niina');
+
+    // システム自体に関する設定タブ（スーパー管理者 niina 専用）
     const systemAdminOnlyTabs = [
+        'app-management',
         'database-management',
-        'system-operations',
-        'cors-settings',
-        'ai-management'
+        'ai-management',
+        'system-settings',
+        'system-operations'
     ];
 
     systemAdminOnlyTabs.forEach(tabName => {
         const tabButton = document.querySelector(`.tab-button[data-tab="${tabName}"]`);
         const tabContent = document.getElementById(`${tabName}-tab`);
 
-        if (normalizedRole === 'system_admin') {
+        if (isSuper) {
             // シスデ��管理��者��は表示
             if (tabButton) {
                 tabButton.style.display = '';
@@ -320,6 +457,109 @@ function applyRoleBasedTabVisibility(role) {
 }
 
 // タブ機�者
+/**
+ * 統括テナント切替セレクタの初期化 & 連動 (niina専用)
+ */
+function setupGlobalTenantSelector(availableTenants = []) {
+    const badge = document.getElementById('admin-current-tenant-badge');
+    const selectorWrap = document.getElementById('admin-global-tenant-selector-wrap');
+    const selectElem = document.getElementById('admin-global-tenant-select');
+
+    const homeTenant = window.adminHomeTenantId || 'daitetsu';
+    const currentSelected = window.selectedAdminTenantId || homeTenant;
+
+    function updateTenantBadge(targetTenant) {
+        if (!badge) return;
+        const tenantName = formatTenantDisplayName(targetTenant);
+        if (window.canSwitchAdminTenant || window.isSuperAdmin) {
+            badge.textContent = `${tenantName} 様環境 (統括中)`;
+        } else {
+            badge.textContent = `所属: ${tenantName}`;
+        }
+    }
+
+    updateTenantBadge(currentSelected);
+
+    if (window.canSwitchAdminTenant && selectorWrap && selectElem) {
+        selectorWrap.style.display = 'inline-flex';
+
+        if (Array.isArray(availableTenants) && availableTenants.length > 0) {
+            window.availableAdminTenants = availableTenants;
+        } else if (window.availableAdminTenants.length === 0) {
+            window.availableAdminTenants = [
+                { tenant_key: 'daitetsu', tenant_name: '大鉄工業' },
+                { tenant_key: 'kosei', tenant_name: '広成建設' },
+                { tenant_key: 'kintetsu', tenant_name: '近鉄' }
+            ];
+        }
+
+        selectElem.innerHTML = window.availableAdminTenants.map(t =>
+            `<option value="${t.tenant_key}" ${t.tenant_key === currentSelected ? 'selected' : ''}>${t.tenant_name} (${t.tenant_key})</option>`
+        ).join('');
+        selectElem.value = currentSelected;
+
+        if (!selectElem.dataset.listenerAttached) {
+            selectElem.dataset.listenerAttached = 'true';
+            selectElem.addEventListener('change', () => {
+                const newTenant = selectElem.value;
+                console.log(`[Admin] Switching global tenant to: ${newTenant}`);
+                window.selectedAdminTenantId = newTenant;
+                sessionStorage.setItem('selected_admin_tenant_id', newTenant);
+                localStorage.setItem('selected_admin_tenant_id', newTenant);
+
+                // 左側のテナントバッジ表示を即時更新
+                updateTenantBadge(newTenant);
+
+                // 端末登録タブ側のテナントセレクタとも同期
+                if (typeof selectedDeviceTenantId !== 'undefined') {
+                    selectedDeviceTenantId = newTenant;
+                    const devSelect = document.getElementById('device-tenant-select');
+                    if (devSelect) devSelect.value = newTenant;
+                }
+
+                // 現在アクティブなタブのデータを即時再読み込み
+                reloadCurrentActiveTab();
+            });
+        }
+    } else if (selectorWrap) {
+        selectorWrap.style.display = 'none';
+    }
+}
+
+/**
+ * 現在アクティブなタブのデータを再読み込み
+ */
+function reloadCurrentActiveTab() {
+    const activeBtn = document.querySelector('.tab-button.active');
+    const tabName = activeBtn ? activeBtn.getAttribute('data-tab') : 'user-management';
+    console.log(`[Admin] Reloading active tab: ${tabName} for tenant: ${getCurrentTenantId()}`);
+
+    if (tabName === 'user-management') {
+        loadUsers();
+    } else if (tabName === 'office-master') {
+        loadOffices();
+    } else if (tabName === 'base-master') {
+        loadBases();
+    } else if (tabName === 'vehicle-master') {
+        loadMachineTypes();
+        loadMachines();
+    } else if (tabName === 'inspection-master') {
+        loadInspectionTypes();
+        loadInspectionSchedules();
+    } else if (tabName === 'database-management') {
+        if (typeof loadDatabaseStats === 'function') loadDatabaseStats();
+    } else if (tabName === 'app-management') {
+        if (typeof loadAppManagementTenants === 'function') loadAppManagementTenants();
+    } else if (tabName === 'system-settings') {
+        if (typeof loadSystemSettings === 'function') loadSystemSettings();
+    } else if (tabName === 'system-operations') {
+        if (typeof loadRegisteredDevices === 'function') loadRegisteredDevices();
+        if (typeof loadStorageUsage === 'function') loadStorageUsage();
+        if (typeof loadCertificateStatus === 'function') loadCertificateStatus();
+        if (typeof loadNpmAudit === 'function') loadNpmAudit();
+    }
+}
+
 function initializeTabs() {
     const tabButtons = document.querySelectorAll('.tab-button');
     const tabContents = document.querySelectorAll('.tab-content');
@@ -375,12 +615,17 @@ function initializeTabs() {
                 loadInspectionSchedules();
             } else if (tabName === 'database-management') {
                 loadDatabaseStats();
-            } else if (tabName === 'cors-settings') {
-                loadCorsSettings();
             } else if (tabName === 'app-management') {
                 loadAppManagementTenants();
             } else if (tabName === 'system-settings') {
                 loadSystemSettings();
+            } else if (tabName === 'system-operations') {
+                // システム管理タブ表示時のデータロード
+                console.log('[System Operations] Tab activated, loading data...');
+                loadRegisteredDevices();
+                loadStorageUsage();
+                loadCertificateStatus();
+                loadNpmAudit();
             }
         });
     });
@@ -933,6 +1178,14 @@ async function loadUsers() {
         const data = await response.json();
         console.log('[loadUsers] Data received:', data);
 
+        if (data.canSwitchTenant !== undefined) {
+            window.canSwitchAdminTenant = Boolean(data.canSwitchTenant);
+            if (Array.isArray(data.availableTenants) && data.availableTenants.length > 0) {
+                window.availableAdminTenants = data.availableTenants;
+            }
+            setupGlobalTenantSelector(data.availableTenants);
+        }
+
         if (data.success && data.users.length > 0) {
             // 全ユーザーデ�者タをグローバル変数に保存
             allUsers = data.users.map(user => ({
@@ -1028,9 +1281,43 @@ function openUserModal(userId = null) {
     const modal = document.getElementById('user-modal');
     const modalTitle = document.getElementById('modal-title');
     const form = document.getElementById('user-form');
+    const tenantSelect = document.getElementById('user-tenant-select');
+    const tenantNameInput = document.getElementById('user-tenant-name');
+    const roleSelect = document.getElementById('user-role');
 
     form.reset();
     document.getElementById('user-id').value = '';
+
+    const currentTenant = getCurrentTenantId();
+
+    // 所属テナント表示・選択の制御
+    if (window.canSwitchAdminTenant && tenantSelect && tenantNameInput) {
+        tenantNameInput.style.display = 'none';
+        tenantSelect.style.display = 'block';
+        const tenants = (window.availableAdminTenants && window.availableAdminTenants.length > 0)
+            ? window.availableAdminTenants
+            : [
+                { tenant_key: 'daitetsu', tenant_name: '大鉄工業' },
+                { tenant_key: 'kosei', tenant_name: '広成建設' },
+                { tenant_key: 'kintetsu', tenant_name: '近鉄' }
+            ];
+        tenantSelect.innerHTML = tenants.map(t =>
+            `<option value="${t.tenant_key}" ${t.tenant_key === currentTenant ? 'selected' : ''}>${t.tenant_name} (${t.tenant_key})</option>`
+        ).join('');
+    } else if (tenantNameInput) {
+        tenantNameInput.style.display = 'block';
+        if (tenantSelect) tenantSelect.style.display = 'none';
+        tenantNameInput.value = formatTenantDisplayName(currentTenant);
+    }
+
+    // 役割選択の制御: niina 以外は system_admin を選択不可にする
+    if (roleSelect) {
+        const sysAdminOpt = roleSelect.querySelector('option[value="system_admin"]');
+        if (sysAdminOpt) {
+            sysAdminOpt.disabled = !window.canSwitchAdminTenant;
+            sysAdminOpt.hidden = !window.canSwitchAdminTenant;
+        }
+    }
 
     if (userId) {
         modalTitle.textContent = 'ユーザーを編集';
@@ -1067,7 +1354,7 @@ async function loadUserData(userId) {
         document.getElementById('user-role').value = normalizeUserRole(user.role) || 'user';
     } catch (error) {
         console.error('Failed to load user data:', error);
-        // 詳細APIが失敗した場合でも、一覧で取得済みの最低限の情情報を表示する
+        // 詳細APIが失敗した場合でも、一覧で取得済みの最低限の情報を表示する
         const fallbackUser = allUsers.find(u => String(u.id) === String(userId));
         if (fallbackUser) {
             document.getElementById('user-id').value = fallbackUser.id;
@@ -1075,18 +1362,24 @@ async function loadUserData(userId) {
             document.getElementById('user-full-name').value = fallbackUser.display_name || '';
             document.getElementById('user-role').value = normalizeUserRole(fallbackUser.role) || 'user';
         }
-        showToast('ユーザー情情報の読み込みに失敗しました', 'error');
+        showToast('ユーザー情報の読み込みに失敗しました', 'error');
     }
 }
 
 async function saveUser() {
     const userId = document.getElementById('user-id').value;
+    const tenantSelect = document.getElementById('user-tenant-select');
+    const targetTenantId = (window.canSwitchAdminTenant && tenantSelect && tenantSelect.value)
+        ? tenantSelect.value
+        : getCurrentTenantId();
+
     const userData = {
         username: document.getElementById('user-username').value,
         display_name: document.getElementById('user-full-name').value,
         email: document.getElementById('user-email').value,
         password: document.getElementById('user-password').value,
-        role: normalizeUserRole(document.getElementById('user-role').value) || 'user'
+        role: normalizeUserRole(document.getElementById('user-role').value) || 'user',
+        targetTenantId: targetTenantId
     };
 
     console.log('[saveUser] Saving user:', { userId, userData: { ...userData, password: '***' } });
@@ -1114,6 +1407,13 @@ async function saveUser() {
         if (data.success) {
             showToast(userId ? 'ユーザーを更新しました' : 'ユーザーを追加しました', 'success');
             document.getElementById('user-modal').style.display = 'none';
+
+            // niinaが選択したテナントと表示を連動
+            if (window.canSwitchAdminTenant && targetTenantId && targetTenantId !== window.selectedAdminTenantId) {
+                window.selectedAdminTenantId = targetTenantId;
+                const globalSelect = document.getElementById('admin-global-tenant-select');
+                if (globalSelect) globalSelect.value = targetTenantId;
+            }
             loadUsers();
         } else {
             console.error('[saveUser] Save failed:', data.message);
@@ -2500,8 +2800,8 @@ async function loadOffices() {
 function showOfficeModal(mode, officeId) {
     const offices = [];
     if (mode === 'edit') {
-        // 既存データを取征者
-        fetch(`/api/offices`, {
+        // 既存データを取得
+        tenantFetch(`/api/offices`, {
             headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
         })
             .then(res => res.json())
@@ -2832,1900 +3132,1358 @@ function getStatusLabel(status) {
 
 // ========== マスタデ�者タのインポ�者ト�者デ��プレート�者通機�者 ==========
 
-/**
- * テンプレートCSVのダウンロード
- * @param {string} type マスタの種別
- */
-async function downloadMasterTemplate(type) {
-    let headers = [];
-    let filename = '';
+// ========================================
+// 登録デバイス管理 UI ロジック (マルチテナント・証明書検証・ページング)
+// ========================================
 
-    switch (type) {
-        case 'offices':
-            headers = ['事業所コード', '事業所名', '事業所区分', '住所', '郵便番号', '電話番号'];
-            filename = '事業所マスタ_テンプレート.csv';
-            break;
-        case 'bases':
-            headers = ['基地コード', '基地名', '所属事業所名', '所在地'];
-            filename = '保守基地マスタ_テンプレート.csv';
-            break;
-        case 'machine-types':
-            headers = ['メーカー型式', 'メーカー', 'カテゴリ', '説明'];
-            filename = '機種マスタ_テンプレート.csv';
-            break;
-        case 'machines':
-            headers = ['管理事業所名', '機種名', '機械番号*', 'シリアル番号', '型式認定番号', '製造年月日', '購入年月日', '備考'];
-            filename = '保守用車管理マスタ_テンプレート.csv';
-            break;
+let currentDevicePage = 1;
+let currentDeviceLimit = 20;
+let currentDeviceSearch = '';
+let currentDeviceStatus = 'all';
+let currentTenantDisplayName = '';
+let selectedDeviceTenantId = '';
+let canSwitchDeviceTenant = false;
+let availableDeviceTenants = [];
+let verifiedCreateCertPem = '';
+let verifiedRotateCertPem = '';
+let currentDetailDevice = null;
+let devSearchTimer = null;
+
+/**
+ * デバイス管理イベントリスナー初期化
+ */
+
+/**
+ * システム操作（メンテナンス・ガバナンス・ログ）イベントリスナー初期化
+ */
+function initializeSystemOperations() {
+    console.log('[System Operations] Initializing event listeners...');
+
+    // 一時ファイル事前確認
+    const previewTempBtn = document.getElementById('btn-preview-tmp');
+    if (previewTempBtn) {
+        previewTempBtn.addEventListener('click', handlePreviewTempFiles);
     }
 
-    const csvContent = "\uFEFF" + headers.join(',') + '\n';
-    await triggerFileDownload(csvContent, filename);
+    // 一時ファイル削除
+    const cleanTempBtn = document.getElementById('btn-clean-tmp');
+    if (cleanTempBtn) {
+        cleanTempBtn.addEventListener('click', handleCleanTempFiles);
+    }
+
+    // ログバックアップ情報
+    const backupLogBtn = document.getElementById('btn-backup-log');
+    if (backupLogBtn) {
+        backupLogBtn.addEventListener('click', handleBackupLogs);
+    }
+
+    // 孤立画像検出 (Dry Run専用)
+    const cleanImagesBtn = document.getElementById('btn-clean-images');
+    if (cleanImagesBtn) {
+        cleanImagesBtn.addEventListener('click', handleCleanOrphanedImages);
+    }
+
+    // モジュール稼働情報確認
+    const checkModuleBtn = document.getElementById('btn-check-module-version');
+    if (checkModuleBtn) {
+        checkModuleBtn.addEventListener('click', () => loadNpmAudit(getAuthToken()));
+    }
+
+    // ストレージ再取得
+    const storageDetailBtn = document.getElementById('btn-storage-detail');
+    if (storageDetailBtn) {
+        storageDetailBtn.addEventListener('click', () => loadStorageUsage(getAuthToken()));
+    }
+}
+
+function initializeDeviceManagement() {
+    // 検索入力 (デバウンス)
+    const searchInput = document.getElementById('dev-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            clearTimeout(devSearchTimer);
+            devSearchTimer = setTimeout(() => {
+                currentDeviceSearch = e.target.value.trim();
+                currentDevicePage = 1;
+                loadRegisteredDevices();
+            }, 300);
+        });
+    }
+
+    // ステータス絞り込み
+    const statusFilter = document.getElementById('dev-status-filter');
+    if (statusFilter) {
+        statusFilter.addEventListener('change', (e) => {
+            currentDeviceStatus = e.target.value;
+            currentDevicePage = 1;
+            loadRegisteredDevices();
+        });
+    }
+
+    // 表示件数
+    const limitSelect = document.getElementById('dev-limit-select');
+    if (limitSelect) {
+        limitSelect.addEventListener('change', (e) => {
+            currentDeviceLimit = Number(e.target.value) || 20;
+            currentDevicePage = 1;
+            loadRegisteredDevices();
+        });
+    }
+
+    // 更新ボタン
+    const refreshBtn = document.getElementById('btn-refresh-devices');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', () => loadRegisteredDevices());
+    }
+
+    // ページング
+    const prevBtn = document.getElementById('dev-prev-page');
+    const nextBtn = document.getElementById('dev-next-page');
+    if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+            if (currentDevicePage > 1) {
+                currentDevicePage--;
+                loadRegisteredDevices();
+            }
+        });
+    }
+    if (nextBtn) {
+        nextBtn.addEventListener('click', () => {
+            currentDevicePage++;
+            loadRegisteredDevices();
+        });
+    }
+
+    // 新規登録モーダル開く
+    const openCreateBtn = document.getElementById('btn-open-create-device');
+    if (openCreateBtn) {
+        openCreateBtn.addEventListener('click', () => {
+            openCreateDeviceModal();
+        });
+    }
+
+    // 新規登録モーダル閉じる
+    ['btn-close-create-device-x', 'btn-cancel-create-device'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.addEventListener('click', () => closeModal('device-create-modal'));
+    });
+
+    // 詳細モーダル閉じる
+    ['btn-close-device-detail-x', 'btn-close-device-detail'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.addEventListener('click', () => closeModal('device-detail-modal'));
+    });
+
+    // 編集モーダル閉じる
+    ['btn-close-edit-device-x', 'btn-cancel-edit-device'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.addEventListener('click', () => closeModal('device-edit-modal'));
+    });
+
+    // 証明書更新モーダル閉じる
+    ['btn-close-rotate-cert-x', 'btn-cancel-rotate-cert'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.addEventListener('click', () => closeModal('device-cert-rotate-modal'));
+    });
+
+    // 停止確認モーダル閉じる
+    ['btn-close-disable-device-x', 'btn-cancel-disable-device'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.addEventListener('click', () => closeModal('device-disable-modal'));
+    });
+
+    // 新規登録: 証明書ファイル選択時
+    const createCertFileInput = document.getElementById('dev-create-cert-file');
+    if (createCertFileInput) {
+        createCertFileInput.addEventListener('change', () => {
+            handleCertFileSelect('dev-create-cert-file', 'dev-create-cert-preview', 'btn-submit-create-device', false);
+        });
+    }
+
+    // 新規登録: 「別ファイルを手動指定」トグル
+    const toggleCustomCertBtn = document.getElementById('btn-toggle-custom-cert');
+    const customFileWrap = document.getElementById('dev-create-custom-file-wrap');
+    if (toggleCustomCertBtn && customFileWrap) {
+        toggleCustomCertBtn.addEventListener('click', () => {
+            const isHidden = customFileWrap.style.display === 'none';
+            customFileWrap.style.display = isHidden ? 'block' : 'none';
+            toggleCustomCertBtn.textContent = isHidden ? '固定証明書に戻す' : '別ファイルを手動指定';
+            if (!isHidden) {
+                const fileInput = document.getElementById('dev-create-cert-file');
+                if (fileInput) fileInput.value = '';
+                verifiedCreateCertPem = '';
+                const previewBox = document.getElementById('dev-create-cert-preview');
+                if (previewBox) {
+                    previewBox.style.display = 'none';
+                    previewBox.innerHTML = '';
+                }
+            }
+        });
+    }
+
+    // 新規登録: 所属テナント選択変更時
+    const createTenantSelect = document.getElementById('dev-create-tenant-select');
+    if (createTenantSelect) {
+        createTenantSelect.addEventListener('change', () => {
+            updateCreateDeviceTenantInfo();
+        });
+    }
+
+    // 新規登録フォーム送信
+    const createForm = document.getElementById('device-create-form');
+    if (createForm) {
+        createForm.addEventListener('submit', handleSubmitCreateDevice);
+    }
+
+    // 詳細モーダル内: 「編集」ボタン
+    const openEditFromDetailBtn = document.getElementById('btn-open-edit-from-detail');
+    if (openEditFromDetailBtn) {
+        openEditFromDetailBtn.addEventListener('click', () => {
+            if (!currentDetailDevice) return;
+            closeModal('device-detail-modal');
+            openEditDeviceModal(currentDetailDevice.id);
+        });
+    }
+
+    // 詳細モーダル内: 「証明書更新」ボタン
+    const openRotateFromDetailBtn = document.getElementById('btn-open-rotate-from-detail');
+    if (openRotateFromDetailBtn) {
+        openRotateFromDetailBtn.addEventListener('click', () => {
+            if (!currentDetailDevice) return;
+            closeModal('device-detail-modal');
+            openRotateCertModal(currentDetailDevice.id);
+        });
+    }
+
+    // 詳細モーダル内: 「端末停止 / 再開」ボタン
+    const toggleStatusBtn = document.getElementById('btn-toggle-status-from-detail');
+    if (toggleStatusBtn) {
+        toggleStatusBtn.addEventListener('click', () => {
+            if (!currentDetailDevice) return;
+            if (currentDetailDevice.isActive) {
+                // 有効 -> 停止確認モーダルへ
+                closeModal('device-detail-modal');
+                openDisableDeviceModal(currentDetailDevice.id, `${currentDetailDevice.deviceName} (${currentDetailDevice.deviceIdentifier})`);
+            } else {
+                // 停止中 -> 再有効化
+                handleEnableDevice(currentDetailDevice.id, `${currentDetailDevice.deviceName} (${currentDetailDevice.deviceIdentifier})`);
+            }
+        });
+    }
+
+    // 編集フォーム送信
+    const editForm = document.getElementById('device-edit-form');
+    if (editForm) {
+        editForm.addEventListener('submit', handleSubmitEditDevice);
+    }
+
+    // 証明書更新: ファイル選択 & 検証
+    const rotateCertFileInput = document.getElementById('dev-rotate-cert-file');
+    if (rotateCertFileInput) {
+        rotateCertFileInput.addEventListener('change', () => {
+            handleCertFileSelect('dev-rotate-cert-file', 'dev-rotate-cert-preview', 'btn-submit-rotate-cert', true);
+        });
+    }
+    const verifyRotateCertBtn = document.getElementById('btn-verify-rotate-cert');
+    if (verifyRotateCertBtn) {
+        verifyRotateCertBtn.addEventListener('click', () => {
+            verifySelectedCert('dev-rotate-cert-file', 'dev-rotate-cert-preview', 'btn-submit-rotate-cert', true);
+        });
+    }
+
+    // 証明書更新フォーム送信
+    const rotateForm = document.getElementById('device-cert-rotate-form');
+    if (rotateForm) {
+        rotateForm.addEventListener('submit', handleSubmitRotateCert);
+    }
+
+    // 停止確認フォーム送信
+    const disableForm = document.getElementById('device-disable-form');
+    if (disableForm) {
+        disableForm.addEventListener('submit', handleSubmitDisableDevice);
+    }
+
+    // 一覧テーブル内の操作ボタン・行クリック委譲
+    const tableBody = document.getElementById('device-table-body');
+    if (tableBody) {
+        tableBody.addEventListener('click', (e) => {
+            // ボタンがクリックされた場合
+            const targetBtn = e.target.closest('button[data-action]');
+            if (targetBtn) {
+                const action = targetBtn.getAttribute('data-action');
+                const deviceId = targetBtn.getAttribute('data-id');
+
+                if (action === 'detail') {
+                    openDeviceDetailModal(deviceId);
+                } else if (action === 'edit') {
+                    openEditDeviceModal(deviceId);
+                }
+                return;
+            }
+
+            // 行全体がクリックされた場合も詳細を開く
+            const targetRow = e.target.closest('tr[data-device-id]');
+            if (targetRow) {
+                const deviceId = targetRow.getAttribute('data-device-id');
+                if (deviceId) {
+                    openDeviceDetailModal(deviceId);
+                }
+            }
+        });
+    }
 }
 
 /**
- * マスタデータのインポート処理
- * @param {string} type マスタの種別
- * @param {File} file CSVファイル
+ * 登録デバイス一覧・サマリー読み込み (サーバーサイド検索・ページング)
  */
-async function importMasterData(type, file) {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        const text = e.target.result;
-        const rows = parseCSV(text);
-        if (rows.length < 2) {
-            showToast('CSVデータが見つかりません', 'error');
-            return;
+async function loadRegisteredDevices(token) {
+    const tableBody = document.getElementById('device-table-body');
+    const tenantBadge = document.getElementById('device-tenant-badge');
+    const selectorWrap = document.getElementById('device-tenant-selector-wrap');
+    const tenantSelect = document.getElementById('device-tenant-select');
+    const paginationInfo = document.getElementById('dev-pagination-info');
+    const currentPageElem = document.getElementById('dev-current-page');
+    const totalPagesElem = document.getElementById('dev-total-pages');
+    const prevBtn = document.getElementById('dev-prev-page');
+    const nextBtn = document.getElementById('dev-next-page');
+
+    try {
+        const authToken = token || getAuthToken();
+        const queryParams = new URLSearchParams({
+            search: currentDeviceSearch,
+            status: currentDeviceStatus,
+            page: String(currentDevicePage),
+            limit: String(currentDeviceLimit)
+        });
+        if (selectedDeviceTenantId) {
+            queryParams.set('tenantId', selectedDeviceTenantId);
         }
 
-        const headers = rows[0];
-        const dataRows = rows.slice(1);
-        let successCount = 0;
-        let errorCount = 0;
-        let errors = [];
+        const response = await tenantFetch(`/api/security/devices?${queryParams.toString()}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
 
-        showToast(`${dataRows.length}件の処理を開始します...`, 'info');
+        const result = await response.json();
 
-        // 必要データの事前ロード（ID解決用）
-        let idMaps = {};
-        if (type === 'bases' || type === 'machines') {
-            idMaps.offices = await fetchOfficeMap();
-        }
-        if (type === 'machines') {
-            idMaps.machineTypes = await fetchMachineTypeMap();
-        }
+        if (result.success) {
+            canSwitchDeviceTenant = Boolean(result.canSwitchTenant);
+            availableDeviceTenants = Array.isArray(result.availableTenants) ? result.availableTenants : [];
 
-        for (let i = 0; i < dataRows.length; i++) {
-            const row = dataRows[i];
-            if (row.length < headers.length) continue;
+            // 所属テナント表示
+            currentTenantDisplayName = result.tenantDisplayName || 'デモ環境';
+            if (tenantBadge) {
+                tenantBadge.textContent = `所属: ${currentTenantDisplayName}`;
+            }
 
-            const rowData = {};
-            headers.forEach((header, index) => {
-                rowData[header] = row[index] ? row[index].trim() : '';
-            });
-
-            try {
-                let apiData = {};
-                let apiUrl = '';
-
-                switch (type) {
-                    case 'offices':
-                        apiData = {
-                            office_code: rowData['事業所コード'] || null,
-                            office_name: rowData['事業所名'],
-                            office_type: rowData['事業所区分'],
-                            address: rowData['住所'],
-                            postal_code: rowData['郵便番号'],
-                            phone_number: rowData['電話番号']
-                        };
-                        if (!apiData.office_name) throw new Error('事業所名は必須です');
-                        apiUrl = '/api/offices';
-                        break;
-
-                    case 'bases':
-                        const officeId = idMaps.offices[rowData['所属事業所名']];
-                        apiData = {
-                            base_code: rowData['基地コード'] || null,
-                            base_name: rowData['基地名'],
-                            office_id: officeId || null,
-                            location: rowData['所在地']
-                        };
-                        if (!apiData.base_name) throw new Error('基地名は必須です');
-                        apiUrl = '/api/bases';
-                        break;
-
-                    case 'machine-types':
-                        apiData = {
-                            model_name: rowData['メーカー型式'],
-                            manufacturer: rowData['メーカー'],
-                            category: rowData['カテゴリ'],
-                            description: rowData['説明']
-                        };
-                        if (!apiData.model_name) throw new Error('メーカー型式は必須です');
-                        apiUrl = '/api/machine-types';
-                        break;
-
-                    case 'machines':
-                        const machineOfficeId = idMaps.offices[rowData['管理事業所名']];
-                        const machineTypeId = idMaps.machineTypes[rowData['機種名']];
-                        apiData = {
-                            office_id: machineOfficeId || null,
-                            machine_type_id: machineTypeId || null,
-                            machine_number: rowData['機械番号*'],
-                            serial_number: rowData['シリアル番号'],
-                            type_certification: rowData['型式認定番号'],
-                            manufacture_date: rowData['製造年月日'] || null,
-                            purchase_date: rowData['購入年月日'] || null,
-                            notes: rowData['備考']
-                        };
-                        if (!apiData.machine_number) throw new Error('機械番号は必須です');
-                        if (!apiData.office_id) throw new Error(`管理事業所「${rowData['管理事業所名']}」が見つかりません`);
-                        if (!apiData.machine_type_id) throw new Error(`機種「${rowData['機種名']}」が見つかりません`);
-                        apiUrl = '/api/machines';
-                        break;
+            // niina専用: テナント切替セレクタの表示・設定
+            if (canSwitchDeviceTenant && availableDeviceTenants.length > 0 && selectorWrap && tenantSelect) {
+                selectorWrap.style.display = 'inline-flex';
+                if (!selectedDeviceTenantId) {
+                    selectedDeviceTenantId = result.currentTenantId || result.tenantId;
                 }
+                tenantSelect.innerHTML = availableDeviceTenants.map(t =>
+                    `<option value="${t.tenant_key}" ${t.tenant_key === selectedDeviceTenantId ? 'selected' : ''}>${t.tenant_name} (${t.tenant_key})</option>`
+                ).join('');
 
-                const response = await tenantFetch(apiUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${localStorage.getItem('user_token')}`
-                    },
-                    body: JSON.stringify(apiData)
-                });
+                if (!tenantSelect.dataset.listenerAttached) {
+                    tenantSelect.dataset.listenerAttached = 'true';
+                    tenantSelect.addEventListener('change', () => {
+                        selectedDeviceTenantId = tenantSelect.value;
+                        currentDevicePage = 1;
+                        loadRegisteredDevices();
+                    });
+                }
+            } else if (selectorWrap) {
+                selectorWrap.style.display = 'none';
+            }
 
-                const result = await response.json();
-                if (result.success) {
-                    successCount++;
+            // サマリー更新
+            const summary = result.summary || {};
+            const setNum = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = val ?? 0;
+            };
+            setNum('dev-summary-total', summary.total);
+            setNum('dev-summary-active', summary.active);
+            setNum('dev-summary-disabled', summary.disabled);
+            setNum('dev-summary-near-expiry', summary.nearExpiry);
+            setNum('dev-summary-expired', summary.expired);
+
+            // テーブル描画
+            const devices = result.devices || [];
+            if (tableBody) {
+                if (devices.length === 0) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="5" style="padding: 32px; text-align: center; color: #64748b;">
+                                条件に合致する登録デバイスはありません
+                            </td>
+                        </tr>
+                    `;
                 } else {
-                    throw new Error(result.message || '登録に失敗しました');
+                    tableBody.innerHTML = devices.map(dev => {
+                        let badgeStyle = 'background: #f1f5f9; color: #475569; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.75rem;';
+                        if (dev.status === 'active') {
+                            badgeStyle = 'background: #dcfce7; color: #15803d; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.75rem;';
+                        } else if (dev.status === 'near_expiry') {
+                            badgeStyle = 'background: #fef3c7; color: #92400e; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.75rem;';
+                        } else if (dev.status === 'expired' || dev.status === 'revoked') {
+                            badgeStyle = 'background: #fee2e2; color: #991b1b; padding: 3px 8px; border-radius: 4px; font-weight: 600; font-size: 0.75rem;';
+                        }
+
+                        let expiryText = dev.certificate?.validTo || '-';
+                        if (dev.certificate?.daysRemaining !== null) {
+                            if (dev.certificate.daysRemaining < 0) {
+                                expiryText += ` <span style="color: #dc2626; font-size: 0.72rem;">(期限切れ)</span>`;
+                            } else if (dev.certificate.daysRemaining <= 30) {
+                                expiryText += ` <span style="color: #b45309; font-size: 0.72rem;">(残${dev.certificate.daysRemaining}日)</span>`;
+                            }
+                        }
+
+                        return `
+                            <tr data-device-id="${escapeHtml(dev.id)}" class="device-table-row" style="border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.15s ease;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+                                <td style="padding: 10px; font-weight: 500; color: #0f172a;">
+                                    ${escapeHtml(dev.deviceName)}
+                                </td>
+                                <td style="padding: 10px; font-family: monospace; color: #334155;">
+                                    ${escapeHtml(dev.deviceIdentifier)}
+                                </td>
+                                <td style="padding: 10px; text-align: center;">
+                                    <span style="${badgeStyle}">${dev.statusLabel}</span>
+                                </td>
+                                <td style="padding: 10px; color: #475569;">
+                                    ${expiryText}
+                                </td>
+                                <td style="padding: 10px; text-align: center;">
+                                    <button type="button" class="btn-sm-outline" data-action="detail" data-id="${dev.id}" style="padding: 3px 8px; font-size: 0.75rem; margin-right: 4px;">詳細</button>
+                                    <button type="button" class="btn-sm-outline" data-action="edit" data-id="${dev.id}" style="padding: 3px 8px; font-size: 0.75rem;">編集</button>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
                 }
-            } catch (err) {
-                console.error(`Import error row ${i + 2}:`, err);
-                errorCount++;
-                errors.push(`行${i + 2}: ${err.message}`);
+            }
+
+            // ページング更新
+            const pag = result.pagination || {};
+            if (paginationInfo) {
+                const fromCount = pag.totalCount === 0 ? 0 : (pag.page - 1) * pag.limit + 1;
+                const toCount = Math.min(pag.page * pag.limit, pag.totalCount);
+                paginationInfo.textContent = `全 ${pag.totalCount} 件中 ${fromCount}〜${toCount} 件を表示`;
+            }
+            if (currentPageElem) currentPageElem.textContent = pag.page || 1;
+            if (totalPagesElem) totalPagesElem.textContent = pag.totalPages || 1;
+            if (prevBtn) prevBtn.disabled = (pag.page <= 1);
+            if (nextBtn) nextBtn.disabled = (pag.page >= pag.totalPages);
+
+        } else {
+            console.error('[DeviceManagement] Error response:', result.message);
+            if (tableBody) {
+                tableBody.innerHTML = `<tr><td colspan="5" style="padding: 20px; text-align: center; color: #dc2626;">${result.message || 'データ取得エラー'}</td></tr>`;
             }
         }
-
-        showToast(`インポート完了: 成功 ${successCount}件, 失敗 ${errorCount}件`, errorCount > 0 ? 'warning' : 'success');
-        if (errors.length > 0) {
-            alert(`一部のデータでエラーが発生しました:\n\n${errors.slice(0, 10).join('\n')}${errors.length > 10 ? '\n...他' : ''}`);
+    } catch (err) {
+        console.error('[DeviceManagement] Load error:', err);
+        if (tableBody) {
+            tableBody.innerHTML = `<tr><td colspan="5" style="padding: 20px; text-align: center; color: #dc2626;">通信エラーが発生しました: ${err.message}</td></tr>`;
         }
+    }
+}
 
-        // データを再読み込み
-        switch (type) {
-            case 'offices': loadOffices(); break;
-            case 'bases': loadBases(); break;
-            case 'machine-types': loadMachineTypes(); break;
-            case 'machines': loadMachines(); break;
+/**
+ * ファイル選択処理 & FileReader でテキスト抽出
+ */
+function handleCertFileSelect(fileInputId, previewBoxId, submitBtnId, isRotate = false) {
+    const input = document.getElementById(fileInputId);
+    const submitBtn = document.getElementById(submitBtnId);
+    const previewBox = document.getElementById(previewBoxId);
+
+    if (!input || !input.files || input.files.length === 0) {
+        return;
+    }
+
+    const file = input.files[0];
+    const fileName = file.name.toLowerCase();
+
+    if (fileName.endsWith('.p12') || fileName.endsWith('.pfx') || fileName.endsWith('.key')) {
+        showPreviewError(previewBoxId, '⚠️ 秘密鍵やPKCS#12形式 (.p12, .pfx, .key) は選択できません。公開証明書 (.cer, .crt, 公開.pem) を指定してください。');
+        input.value = '';
+        if (submitBtn) submitBtn.disabled = true;
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const content = e.target.result;
+        if (isRotate) {
+            verifiedRotateCertPem = content;
+            if (previewBox) {
+                previewBox.style.display = 'block';
+                previewBox.style.background = '#f0f9ff';
+                previewBox.style.border = '1px solid #bae6fd';
+                previewBox.style.color = '#0369a1';
+                previewBox.innerHTML = `📎 新証明書ファイル: <strong>${file.name}</strong> を選択しました。<br><span style="font-size: 0.75rem; color: #64748b;">「新証明書を登録・更新」を押すと更新が保存され、自動で閉じます。</span>`;
+            }
+            if (submitBtn) submitBtn.disabled = false;
+        } else {
+            verifiedCreateCertPem = content;
+            // 新規登録モーダル: 誤解を生む「合格/完了」バナーは出さず、選択したファイル名のみシンプルに表示
+            if (previewBox) {
+                previewBox.style.display = 'block';
+                previewBox.style.background = '#f0f9ff';
+                previewBox.style.border = '1px solid #bae6fd';
+                previewBox.style.color = '#0369a1';
+                previewBox.innerHTML = `📎 選択中ファイル: <strong>${file.name}</strong> (読み込み完了)<br><span style="font-size: 0.75rem; color: #64748b;">下の「💾 保存して登録する」を押すと、自動で検証・DB保存され、画面が閉じて一覧に反映されます。</span>`;
+            }
+
+            // デバイス名や管理番号が未入力なら、テナント名から推測して親切に自動入力
+            const nameInput = document.getElementById('dev-create-name');
+            const idInput = document.getElementById('dev-create-identifier');
+            const tenantSelect = document.getElementById('dev-create-tenant-select');
+            const selectedTenant = (canSwitchDeviceTenant && tenantSelect && tenantSelect.value) ? tenantSelect.value : (currentTenant || 'kintetsu');
+
+            const tenantPrefixMap = {
+                'daitetsu': { prefix: 'DT', name: '大鉄工業' },
+                'kosei': { prefix: 'KS', name: '広成建設' },
+                'kintetsu': { prefix: 'KT', name: '近鉄' }
+            };
+            const tInfo = tenantPrefixMap[selectedTenant] || { prefix: selectedTenant.toUpperCase().slice(0, 3), name: selectedTenant };
+
+            if (idInput && !idInput.value.trim()) {
+                const randNum = String(Math.floor(Math.random() * 900) + 100);
+                idInput.value = `${tInfo.prefix}-TB-${randNum}`;
+            }
+            if (nameInput && !nameInput.value.trim()) {
+                nameInput.value = `${tInfo.name} 保守点検端末`;
+            }
+
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '💾 保存して登録する';
+            }
         }
     };
     reader.readAsText(file);
 }
 
 /**
- * CSVのパ�者ス�者�簡易版�者�者
+ * 証明書の事前検証 API 呼び出し
  */
-function parseCSV(text) {
-    const lines = text.split(/\r?\n/);
-    return lines.filter(line => line.trim()).map(line => {
-        let cells = [];
-        let cell = '';
-        let inQuote = false;
-        for (let i = 0; i < line.length; i++) {
-            const char = line[i];
-            if (char === '"') {
-                inQuote = !inQuote;
-            } else if (char === ',' && !inQuote) {
-                cells.push(cell.trim());
-                cell = '';
-            } else {
-                cell += char;
-            }
-        }
-        cells.push(cell.trim());
-        return cells;
-    });
-}
-
-/**
- * 事業所名とIDのマッピングを取征者
- */
-async function fetchOfficeMap() {
-    try {
-        const response = await tenantFetch('/api/offices', {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
-        });
-        const data = await response.json();
-        const offices = unwrapApiArray(data);
-        const map = {};
-        if (data.success) {
-            offices.forEach(o => {
-                map[o.office_name] = o.office_id;
-            });
-        }
-        return map;
-    } catch (err) {
-        console.error('Fetch office map error:', err);
-        return {};
-    }
-}
-
-/**
- * 機種名とIDのマッピングを取征者
- */
-async function fetchMachineTypeMap() {
-    try {
-        const response = await tenantFetch('/api/machine-types', {
-            headers: { 'Authorization': `Bearer ${localStorage.getItem('user_token')}` }
-        });
-        const data = await response.json();
-        const machineTypes = unwrapApiArray(data);
-        const map = {};
-        if (data.success) {
-            machineTypes.forEach(mt => {
-                map[mt.model_name || mt.type_name || mt.machine_type_name] = mt.id;
-            });
-        }
-        return map;
-    } catch (err) {
-        console.error('Fetch machine type map error:', err);
-        return {};
-    }
-}
-
-// ========== デ�者タベ�者ス管理==========
-async function loadDatabaseStats() {
-    try {
-        console.log('[loadDatabaseStats] Fetching database stats...');
-        const response = await tenantFetch('/api/database/stats', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        console.log('[loadDatabaseStats] Response status:', response.status);
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('[loadDatabaseStats] Data received:', data);
-
-        if (data.success) {
-            // 接続状慁者
-            const statusBadge = document.getElementById('db-connection-status');
-            if (data.stats.connected) {
-                statusBadge.innerHTML = '<span class="status-badge status-connected">• 接続中</span>';
-            } else {
-                statusBadge.innerHTML = '<span class="status-badge status-error">• エラー</span>';
-            }
-
-            // バ�者ジョン
-            document.getElementById('db-version').textContent = data.stats.version || '--';
-
-            // 接続数
-            const connections = data.stats.connections || '--';
-            document.getElementById('db-connections').textContent = connections;
-            document.getElementById('connection-count').textContent = connections;
-
-            // デ��スク使用玁者
-            const diskUsage = data.stats.disk_usage || 0;
-            document.getElementById('disk-usage').textContent = diskUsage + '%';
-            document.getElementById('disk-progress').style.width = diskUsage + '%';
-
-            // デ�者タベ�者スサイズ
-            document.getElementById('db-size').textContent = data.stats.database_size || '--';
-
-            // 稼働時閁者
-            document.getElementById('uptime').textContent = data.stats.uptime || '--';
-
-            // デ�者ブルサイズ
-            const tableSizes = document.getElementById('table-sizes');
-            if (data.stats.table_sizes && data.stats.table_sizes.length > 0) {
-                tableSizes.innerHTML = data.stats.table_sizes.map(table => `
-                    <div class="table-size-item">
-                        <span class="table-name">${escapeHtml(table.table_name)}</span>
-                        <span class="table-size">${table.size}</span>
-                    </div>
-                `).join('');
-            } else {
-                tableSizes.innerHTML = '<p class="loading">テーブル情報がありません</p>';
-            }
-        } else {
-            console.error('[loadDatabaseStats] Response not successful:', data);
-        }
-    } catch (error) {
-        console.error('[loadDatabaseStats] 者rror:', error);
-        const statusBadge = document.getElementById('db-connection-status');
-        if (statusBadge) {
-            statusBadge.innerHTML = `<span class="status-badge status-error">• エラー: ${error.message}</span>`;
-        }
-        showToast('データベース情報の取得に失敗しました', 'error');
-    }
-
-    // デ�者ブル管理���者の初期匁者
-    initializeTableManagement();
-}
-
-// デ�者ブル管理���者
-let currentTable = '';
-let currentTableData = [];
-let currentTableColumns = [];
-
-function initializeTableManagement() {
-    const loadTableBtn = document.getElementById('load-table-btn');
-    const addRecordBtn = document.getElementById('add-record-btn');
-    const tableSelect = document.getElementById('table-select');
-    const exportCsvBtn = document.getElementById('export-csv-btn');
-    const importCsvBtn = document.getElementById('import-csv-btn');
-    const importCsvFile = document.getElementById('import-csv-file');
-    const backupDbBtn = document.getElementById('backup-db-btn');
-    const restoreDbBtn = document.getElementById('restore-db-btn');
-    const restoreFileInput = document.getElementById('restore-file-input');
-
-    // デ�者ブル読み込み
-    loadTableBtn.addEventListener('click', async () => {
-        const selectedTable = tableSelect.value;
-        if (!selectedTable) {
-            showToast('テーブルを選択してください', 'error');
-            return;
-        }
-        currentTable = selectedTable;
-        await loadTableData(selectedTable);
-        exportCsvBtn.disabled = false;
-        importCsvBtn.disabled = false;
-    });
-
-    // 新規レコード追加
-    addRecordBtn.addEventListener('click', () => {
-        if (!currentTable) {
-            showToast('先にテーブルを選択してください', 'error');
-            return;
-        }
-        showRecordModal('add', null);
-    });
-
-    // CSVエクスポ�者デ
-    exportCsvBtn.addEventListener('click', async () => {
-        if (!currentTable) return;
-
-        try {
-            const response = await tenantFetch(`/api/database/export-csv/${currentTable}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (response.ok) {
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `${currentTable.replace('.', '_')}_export.csv`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-                showToast('CSVエクスポート完了', 'success');
-            } else {
-                showToast('エクスポートに失敗しました', 'error');
-            }
-        } catch (error) {
-            console.error('者xport error:', error);
-            showToast('エクスポート中にエラーが発生しました', 'error');
-        }
-    });
-
-    // CSVインポ�者デ
-    importCsvBtn.addEventListener('click', () => {
-        importCsvFile.click();
-    });
-
-    importCsvFile.addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-            try {
-                const csvData = event.target.result;
-                const response = await tenantFetch(`/api/database/import-csv/${currentTable}`, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ csvData })
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    showToast(data.message, 'success');
-                    await loadTableData(currentTable);
-                } else {
-                    showToast(data.message || 'インポートに失敗しました', 'error');
-                }
-            } catch (error) {
-                console.error('Import error:', error);
-                showToast('インポート中にエラーが発生しました', 'error');
-            }
-        };
-        reader.readAsText(file);
-        e.target.value = ''; // リセット��
-    });
-
-    // データベースバックアップ
-    backupDbBtn.addEventListener('click', async () => {
-        if (!confirm('データベース全体のバックアップを作成しますか？')) return;
-
-        try {
-            const response = await tenantFetch('/api/database/backup', {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (response.ok) {
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                a.download = `common_db_backup_${timestamp}.sql`;
-                document.body.appendChild(a);
-                a.click();
-                window.URL.revokeObjectURL(url);
-                document.body.removeChild(a);
-                showToast('バックアップに成功しました', 'success');
-            } else {
-                showToast('バックアップに失敗しました', 'error');
-            }
-        } catch (error) {
-            console.error('Backup error:', error);
-            showToast('バックアップ中にエラーが発生しました', 'error');
-        }
-    });
-
-    // データベース復元
-    restoreDbBtn.addEventListener('click', () => {
-        if (!confirm('⚠️  警告: 現在のデータベースが上書きされます。本当に復元しますか？')) return;
-        restoreFileInput.click();
-    });
-
-    restoreFileInput.addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        showToast('復元処理は手動で実行してください（psql コマンド使用）', 'error');
-        e.target.value = '';
-    });
-}
-
-async function loadTableData(schemaTable) {
-    const container = document.getElementById('table-data-container');
-    container.innerHTML = '<p class="info-text">読み込み中...</p>';
-
-    try {
-        const response = await tenantFetch(`/api/database/table/${schemaTable}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        const result = await response.json();
-        const rows = unwrapApiArray(result);
-
-        if (result.success && rows.length > 0) {
-            currentTableData = rows;
-            currentTableColumns = result.columns;
-
-            const columns = Object.keys(rows[0]);
-            const primaryKey = columns[0]; // 仮に最初�者カラムを主キーとする
-
-            let tableHtml = '<table class="data-table"><thead><tr>';
-            columns.forEach(col => {
-                tableHtml += `<th>${escapeHtml(col)}</th>`;
-            });
-            tableHtml += '<th>操作</th></tr></thead><tbody>';
-
-            rows.forEach(row => {
-                tableHtml += '<tr>';
-                columns.forEach(col => {
-                    const value = row[col];
-                    tableHtml += `<td>${escapeHtml(String(value !== null ? value : ''))}</td>`;
-                });
-                tableHtml += `<td class="action-buttons">
-                    <button class="btn-edit" onclick="editRecord('${escapeHtml(row[primaryKey])}')">✏️ 編集</button>
-                    <button class="btn-delete" onclick="deleteRecord('${escapeHtml(row[primaryKey])}')">🗑️ 削除</button>
-                </td></tr>`;
-            });
-
-            tableHtml += '</tbody></table>';
-            container.innerHTML = tableHtml;
-        } else {
-            container.innerHTML = '<p class="info-text">データがありません</p>';
-        }
-    } catch (error) {
-        console.error('Load table data error:', error);
-        container.innerHTML = '<p class="info-text">データの読み込みに失敗しました</p>';
-    }
-}
-
-function showRecordModal(mode, recordId) {
-    // モーダルHTML生�者
-    const modalHtml = `
-        <div id="record-modal" class="modal" style="display: block;">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2>${mode === 'add' ? '新規レコード追加' : 'レコード編集'}</h2>
-                    <button class="modal-close" onclick="closeRecordModal()">&times;</button>
-                </div>
-                <form id="record-form" class="modal-form">
-                    ${generateFormFields(mode, recordId)}
-                    <div class="modal-actions">
-                        <button type="button" class="btn-secondary" onclick="closeRecordModal()">キャンセル</button>
-                        <button type="submit" class="btn-primary">保存</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    `;
-
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-
-    // フォーム送信
-    document.getElementById('record-form').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        await saveRecord(mode, recordId);
-    });
-}
-
-function generateFormFields(mode, recordId) {
-    if (!currentTableColumns.length) return '';
-
-    let record = null;
-    if (mode === 'edit' && recordId) {
-        const primaryKey = Object.keys(currentTableData[0])[0];
-        record = currentTableData.find(r => String(r[primaryKey]) === String(recordId));
-    }
-
-    return currentTableColumns.map(col => {
-        const value = record ? record[col.column_name] : '';
-        const isId = col.column_name.toLowerCase().includes('id');
-        const disabled = (mode === 'edit' && isId) ? 'disabled' : '';
-
-        return `
-            <div class="form-group">
-                <label for="field_${col.column_name}">${escapeHtml(col.column_name)} (${col.data_type})</label>
-                <input 
-                    type="text" 
-                    id="field_${col.column_name}" 
-                    name="${col.column_name}" 
-                    value="${escapeHtml(String(value !== null ? value : ''))}"
-                    ${disabled}
-                    ${mode === 'add' && !isId ? 'required' : ''}
-                >
-            </div>
-        `;
-    }).join('');
-}
-
-async function saveRecord(mode, recordId) {
-    const formData = new FormData(document.getElementById('record-form'));
-    const data = {};
-    formData.forEach((value, key) => {
-        if (value !== '') data[key] = value;
-    });
-
-    try {
-        const url = mode === 'add'
-            ? `/api/database/table/${currentTable}`
-            : `/api/database/table/${currentTable}/${recordId}`;
-
-        const response = await tenantFetch(url, {
-            method: mode === 'add' ? 'POST' : 'PUT',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(data)
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            showToast(mode === 'add' ? '追加しました' : '更新しました', 'success');
-            closeRecordModal();
-            await loadTableData(currentTable);
-        } else {
-            showToast(result.message || '保存に失敗しました', 'error');
-        }
-    } catch (error) {
-        console.error('Save record error:', error);
-        showToast('保存中にエラーが発生しました', 'error');
-    }
-}
-
-async function editRecord(recordId) {
-    showRecordModal('edit', recordId);
-}
-
-async function deleteRecord(recordId) {
-    if (!confirm('このレコードを削除してもよろしいですか？？')) return;
-
-    try {
-        const response = await tenantFetch(`/api/database/table/${currentTable}/${recordId}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        const result = await response.json();
-
-        if (result.success) {
-            showToast('削除しました', 'success');
-            await loadTableData(currentTable);
-        } else {
-            showToast(result.message || '削除に失敗しました', 'error');
-        }
-    } catch (error) {
-        console.error('Delete record error:', error);
-        showToast('削除中にエラーが発生しました', 'error');
-    }
-}
-
-window.closeRecordModal = function () {
-    const modal = document.getElementById('record-modal');
-    if (modal) modal.remove();
-}
-
-window.editRecord = editRecord;
-window.deleteRecord = deleteRecord;
-
-// ========== CORS設定管理==========
-async function loadCorsSettings() {
-    try {
-        console.log('[loadCorsSettings] Fetching CORS settings...');
-        const response = await tenantFetch('/api/config', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        console.log('[loadCorsSettings] Response status:', response.status);
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-        console.log('[loadCorsSettings] Data received:', data);
-
-        if (data.success) {
-            const corsOrigin = data.config.cors_origin || '*';
-            document.getElementById('cors_origin').value = corsOrigin;
-        } else {
-            console.error('[loadCorsSettings] Response not successful:', data);
-        }
-    } catch (error) {
-        console.error('[loadCorsSettings] 者rror:', error);
-        showToast('CORS設定の読み込みに失敗しました', 'error');
-    }
-}
-
-// CORS設定�者初期匁者
-function initializeCorsSettings() {
-    const saveCorsBtn = document.getElementById('save-cors-btn');
-    if (saveCorsBtn) {
-        saveCorsBtn.addEventListener('click', async () => {
-            const corsOrigin = document.getElementById('cors_origin').value.trim();
-
-            if (!corsOrigin) {
-                showToast('CORS設定を入力してください', 'error');
-                return;
-            }
-
-            try {
-                const response = await tenantFetch('/api/config', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ cors_origin: corsOrigin })
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    showToast('CORS設定を保存しました', 'success');
-                } else {
-                    showToast(data.message || '保存に失敗しました', 'error');
-                }
-            } catch (error) {
-                console.error('Failed to save CORS settings:', error);
-                showToast('保存中にエラーが発生しました', 'error');
-            }
-        });
-    }
-}
-
-// ========== ユーデ��リデ��関数 ==========
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function showToast(message, type = 'success') {
-    const toast = document.getElementById('toast');
-    if (!toast) {
-        console.error('Toast element not found');
-        return;
-    }
-    toast.textContent = message;
-    toast.className = `toast show ${type}`;
-
-    setTimeout(() => {
-        toast.className = 'toast';
-    }, 3000);
-}
-
-// 検修マスタ関連の重複��裁者��者oadInspectionTypes/loadInspectionSchedules/
-// handleInspectionTypeSubmit/handleInspectionScheduleSubmit/
-// loadCategoriesForSchedule/setupInspectionMaster者ventListeners 等）�者
-// 1587行目以降�者実裁者��統一し、ここでは削除済み、者
-
-// ========================================
-// AI管理���者
-// ========================================
-// AI管理���者
-// ========================================
-
-// AI管理��ブ�者初期匁者
-function initializeAIManagement() {
-    console.log('[AI] Initializing AI management...');
-
-    // サブタブ�者切��替ぁ者
-    const subTabButtons = document.querySelectorAll('.sub-tab-button');
-    subTabButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            // ボタンのアクデ��ブ状態を切��替ぁ者
-            subTabButtons.forEach(btn => btn.classList.remove('active'));
-            button.classList.add('active');
-
-            // サブタブコンデ��デ��切��替ぁ者
-            const subtab = button.dataset.subtab;
-            document.querySelectorAll('.sub-tab-content').forEach(content => {
-                content.style.display = 'none';
-            });
-            document.getElementById(`${subtab}-subtab`).style.display = 'block';
-
-            // サブタブに応じたデータ読み込み
-            if (subtab === 'ai-knowledge') {
-                loadKnowledgeData();
-                loadStorageStats();
-            } else if (subtab === 'ai-rag') {
-                loadRAGSettings();
-            }
-        });
-    });
-
-    // デ�者タインポ�者デ 機械敁者��情報��
-    const faultJsonBtn = document.getElementById('import-fault-json-btn');
-    if (faultJsonBtn) {
-        faultJsonBtn.addEventListener('click', handleFaultJsonImport);
-    }
-
-    // デ�者タインポ�者デ マニュアルファイル
-    const manualFilesInput = document.getElementById('manual-files');
-    if (manualFilesInput) {
-        manualFilesInput.addEventListener('change', handleManualFilesSelect);
-    }
-
-    const importManualsBtn = document.getElementById('import-manuals-btn');
-    if (importManualsBtn) {
-        importManualsBtn.addEventListener('click', handleManualImport);
-    }
-
-    // デ�者タインポ�者デ GCS
-    const importGcsBtn = document.getElementById('import-gcs-btn');
-    if (importGcsBtn) {
-        importGcsBtn.addEventListener('click', handleGCSImport);
-    }
-
-    // ナレデ��管理 更新ボタン
-    const refreshKnowledgeBtn = document.getElementById('refresh-knowledge-btn');
-    if (refreshKnowledgeBtn) {
-        refreshKnowledgeBtn.addEventListener('click', loadKnowledgeData);
-    }
-
-    // AI支援調整: 会話スタイルボタン削除
-    // AI支援調整: 保存�者タン削除
-
-    // RAG設定 スライダー値の表示更新
-    const chunkSizeSlider = document.getElementById('rag-chunk-size');
-    if (chunkSizeSlider) {
-        chunkSizeSlider.addEventListener('input', (e) => {
-            document.getElementById('chunk-size-value').textContent = e.target.value;
-            updateCurrentRAGSettings();
-        });
-    }
-
-    const overlapSlider = document.getElementById('rag-overlap');
-    if (overlapSlider) {
-        overlapSlider.addEventListener('input', (e) => {
-            document.getElementById('overlap-value').textContent = e.target.value;
-            updateCurrentRAGSettings();
-        });
-    }
-
-    const similaritySlider = document.getElementById('rag-similarity');
-    if (similaritySlider) {
-        similaritySlider.addEventListener('input', (e) => {
-            document.getElementById('similarity-value').textContent = (e.target.value / 100).toFixed(2);
-            updateCurrentRAGSettings();
-        });
-    }
-
-    const maxResultsInput = document.getElementById('rag-max-results');
-    if (maxResultsInput) {
-        maxResultsInput.addEventListener('input', () => {
-            updateCurrentRAGSettings();
-        });
-    }
-
-    // 検索手法�者選抁者
-    const searchMethodRadios = document.querySelectorAll('input[name="search-method"]');
-    searchMethodRadios.forEach(radio => {
-        radio.addEventListener('change', updateCurrentRAGSettings);
-    });
-
-    // デ��スト前処理�者チェック��ボックス
-    const preprocessingCheckboxes = [
-        'preprocessing-stopwords',
-        'preprocessing-stemming',
-        'preprocessing-lowercase',
-        'preprocessing-normalize'
-    ];
-    preprocessingCheckboxes.forEach(id => {
-        const checkbox = document.getElementById(id);
-        if (checkbox) {
-            checkbox.addEventListener('change', updateCurrentRAGSettings);
-        }
-    });
-
-    // ラジオボタンのスタイル変更�者�選択時にハイライト！者
-    document.querySelectorAll('.radio-option').forEach(label => {
-        const input = label.querySelector('input[type="radio"]');
-        if (input) {
-            input.addEventListener('change', function () {
-                document.querySelectorAll('.radio-option').forEach(l => {
-                    l.style.borderColor = '#ddd';
-                    l.style.backgroundColor = 'white';
-                });
-                if (this.checked) {
-                    label.style.borderColor = '#667eea';
-                    label.style.backgroundColor = '#f0f4ff';
-                }
-            });
-            // 初期状態を反映
-            if (input.checked) {
-                label.style.borderColor = '#667eea';
-                label.style.backgroundColor = '#f0f4ff';
-            }
-        }
-    });
-
-    // チェック��ボックスのスタイル変更
-    document.querySelectorAll('.checkbox-option').forEach(label => {
-        const input = label.querySelector('input[type="checkbox"]');
-        if (input && !input.disabled) {
-            input.addEventListener('change', function () {
-                if (this.checked) {
-                    label.style.borderColor = '#667eea';
-                    label.style.backgroundColor = '#f0f4ff';
-                } else {
-                    label.style.borderColor = '#ddd';
-                    label.style.backgroundColor = 'white';
-                }
-            });
-            // 初期状態を反映
-            if (input.checked) {
-                label.style.borderColor = '#667eea';
-                label.style.backgroundColor = '#f0f4ff';
-            }
-        }
-    });
-
-    // RAG設定 保存�者タン
-    const saveRAGBtn = document.getElementById('save-rag-settings-btn');
-    if (saveRAGBtn) {
-        saveRAGBtn.addEventListener('click', saveRAGSettings);
-    }
-
-    // RAG設定 デ��ト�者タン
-    const testRAGBtn = document.getElementById('test-rag-btn');
-    const ragTestModal = document.getElementById('rag-test-result-modal');
-    const closeRagTestModal = document.getElementById('close-rag-test-modal');
-
-    if (testRAGBtn && ragTestModal) {
-        testRAGBtn.addEventListener('click', async () => {
-            try {
-                const testQuery = document.getElementById('test-query')?.value || 'テストクエリ';
-                showToast('🧪 RAGパフォーマンステストを開始します...', 'info');
-
-                const chunkSize = document.getElementById('rag-chunk-size').value;
-                const overlap = document.getElementById('rag-overlap').value;
-                const similarity = parseFloat(document.getElementById('rag-similarity').value) / 100;
-                const maxResults = document.getElementById('rag-max-results').value;
-                const searchMethod = document.querySelector('input[name="search-method"]:checked')?.value || 'vector';
-
-                // デ��ト実行中の表示
-                const ragTestResultBody = document.getElementById('rag-test-result-body');
-                ragTestResultBody.innerHTML = `
-【テスト設定】
-• チャンクサイズ: ${chunkSize}文字
-• オーバーラップ: ${overlap}文字
-• 類似度閾値: ${similarity}
-• 最大検索結果数: ${maxResults}件
-• 検索方式: ${getSearchMethodLabel(searchMethod)}
-• テストクエリ: "${testQuery}"
-
-処理を実行中...⏳`;
-
-                ragTestModal.classList.add('show');
-
-                // テスト処理の仮実行
-                const startTime = Date.now();
-                await new Promise(resolve => setTimeout(resolve, 1500));
-                const endTime = Date.now();
-                const duration = endTime - startTime;
-
-                const resultMessage = `🎉 RAGパフォーマンステスト完了
-
-【現在の設定】
-📊 チャンクサイズ: ${chunkSize}文字
-🔄 オーバーラップ: ${overlap}文字
-🎯 類似度閾値: ${similarity}
-📈 最大結果数: ${maxResults}件
-🔍 検索方式: ${getSearchMethodLabel(searchMethod)}
-
-【パフォーマンス結果】
-⚡ 検索速度: ${duration}ms (良好)
-• 精度: 設定値に基づく
-💾 メモリ使用量: 適切
-
-【推奨事項】
-• チャンクサイズが大きいほど文脈理解が向上します
-• オーバーラップを設定するとチャンク間の情報欠落を防げます
-• 類似度閾値を高くすると精度が上がりますが結果数が減ります
-• 最大結果数は用途に応じて調整してください`;
-
-                ragTestResultBody.textContent = resultMessage;
-                console.log('[RAG Test] Complete:', resultMessage);
-
-            } catch (error) {
-                console.error('[RAG Test] 者rror:', error);
-                const ragTestResultBody = document.getElementById('rag-test-result-body');
-                ragTestResultBody.textContent = 'テスト実行中にエラーが発生しました:\n' + error.message;
-            }
-        });
-
-        // 終亁者�者タンでモーダルを閉じる
-        if (closeRagTestModal) {
-            closeRagTestModal.addEventListener('click', () => {
-                ragTestModal.classList.remove('show');
-            });
-        }
-
-        // モーダル背景クリデ��で閉じめ者
-        ragTestModal.addEventListener('click', (e) => {
-            if (e.target === ragTestModal) {
-                ragTestModal.classList.remove('show');
-            }
-        });
-    }
-
-    // GCS接続診断ボタン
-    const diagnoseGCSBtn = document.getElementById('diagnose-gcs-btn');
-    if (diagnoseGCSBtn) {
-        diagnoseGCSBtn.addEventListener('click', diagnoseGCSConnection);
-    }
-
-    // 初期設定表示を更新
-    updateCurrentRAGSettings();
-}
-
-// ストレージ統計�者読み込み
-async function loadStorageStats() {
-    try {
-        const response = await tenantFetch('/api/ai/storage-stats', {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            if (data.success) {
-                document.getElementById('stat-total-files').textContent = data.stats.total_files || 0;
-                document.getElementById('stat-total-size').textContent = data.stats.total_size_mb || '0.00';
-                document.getElementById('stat-active-files').textContent = data.stats.active_files || 0;
-                document.getElementById('stat-local-uploads').textContent = data.stats.local_uploads || 0;
-            }
-        }
-    } catch (error) {
-        console.error('[AI] 者rror loading storage stats:', error);
-    }
-}
-
-// ナレデ��デ�者タの読み込み
-async function loadKnowledgeData() {
-    console.log('[LoadKnowledge] Starting to load knowledge data...');
-    try {
-        console.log('[LoadKnowledge] Token:', token ? 'exists' : 'missing');
-
-        const response = await tenantFetch('/api/ai/knowledge', {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-
-        console.log('[LoadKnowledge] Response status:', response.status);
-
-        if (response.ok) {
-            const result = await response.json();
-            console.log('[LoadKnowledge] Result:', result);
-            if (result.success) {
-                console.log('[LoadKnowledge] Data count:', result.data.length);
-                displayKnowledgeData(result.data);
-            }
-        } else {
-            console.error('[LoadKnowledge] Failed to load:', response.status);
-        }
-    } catch (error) {
-        console.error('[LoadKnowledge] 者rror loading knowledge data:', error);
-        document.getElementById('knowledge-data-list').innerHTML = '<p class="error">データの読み込みに失敗しました</p>';
-    }
-}
-
-// ナレデ��デ�者タの表示
-function displayKnowledgeData(data) {
-    const container = document.getElementById('knowledge-data-list');
-
-    if (!data || data.length === 0) {
-        container.innerHTML = '<p class="no-data">ナレッジデータがありません</p>';
+async function verifySelectedCert(fileInputId, previewBoxId, submitBtnId, isRotate = false) {
+    const previewBox = document.getElementById(previewBoxId);
+    const submitBtn = document.getElementById(submitBtnId);
+    const certData = isRotate ? verifiedRotateCertPem : verifiedCreateCertPem;
+
+    if (!certData) {
+        showPreviewError(previewBoxId, '証明書ファイルを選択してください。');
         return;
     }
 
-    const html = data.map(item => `
-        <div class="knowledge-item" data-id="${item.id}">
-            <div class="knowledge-info">
-                <div class="knowledge-name">📄 ${item.file_name}</div>
-                <div class="knowledge-meta">
-                    ${item.file_type} | ${(item.file_size_bytes / 1024 / 1024).toFixed(2)} MB | 
-                    アデ�者ローデ ${new Date(item.uploaded_at).toLocaleDateString('ja-JP')} |
-                    使用回数: ${item.usage_count || 0}囁者
-                </div>
-                ${item.description ? `<div class="knowledge-meta">${item.description}</div>` : ''}
-            </div>
-            <div class="knowledge-actions-btn">
-                <button class="btn-danger btn-sm" onclick="deleteKnowledgeData(${item.id})">削除</button>
-            </div>
-        </div>
-    `).join('');
-
-    container.innerHTML = html;
-}
-
-// ナレッジデータの削除
-async function deleteKnowledgeData(id) {
-    if (!confirm('このナレッジデータを削除してもよろしいですか？？')) {
-        return;
+    if (previewBox) {
+        previewBox.style.display = 'block';
+        previewBox.style.background = '#f8fafc';
+        previewBox.style.border = '1px solid #cbd5e1';
+        previewBox.innerHTML = '<span style="color: #0369a1;">🔄 サーバー側で証明書を検証中...</span>';
     }
 
     try {
-        const response = await tenantFetch(`/api/ai/knowledge/${id}`, {
-            method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-
-        const responseData = await response.json();
-
-        if (response.ok) {
-            showToast('ナレッジデータを削除しました', 'success');
-            await loadKnowledgeData();
-            await loadStorageStats();
-        } else {
-            showToast('削除に失敗しました: ' + (responseData.message || ''), 'error');
-        }
-    } catch (error) {
-        console.error('者rror deleting knowledge data:', error);
-        showToast('削除中にエラーが発生しました', 'error');
-    }
-}
-
-
-
-// 機械敁者��情報��JSONのインポ�者デ
-async function handleFaultJsonImport() {
-    const fileInput = document.getElementById('fault-json-file');
-    const file = fileInput.files[0];
-
-    if (!file) {
-        showToast('ファイルを選択してください', 'warning');
-        return;
-    }
-
-    if (!file.name.endsWith('.json')) {
-        showToast('JSON形式のファイルを選択してください', 'warning');
-        return;
-    }
-
-    showToast('インポート中...', 'info');
-
-    // TODO: 実際のインポ�者ト�者理��実裁者
-    setTimeout(() => {
-        showToast('機械故障情報をインポートしました', 'success');
-        fileInput.value = '';
-    }, 1500);
-}
-
-// マニュアルファイル選択時の処理
-function handleManualFilesSelect(event) {
-    const files = Array.from(event.target.files);
-    const listContainer = document.getElementById('manual-file-list');
-
-    if (files.length === 0) {
-        listContainer.innerHTML = '';
-        return;
-    }
-
-    const html = files.map((file, index) => `
-        <div class="file-item">
-            <span>📄 ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)</span>
-        </div>
-    `).join('');
-
-    listContainer.innerHTML = `<div style="margin-top: 15px;"><strong>選択されたファイル:</strong>${html}</div>`;
-}
-
-// マニュアルファイルのインポ�者デ
-async function handleManualImport() {
-    const fileInput = document.getElementById('manual-files');
-    const files = fileInput.files;
-    const saveOriginal = document.getElementById('save-original-file').checked;
-
-    if (files.length === 0) {
-        showToast('ファイルを選択してください', 'warning');
-        return;
-    }
-
-    showToast('ファイルをアップロード中...', 'info');
-
-    for (let file of files) {
-        try {
-            const formData = new FormData();
-            formData.append('file', file);
-            formData.append('saveOriginalFile', saveOriginal);
-            formData.append('uploadedBy', JSON.parse(localStorage.getItem('user_info') || '{}').username || 'admin');
-            formData.append('description', `Manual: ${file.name}`);
-            const response = await tenantFetch('/api/ai/knowledge/upload', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                },
-                body: formData
-            });
-
-            if (!response.ok) {
-                let errorMsg = `Failed to upload ${file.name}`;
-                try {
-                    const errorData = await response.json();
-                    if (errorData.message) {
-                        errorMsg += `: ${errorData.message}`;
-                    }
-                } catch (e) {
-                    const text = await response.text();
-                    if (text) {
-                        errorMsg += `: ${text}`;
-                    }
-                }
-                throw new Error(errorMsg);
-            }
-        } catch (error) {
-            console.error('[AI] 者rror uploading file:', error);
-            // エラーメデ��ージを含めて表示するように修正
-            showToast(`${error.message}`, 'error');
-            return;
-        }
-    }
-
-    showToast('すべてのファイルをインポートしました', 'success');
-    fileInput.value = '';
-    document.getElementById('manual-file-list').innerHTML = '';
-    loadStorageStats();
-}
-
-// 現在のRAG設定を表示更新
-function updateCurrentRAGSettings() {
-    const chunkSize = document.getElementById('rag-chunk-size')?.value || '-';
-    const overlap = document.getElementById('rag-overlap')?.value || '-';
-    const similarity = document.getElementById('rag-similarity')?.value || '0';
-    const maxResults = document.getElementById('rag-max-results')?.value || '-';
-    const searchMethod = document.querySelector('input[name="search-method"]:checked')?.value || 'vector';
-
-    // デ��スト前処理�者選択状態を取征者
-    const preprocessing = [];
-    if (document.getElementById('preprocessing-stopwords')?.checked) preprocessing.push('ストップワード除去');
-    if (document.getElementById('preprocessing-stemming')?.checked) preprocessing.push('スデ��ング');
-    if (document.getElementById('preprocessing-lowercase')?.checked) preprocessing.push('小文字変換');
-    if (document.getElementById('preprocessing-normalize')?.checked) preprocessing.push('文��正規化');
-
-    // 表示を更新
-    if (document.getElementById('display-chunk-size')) {
-        document.getElementById('display-chunk-size').textContent = chunkSize;
-    }
-    if (document.getElementById('display-overlap')) {
-        document.getElementById('display-overlap').textContent = overlap;
-    }
-    if (document.getElementById('display-similarity')) {
-        document.getElementById('display-similarity').textContent = (parseFloat(similarity) / 100).toFixed(2);
-    }
-    if (document.getElementById('display-max-results')) {
-        document.getElementById('display-max-results').textContent = maxResults;
-    }
-    if (document.getElementById('display-search-method')) {
-        document.getElementById('display-search-method').textContent = getSearchMethodLabel(searchMethod);
-    }
-    if (document.getElementById('display-preprocessing')) {
-        document.getElementById('display-preprocessing').textContent = preprocessing.length > 0 ? preprocessing.join(', ') : 'なし';
-    }
-    if (document.getElementById('display-last-updated')) {
-        const now = new Date();
-        document.getElementById('display-last-updated').textContent = now.toLocaleString('ja-JP');
-    }
-}
-
-// 検索手法�者ラベルを取征者
-function getSearchMethodLabel(value) {
-    const labels = {
-        'vector': 'ベクトル検索',
-        'keyword': 'キーワード検索',
-        'hybrid': 'ハイブリデ��検索'
-    };
-    return labels[value] || value;
-}
-
-// GCS接続診断
-async function diagnoseGCSConnection() {
-    const resultDiv = document.getElementById('gcs-diagnosis-result');
-    const contentDiv = document.getElementById('gcs-diagnosis-content');
-
-    try {
-        showToast('🔍 GCS接続診断を開始します..', 'info');
-
-        // 診断中の表示
-        resultDiv.style.display = 'block';
-        contentDiv.innerHTML = `
-<div style="text-align: center; padding: 20px;">
-    <div style="font-size: 2em; margin-bottom: 10px;">⏳</div>
-    <div>診断実行中...</div>
-</div>`;
-        const response = await tenantFetch('/api/ai/diagnose-gcs', {
-            method: 'G者T',
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-
-        let result;
-        try {
-            result = await response.json();
-        } catch (e) {
-            console.error('Failed to parse response JSON:', e);
-            result = null;
-        }
-
-        if (response.ok) {
-
-            if (result && result.success) {
-                // 成功時�者表示
-                contentDiv.innerHTML = `
-<div style="line-height: 1.8;">
-    <div style="font-size: 1.3em; font-weight: bold; color: #34a853; margin-bottom: 15px;">
-        • GCS接続診断: 正常
-    </div>
-    
-    <div style="margin-bottom: 15px;">
-        <strong>📦 バケット情報:</strong><br>
-        <div style="margin-left: 20px; margin-top: 5px;">
-            バケット名: <code>${result.bucket || 'N/A'}</code><br>
-            接続状態: <span style="color: #34a853; font-weight: bold;">• 接続成功</span>
-        </div>
-    </div>
-    
-    <div style="margin-bottom: 15px;">
-        <strong>📁 フォルダ構成:</strong><br>
-        <div style="margin-left: 20px; margin-top: 5px;">
-            ${result.folders && result.folders.length > 0 ?
-                        result.folders.map(f => `• ${f}`).join('<br>') :
-                        '⚠️ フォルダが存在しません'}
-        </div>
-    </div>
-    
-    <div style="margin-bottom: 15px;">
-        <strong>🔐 アクセス権限:</strong><br>
-        <div style="margin-left: 20px; margin-top: 5px;">
-            読み取り: <span style="color: #34a853;">• 許可</span><br>
-            書き込み: <span style="color: #34a853;">• 許可</span>
-        </div>
-    </div>
-    
-    <div style="margin-bottom: 15px;">
-        <strong>💾 ストレージ使用状況:</strong><br>
-        <div style="margin-left: 20px; margin-top: 5px;">
-            ファイル数: ${result.fileCount || 0}件<br>
-            総サイズ: ${result.totalSize || 'N/A'}
-        </div>
-    </div>
-    
-    <div style="background: #d4edda; padding: 10px; border-radius: 4px; border-left: 4px solid #28a745; margin-top: 15px;">
-        <strong>✨ 診断結果:</strong> すべての項目が正常です
-    </div>
-</div>`;
-                showToast('• GCS接続診断が完了しました', 'success');
-            } else {
-                throw new Error((result && result.error) || '診断に失敗しました');
-            }
-        } else {
-            throw new Error((result && result.error) || `診断APIエラー: ${response.status}`);
-        }
-    } catch (error) {
-        console.error('[GCS Diagnosis] 者rror:', error);
-
-        // エラー時�者表示
-        contentDiv.innerHTML = `
-<div style="line-height: 1.8;">
-    <div style="font-size: 1.3em; font-weight: bold; color: #dc3545; margin-bottom: 15px;">
-        ❁者GCS接続診断: エラー
-    </div>
-    
-    <div style="background: #f8d7da; padding: 15px; border-radius: 4px; border-left: 4px solid #dc3545; margin-bottom: 15px;">
-        <strong>エラー内容:</strong><br>
-        ${error.message}
-    </div>
-    
-    <div style="background: #fff3cd; padding: 15px; border-radius: 4px; border-left: 4px solid #ffc107;">
-        <strong>💡 対処方法</strong><br>
-        <ul style="margin: 8px 0 0 20px; padding: 0;">
-            <li>GCSバケットの設定を確認してください</li>
-            <li>サービスアカウントの権限を確認してください</li>
-            <li>ネットワーク接続を確認してください</li>
-            <li>バケット名が正しいか確認してください</li>
-        </ul>
-    </div>
-</div>`;
-        showToast('❁者GCS接続診断に失敗しました', 'error');
-    }
-}
-
-// GCSからのインポ�者デ
-async function handleGCSImport() {
-    const filePath = document.getElementById('gcs-file-path').value.trim();
-    const description = document.getElementById('gcs-description').value.trim();
-
-    if (!filePath) {
-        showToast('GCSファイルパスを入力してください', 'warning');
-        return;
-    }
-
-    showToast('GCSからインポート中...', 'info');
-
-    // TODO: 実際のGCSインポ�者ト�者理��実裁者
-    setTimeout(() => {
-        showToast('GCSからファイルをインポートしました', 'success');
-        document.getElementById('gcs-file-path').value = '';
-        document.getElementById('gcs-description').value = '';
-        loadKnowledgeData();
-        loadStorageStats();
-    }, 1500);
-}
-
-// AI支援設定�者読み込み (削除済み)
-// AI支援設定�者保存(削除済み)
-
-// RAG設定�者読み込み
-async function loadRAGSettings() {
-    try {
-        const response = await tenantFetch('/api/ai/settings', {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-
-        if (response.ok) {
-            const result = await response.json();
-            if (result.success && result.settings.rag) {
-                const settings = result.settings.rag.data;
-
-                // チャンクサイズ
-                document.getElementById('rag-chunk-size').value = settings.chunkSize || 500;
-                document.getElementById('chunk-size-value').textContent = settings.chunkSize || 500;
-
-                // オーバ�者ラデ�者
-                if (document.getElementById('rag-overlap')) {
-                    document.getElementById('rag-overlap').value = settings.overlap || 100;
-                    document.getElementById('overlap-value').textContent = settings.overlap || 100;
-                }
-
-                // 類似度閾値
-                document.getElementById('rag-similarity').value = (settings.similarityThreshold || 0.7) * 100;
-                document.getElementById('similarity-value').textContent = settings.similarityThreshold || 0.7;
-
-                // 最大結果数
-                document.getElementById('rag-max-results').value = settings.maxResults || 5;
-
-                // シスデ��プロンプト
-                if (document.getElementById('rag-system-prompt')) {
-                    document.getElementById('rag-system-prompt').value = settings.customInstructions || '';
-                }
-
-                // 検索手況者
-                if (settings.searchMethod) {
-                    const searchMethodRadio = document.querySelector(`input[name="search-method"][value="${settings.searchMethod}"]`);
-                    if (searchMethodRadio) {
-                        searchMethodRadio.checked = true;
-                        // ラジオボタンのスタイルを更新
-                        searchMethodRadio.dispatch者vent(new 者vent('change'));
-                    }
-                }
-
-                // デ��スト前処理
-                if (settings.preprocessing) {
-                    if (document.getElementById('preprocessing-stopwords')) {
-                        document.getElementById('preprocessing-stopwords').checked = settings.preprocessing.stopwords !== false;
-                    }
-                    if (document.getElementById('preprocessing-stemming')) {
-                        document.getElementById('preprocessing-stemming').checked = settings.preprocessing.stemming === true;
-                    }
-                    if (document.getElementById('preprocessing-lowercase')) {
-                        document.getElementById('preprocessing-lowercase').checked = settings.preprocessing.lowercase !== false;
-                    }
-                    if (document.getElementById('preprocessing-normalize')) {
-                        document.getElementById('preprocessing-normalize').checked = settings.preprocessing.normalize !== false;
-                    }
-                    // チェック��ボックスのスタイルを更新
-                    document.querySelectorAll('.checkbox-option input[type="checkbox"]').forEach(cb => {
-                        if (cb.checked && !cb.disabled) {
-                            cb.closest('.checkbox-option').style.borderColor = '#667eea';
-                            cb.closest('.checkbox-option').style.backgroundColor = '#f0f4ff';
-                        }
-                    });
-                }
-
-                // 現在の設定表示を更新
-                updateCurrentRAGSettings();
-            }
-        }
-    } catch (error) {
-        console.error('[AI] 者rror loading RAG settings:', error);
-    }
-}
-
-// RAG設定�者保存
-async function saveRAGSettings() {
-    // 検索手法を取征者
-    const searchMethod = document.querySelector('input[name="search-method"]:checked')?.value || 'vector';
-
-    // デ��スト前処理�者設定を取征者
-    const preprocessing = {
-        stopwords: document.getElementById('preprocessing-stopwords')?.checked || false,
-        stemming: document.getElementById('preprocessing-stemming')?.checked || false,
-        lowercase: document.getElementById('preprocessing-lowercase')?.checked || false,
-        normalize: document.getElementById('preprocessing-normalize')?.checked || false
-    };
-
-    const settings = {
-        chunkSize: parseInt(document.getElementById('rag-chunk-size').value),
-        overlap: parseInt(document.getElementById('rag-overlap')?.value || 100),
-        similarityThreshold: parseFloat(document.getElementById('rag-similarity').value) / 100,
-        maxResults: parseInt(document.getElementById('rag-max-results').value),
-        customInstructions: document.getElementById('rag-system-prompt')?.value || '',
-        searchMethod: searchMethod,
-        preprocessing: preprocessing
-    };
-
-    try {
-        console.log('[AI] Saving RAG settings:', settings);
-
-        const response = await tenantFetch('/api/ai/settings', {
+        const authToken = getAuthToken();
+        const response = await tenantFetch('/api/security/devices/verify-cert', {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ certificate: certData })
+        });
+
+        const result = await response.json();
+
+        if (result.ok) {
+            const info = result.certificateInfo || {};
+            if (previewBox) {
+                previewBox.style.display = 'block';
+                previewBox.style.background = '#f0fdf4';
+                previewBox.style.border = '1px solid #86efac';
+                previewBox.innerHTML = `
+                    <div style="color: #166534; font-weight: 700; margin-bottom: 4px;">✅ 証明書検証に合格しました</div>
+                    <div style="font-size: 0.78rem; line-height: 1.5; color: #1e293b;">
+                        <div>・Fingerprint: <code style="font-family: monospace; background: #dcfce7; padding: 2px 4px; border-radius: 3px;">${info.fingerprintShort}</code></div>
+                        <div>・有効期限: <strong>${info.validToFormatted}</strong> (${info.daysRemaining}日後まで有効)</div>
+                    </div>
+                `;
+            }
+            if (submitBtn) submitBtn.disabled = false;
+        } else {
+            showPreviewError(previewBoxId, `❌ 検証失敗: ${result.message || '証明書が不正です'}`);
+            if (submitBtn) submitBtn.disabled = true;
+        }
+    } catch (err) {
+        showPreviewError(previewBoxId, `通信エラー: ${err.message}`);
+        if (submitBtn) submitBtn.disabled = true;
+    }
+}
+
+function showPreviewError(boxId, msg) {
+    const box = document.getElementById(boxId);
+    if (box) {
+        box.style.display = 'block';
+        box.style.background = '#fef2f2';
+        box.style.border = '1px solid #fecaca';
+        box.style.color = '#991b1b';
+        box.textContent = msg;
+    }
+}
+
+/**
+ * 新規登録モーダル内のテナント証明書表示を更新
+ */
+function updateCreateDeviceTenantInfo() {
+    const tenantSelect = document.getElementById('dev-create-tenant-select');
+    const autoCertName = document.getElementById('dev-create-auto-cert-name');
+    const selectedTenant = (canSwitchDeviceTenant && tenantSelect && tenantSelect.value) ? tenantSelect.value : (currentTenant || 'kintetsu');
+    if (autoCertName) {
+        autoCertName.textContent = `client_${selectedTenant}.crt`;
+    }
+}
+
+/**
+ * 新規登録モーダルを開く
+ */
+function openCreateDeviceModal() {
+    const modal = document.getElementById('device-create-modal');
+    const tenantInput = document.getElementById('dev-create-tenant-name');
+    const tenantSelect = document.getElementById('dev-create-tenant-select');
+    const tenantLabel = document.getElementById('lbl-dev-create-tenant');
+    const nameInput = document.getElementById('dev-create-name');
+    const idInput = document.getElementById('dev-create-identifier');
+    const fileInput = document.getElementById('dev-create-cert-file');
+    const customFileWrap = document.getElementById('dev-create-custom-file-wrap');
+    const toggleCustomCertBtn = document.getElementById('btn-toggle-custom-cert');
+    const previewBox = document.getElementById('dev-create-cert-preview');
+    const submitBtn = document.getElementById('btn-submit-create-device');
+
+    if (canSwitchDeviceTenant && availableDeviceTenants.length > 0) {
+        if (tenantInput) tenantInput.style.display = 'none';
+        if (tenantSelect) {
+            tenantSelect.style.display = 'block';
+            tenantSelect.innerHTML = availableDeviceTenants.map(t =>
+                `<option value="${t.tenant_key}" ${t.tenant_key === selectedDeviceTenantId ? 'selected' : ''}>${t.tenant_name} (${t.tenant_key})</option>`
+            ).join('');
+        }
+        if (tenantLabel) tenantLabel.innerHTML = '所属テナント <span style="font-size: 0.75rem; color: #0284c7; font-weight: bold;">(管理者選択)</span>';
+    } else {
+        if (tenantSelect) tenantSelect.style.display = 'none';
+        if (tenantInput) {
+            tenantInput.style.display = 'block';
+            tenantInput.value = currentTenantDisplayName || 'デモ環境';
+        }
+        if (tenantLabel) tenantLabel.innerHTML = '所属テナント <span style="font-size: 0.75rem; color: #64748b;">(ログイン証明書から自動判定)</span>';
+    }
+
+    updateCreateDeviceTenantInfo();
+
+    if (customFileWrap) customFileWrap.style.display = 'none';
+    if (toggleCustomCertBtn) toggleCustomCertBtn.textContent = '別ファイルを手動指定';
+
+    if (nameInput) nameInput.value = '';
+    if (idInput) idInput.value = '';
+    if (fileInput) fileInput.value = '';
+    if (previewBox) {
+        previewBox.style.display = 'none';
+        previewBox.innerHTML = '';
+    }
+    if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '💾 保存して登録する';
+    }
+    verifiedCreateCertPem = '';
+
+    if (modal) modal.style.display = 'flex';
+}
+
+/**
+ * 新規デバイス登録 送信処理 (ワンクリック自動読み込み・検証・DB保存・自動モーダル消去・一覧即時反映)
+ */
+async function handleSubmitCreateDevice(e) {
+    e.preventDefault();
+    const nameInput = document.getElementById('dev-create-name');
+    const idInput = document.getElementById('dev-create-identifier');
+    const fileInput = document.getElementById('dev-create-cert-file');
+    const customFileWrap = document.getElementById('dev-create-custom-file-wrap');
+    const previewBox = document.getElementById('dev-create-cert-preview');
+    const submitBtn = document.getElementById('btn-submit-create-device');
+
+    const devName = nameInput ? nameInput.value.trim() : '';
+    const devIdent = idInput ? idInput.value.trim() : '';
+
+    if (!devName) {
+        showToast('デバイス名を入力してください', 'warning');
+        if (nameInput) nameInput.focus();
+        return;
+    }
+    if (!devIdent) {
+        showToast('管理番号を入力してください', 'warning');
+        if (idInput) idInput.focus();
+        return;
+    }
+
+    // 別ファイル手動指定枠が表示されており、ファイルが選択されている場合はファイル読み込み
+    const isCustomFileMode = customFileWrap && customFileWrap.style.display !== 'none';
+    if (isCustomFileMode && fileInput && fileInput.files && fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        const fileName = file.name.toLowerCase();
+        if (fileName.endsWith('.p12') || fileName.endsWith('.pfx') || fileName.endsWith('.key')) {
+            showToast('秘密鍵や.p12形式は指定できません。公開証明書（.crt）を指定してください', 'error');
+            return;
+        }
+
+        try {
+            verifiedCreateCertPem = await file.text();
+        } catch (err) {
+            showToast('ファイルの読み込みに失敗しました: ' + err.message, 'error');
+            return;
+        }
+    }
+
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '⏳ 保存・登録中...';
+    }
+
+    try {
+        const authToken = getAuthToken();
+        const tenantSelect = document.getElementById('dev-create-tenant-select');
+        const targetTenantId = (tenantSelect && tenantSelect.value && tenantSelect.style.display !== 'none')
+            ? tenantSelect.value
+            : ((canSwitchDeviceTenant && tenantSelect && tenantSelect.value) ? tenantSelect.value : undefined);
+
+        const certToSend = (verifiedCreateCertPem && verifiedCreateCertPem.trim())
+            ? verifiedCreateCertPem
+            : ''; // 未選択時はサーバー側で社内CAから自動発行または固定証明書を適用
+
+        const response = await tenantFetch('/api/security/devices', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
             },
             body: JSON.stringify({
-                settingType: 'rag',
-                settings: settings
+                deviceName: devName,
+                deviceIdentifier: devIdent,
+                certificate: certToSend,
+                targetTenantId
             })
         });
 
         const result = await response.json();
-        console.log('[AI] Save response:', result);
 
-        if (response.ok && result.success) {
-            showToast('RAG設定を保存しました', 'success');
-            // 現在の設定表示を更新
-            updateCurrentRAGSettings();
+        if (result.ok) {
+            // 登録・保存完了: モーダルを直ちに閉じる（UIが完全に消える）
+            closeModal('device-create-modal');
+            showToast(result.message || 'デバイスを正常に登録・保存しました', 'success');
+
+            // niinaが選択したテナントと一覧表示を連動
+            if (canSwitchDeviceTenant && targetTenantId) {
+                selectedDeviceTenantId = targetTenantId;
+                const filterSelect = document.getElementById('dev-filter-tenant');
+                if (filterSelect) {
+                    filterSelect.value = targetTenantId;
+                }
+            }
+
+            // 元の一覧テーブルを即時更新し、登録結果・検証済み証明書情報を一覧で確認できるようにする
+            loadRegisteredDevices();
         } else {
-            const errorMsg = result.message || result.error || '保存に失敗しました';
-            console.error('[AI] Save failed:', errorMsg);
-            showToast(`保存エラー: ${errorMsg}`, 'error');
-        }
-    } catch (error) {
-        console.error('[AI] 者rror saving RAG settings:', error);
-        showToast(`保存中にエラーが発甁者 ${error.message}`, 'error');
-    }
-}
-
-// AI管理���者の初期化をDOMContentLoadedに追加
-document.addEventListener('DOMContentLoaded', () => {
-    // AI管理��ブがアクデ��ブになったときに初期匁者
-    const aiManagementTab = document.querySelector('[data-tab="ai-management"]');
-    if (aiManagementTab) {
-        aiManagementTab.addEventListener('click', () => {
-            setTimeout(initializeAIManagement, 100);
-        });
-    }
-
-    // シスデ��運用タブ�者初期匁者
-    initializeSystemOperations();
-});
-
-// ========================================
-// シスデ��運用タブ機�者
-// ========================================
-
-/**
- * シスデ��運用タブ�者初期匁者
- */
-function initializeSystemOperations() {
-    console.log('[System Operations] Initializing...');
-
-    // メンデ��ンスボタンのイベントリスナ�者
-    const cleanTempBtn = document.getElementById('btn-clean-tmp');
-    const backupLogBtn = document.getElementById('btn-backup-log');
-    const cleanImagesBtn = document.getElementById('btn-clean-images');
-
-    if (cleanTempBtn) {
-        cleanTempBtn.addEventListener('click', handleCleanTempFiles);
-    }
-
-    if (backupLogBtn) {
-        backupLogBtn.addEventListener('click', handleBackupLogs);
-    }
-
-    if (cleanImagesBtn) {
-        cleanImagesBtn.addEventListener('click', handleCleanOrphanedImages);
-    }
-
-    // シスデ��運用タブがクリデ��されたときにデ�者タを読み込む
-    const systemOpsTabBtn = document.querySelector('[data-tab="system-operations"]');
-    if (systemOpsTabBtn) {
-        systemOpsTabBtn.addEventListener('click', () => {
-            setTimeout(loadSystemOperationsData, 100);
-        });
-    }
-}
-
-/**
- * シスデ��運用デ�者タの読み込み
- */
-async function loadSystemOperationsData() {
-    console.log('[System Operations] Loading data...');
-
-    try {
-        // 並列で吁者��ータを取征者
-        await Promise.all([
-            loadSecurityAlerts(token),
-            loadBlockedAccess(token),
-            loadRegisteredDevices(token),
-            loadNpmAudit(token),
-            loadStorageUsage(token),
-            loadCertificateStatus(token)
-        ]);
-
-        console.log('[System Operations] All data loaded successfully');
-    } catch (error) {
-        console.error('[System Operations] 者rror loading data:', error);
-    }
-}
-
-/**
- * セキュリデ��アラートを読み込み
- */
-function formatSecurityDateTime(isoStr) {
-    if (!isoStr) return '未取得';
-    try {
-        const d = new Date(isoStr);
-        if (isNaN(d.getTime())) return '未取得';
-        return d.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
-    } catch (_) {
-        return '未取得';
-    }
-}
-
-async function loadSecurityAlerts(token) {
-    const badgeElement = document.querySelector('.security-panel .badge-alert');
-    const alertCount = document.querySelector('.alert-count');
-    const alertDetails = document.querySelector('.alert-details');
-
-    try {
-        const response = await tenantFetch('/api/security/alerts', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        const data = await response.json();
-
-        if (data.success && data.summary) {
-            const total = data.summary.totalAlerts || 0;
-            const lastSuccessText = formatSecurityDateTime(data.lastSuccessAt || data.summary.timestamp);
-
-            if (total === 0) {
-                if (badgeElement) {
-                    badgeElement.textContent = '0件 (正常)';
-                    badgeElement.style.background = '#28a745';
-                }
-                if (alertCount) {
-                    alertCount.innerHTML = '<span class="text-success">0件（検出なし）</span>';
-                }
-                if (alertDetails) {
-                    alertDetails.innerHTML = `
-                        <li>・検出された不正アクセス試行はありません</li>
-                        <li>・ブロックされたIPはありません</li>
-                        <li class="text-muted" style="margin-top: 4px; font-size: 0.85em;">最終取得成功: ${lastSuccessText}</li>
-                    `;
-                }
-            } else {
-                if (badgeElement) {
-                    badgeElement.textContent = `${total}件`;
-                    badgeElement.style.background = '#dc3545';
-                }
-                if (alertCount) {
-                    alertCount.innerHTML = `<span class="text-danger">${total}件</span>`;
-                }
-                if (alertDetails) {
-                    alertDetails.innerHTML = `
-                        <li>・不正アクセス試行: ${data.summary.unauthorizedAttempts || 0}回</li>
-                        <li>・ブロックされたIP: ${data.summary.blockedIPs || 0}個</li>
-                        <li class="text-muted" style="margin-top: 4px; font-size: 0.85em;">最終取得成功: ${lastSuccessText}</li>
-                    `;
-                }
-            }
-        } else {
-            // 取得失敗状態
-            const lastSuccessText = formatSecurityDateTime(data.lastSuccessAt);
-            if (badgeElement) {
-                badgeElement.textContent = '取得不可';
-                badgeElement.style.background = '#6c757d';
-            }
-            if (alertCount) {
-                alertCount.innerHTML = '<span class="text-warning">監視データ取得不可</span>';
-            }
-            if (alertDetails) {
-                alertDetails.innerHTML = `
-                    <li class="text-warning">・状態: Cloud Logging 連携エラー</li>
-                    <li class="text-muted" style="margin-top: 4px; font-size: 0.85em;">最終取得成功: ${lastSuccessText}</li>
-                `;
+            showToast(result.message || '登録に失敗しました', 'error');
+            if (previewBox) {
+                previewBox.style.display = 'block';
+                previewBox.style.background = '#fef2f2';
+                previewBox.style.border = '1px solid #fecaca';
+                previewBox.style.color = '#991b1b';
+                previewBox.textContent = `❌ ${result.message || '登録に失敗しました'}`;
             }
         }
-    } catch (error) {
-        console.error('[System Operations] Error loading security alerts:', error);
-        if (badgeElement) {
-            badgeElement.textContent = '取得不可';
-            badgeElement.style.background = '#6c757d';
-        }
-        if (alertCount) {
-            alertCount.innerHTML = '<span class="text-warning">監視データ取得不可</span>';
-        }
-        if (alertDetails) {
-            alertDetails.innerHTML = `
-                <li class="text-warning">・通信エラーにより取得できません</li>
-                <li class="text-muted" style="margin-top: 4px; font-size: 0.85em;">最終取得成功: 未取得</li>
-            `;
+    } catch (err) {
+        showToast('通信エラー: ' + err.message, 'error');
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '💾 保存して登録する';
         }
     }
 }
 
 /**
- * ブロックされたアクセスを読み込み
+ * デバイス詳細モーダルを開く
  */
-async function loadBlockedAccess(token) {
-    const table = document.querySelector('.security-list-section table tbody');
-    try {
-        const response = await tenantFetch('/api/security/blocked-access', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+async function openDeviceDetailModal(deviceId) {
+    const modal = document.getElementById('device-detail-modal');
+    const contentBox = document.getElementById('dev-detail-content');
+    const toggleStatusBtn = document.getElementById('btn-toggle-status-from-detail');
 
+    if (modal) modal.style.display = 'flex';
+    if (contentBox) contentBox.innerHTML = '<div style="text-align: center; color: #64748b; padding: 24px;">読み込み中...</div>';
+
+    try {
+        const authToken = getAuthToken();
+        const response = await tenantFetch(`/api/security/devices/${deviceId}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
         const result = await response.json();
 
-        if (result.success && Array.isArray(result.data)) {
-            if (table) {
-                if (result.data.length === 0) {
-                    table.innerHTML = `
-                        <tr>
-                            <td colspan="2" class="text-muted" style="text-align: center; padding: 12px;">ブロックされたアクセスはありません（正常）</td>
-                        </tr>
-                    `;
+        if (result.ok && result.device) {
+            const dev = result.device;
+            currentDetailDevice = dev;
+
+            let badgeStyle = 'background: #dcfce7; color: #15803d; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 0.75rem;';
+            if (dev.status === 'disabled') badgeStyle = 'background: #f1f5f9; color: #475569; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 0.75rem;';
+            if (dev.status === 'near_expiry') badgeStyle = 'background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 0.75rem;';
+            if (dev.status === 'expired' || dev.status === 'revoked') badgeStyle = 'background: #fee2e2; color: #991b1b; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 0.75rem;';
+
+            if (toggleStatusBtn) {
+                if (dev.isActive) {
+                    toggleStatusBtn.textContent = '⛔ 端末を停止';
+                    toggleStatusBtn.className = 'btn-danger-outline';
                 } else {
-                    table.innerHTML = result.data.slice(0, 5).map(item => `
-                        <tr>
-                            <td>${item.ip} ${item.country ? `(${item.country})` : ''}</td>
-                            <td><span class="badge-gray">${item.attempts}回試行</span></td>
-                        </tr>
-                    `).join('');
+                    toggleStatusBtn.textContent = '✅ 停止を解除 (再開)';
+                    toggleStatusBtn.className = 'btn-sm-outline';
                 }
             }
-        } else {
-            if (table) {
-                const lastSuccessText = formatSecurityDateTime(result?.lastSuccessAt);
-                table.innerHTML = `
-                    <tr>
-                        <td colspan="2" class="text-muted" style="text-align: center; padding: 12px;">監視データ取得不可（最終成功: ${lastSuccessText}）</td>
-                    </tr>
-                `;
-            }
-        }
-    } catch (error) {
-        console.error('[System Operations] Error loading blocked access:', error);
-        if (table) {
-            table.innerHTML = `
-                <tr>
-                    <td colspan="2" class="text-muted" style="text-align: center; padding: 12px;">監視データ取得不可（通信エラー）</td>
-                </tr>
-            `;
-        }
-    }
-}
 
-/**
- * 登録デバイスを読み込み
- */
-async function loadRegisteredDevices(token) {
-    const devicesContainer = document.querySelector('.security-list-section:nth-child(3)');
-    try {
-        const response = await tenantFetch('/api/security/devices', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+            const currentCert = dev.currentCertificate;
 
-        const result = await response.json();
-
-        if (result.success && Array.isArray(result.data)) {
-            if (devicesContainer) {
-                if (result.data.length === 0) {
-                    devicesContainer.innerHTML = `
-                        <h4>登録デバイス</h4>
-                        <div style="padding: 12px; color: #6c757d; text-align: center;">登録された稼働デバイスはありません</div>
-                    `;
-                } else {
-                    const devicesHtml = result.data.slice(0, 5).map(device => `
-                        <div class="device-item">
-                            <div class="device-info">
-                                <span class="device-name">${device.name} (${device.user})</span>
-                                <span class="device-meta">最終アクセス: ${device.lastAccess}</span>
-                            </div>
-                            <span class="status-badge ${device.status === 'active' ? 'success' : 'inactive'}">${device.status === 'active' ? '稼働中' : '非稼働'}</span>
+            let certsHtml = '';
+            if (dev.certificates && dev.certificates.length > 0) {
+                certsHtml = `
+                    <div style="margin-top: 14px;">
+                        <h4 style="margin: 0 0 6px 0; font-size: 0.85rem; color: #334155;">📜 証明書履歴 (${dev.certificates.length}件)</h4>
+                        <div style="max-height: 140px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 4px;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.75rem;">
+                                <thead style="background: #f8fafc; text-align: left;">
+                                    <tr>
+                                        <th style="padding: 4px 8px;">状態</th>
+                                        <th style="padding: 4px 8px;">Fingerprint (SHA-256)</th>
+                                        <th style="padding: 4px 8px;">有効期限</th>
+                                        <th style="padding: 4px 8px;">登録日</th>
+                                        <th style="padding: 4px 8px; text-align: center;">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${dev.certificates.map(c => `
+                                        <tr style="border-top: 1px solid #f1f5f9;">
+                                            <td style="padding: 4px 8px;">
+                                                ${c.isCurrent ? '<strong style="color: #15803d;">現行</strong>' : '<span style="color: #64748b;">旧証明書</span>'}
+                                                ${c.isRevoked ? ' <span style="color: #dc2626; font-weight: 600;">(失効)</span>' : ''}
+                                            </td>
+                                            <td style="padding: 4px 8px; font-family: monospace;">${escapeHtml(c.fingerprintShort)}</td>
+                                            <td style="padding: 4px 8px;">${escapeHtml(c.validTo)}</td>
+                                            <td style="padding: 4px 8px; color: #64748b;">${escapeHtml(c.createdAt)}</td>
+                                            <td style="padding: 4px 8px; text-align: center;">
+                                                ${!c.isRevoked ? `
+                                                    <button type="button" class="btn-sm btn-danger-outline" style="padding: 2px 6px; font-size: 0.72rem;" onclick="handleRevokeCert('${escapeHtml(dev.id)}', '${escapeHtml(c.id)}', '${escapeHtml(c.fingerprintShort)}')">失効</button>
+                                                ` : '<span style="color: #94a3b8; font-size: 0.72rem;">失効済</span>'}
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
                         </div>
-                    `).join('');
-
-                    devicesContainer.innerHTML = `
-                        <h4>登録デバイス</h4>
-                        ${devicesHtml}
-                    `;
-                }
-            }
-        } else {
-            if (devicesContainer) {
-                const lastSuccessText = formatSecurityDateTime(result?.lastSuccessAt);
-                devicesContainer.innerHTML = `
-                    <h4>登録デバイス</h4>
-                    <div style="padding: 12px; color: #856404; text-align: center;">登録デバイス取得不可（最終成功: ${lastSuccessText}）</div>
+                    </div>
                 `;
             }
+
+            if (contentBox) {
+                contentBox.innerHTML = `
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+                        <div>
+                            <span style="color: #64748b; font-size: 0.78rem;">デバイス名:</span><br>
+                            <strong style="font-size: 1rem; color: #0f172a;">${dev.deviceName}</strong>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-size: 0.78rem;">管理番号:</span><br>
+                            <code style="font-family: monospace; font-size: 0.95rem; color: #0369a1; font-weight: 600;">${dev.deviceIdentifier}</code>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-size: 0.78rem;">所属テナント:</span><br>
+                            <strong>${dev.tenantDisplayName}</strong>
+                        </div>
+                        <div>
+                            <span style="color: #64748b; font-size: 0.78rem;">端末状態:</span><br>
+                            <span style="${badgeStyle}">${dev.statusLabel}</span>
+                        </div>
+                    </div>
+
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px; margin-bottom: 10px;">
+                        <div style="font-weight: 600; font-size: 0.8rem; margin-bottom: 4px; color: #334155;">現行証明書情報</div>
+                        <div style="font-size: 0.78rem; line-height: 1.6;">
+                            <div>・Fingerprint (SHA-256): <code style="font-family: monospace; background: #fff; padding: 1px 4px; border: 1px solid #cbd5e1; border-radius: 3px; word-break: break-all;">${currentCert?.fingerprint256 || '-'}</code></div>
+                            <div>・シリアル番号: ${currentCert?.serialNumber || '-'}</div>
+                            <div>・Subject: ${currentCert?.subjectDn || '-'}</div>
+                            <div>・有効期間: ${currentCert?.validFrom || '-'} 〜 <strong>${currentCert?.validTo || '-'}</strong></div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #64748b; border-top: 1px solid #f1f5f9; padding-top: 6px;">
+                        <span>登録日時: ${dev.createdAt}</span>
+                        <span>最終更新: ${dev.updatedAt}</span>
+                    </div>
+
+                    ${certsHtml}
+                `;
+            }
+        } else {
+            if (contentBox) contentBox.innerHTML = `<div style="color: #dc2626; padding: 20px;">${result.message || '端末情報の取得に失敗しました'}</div>`;
         }
-    } catch (error) {
-        console.error('[System Operations] Error loading registered devices:', error);
-        if (devicesContainer) {
-            devicesContainer.innerHTML = `
-                <h4>登録デバイス</h4>
-                <div style="padding: 12px; color: #856404; text-align: center;">登録デバイス取得不可（通信エラー）</div>
-            `;
+    } catch (err) {
+        if (contentBox) contentBox.innerHTML = `<div style="color: #dc2626; padding: 20px;">通信エラー: ${err.message}</div>`;
+    }
+}
+
+/**
+ * 編集モーダルを開く
+ */
+async function openEditDeviceModal(deviceId) {
+    const modal = document.getElementById('device-edit-modal');
+    const idInput = document.getElementById('dev-edit-id');
+    const tenantInput = document.getElementById('dev-edit-tenant-name');
+    const identInput = document.getElementById('dev-edit-identifier');
+    const nameInput = document.getElementById('dev-edit-name');
+    const fpDisplay = document.getElementById('dev-edit-fp-display');
+
+    // 前回データの残留を防止するため開く直前に完全クリア
+    if (idInput) idInput.value = '';
+    if (tenantInput) tenantInput.value = '';
+    if (identInput) identInput.value = '';
+    if (nameInput) nameInput.value = '';
+    if (fpDisplay) fpDisplay.textContent = '読み込み中...';
+    if (modal) modal.style.display = 'flex';
+
+    try {
+        const authToken = getAuthToken();
+        const response = await tenantFetch(`/api/security/devices/${deviceId}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const result = await response.json();
+
+        if (result.ok && result.device) {
+            const dev = result.device;
+            if (idInput) idInput.value = dev.id;
+            if (tenantInput) tenantInput.value = dev.tenantDisplayName || 'デモ環境';
+            if (identInput) identInput.value = dev.deviceIdentifier;
+            if (nameInput) nameInput.value = dev.deviceName;
+            if (fpDisplay) fpDisplay.textContent = dev.currentCertificate?.fingerprint256 || '-';
+
+            if (modal) modal.style.display = 'flex';
+        } else {
+            showToast(result.message || '端末情報の取得に失敗しました', 'error');
         }
+    } catch (err) {
+        showToast('通信エラー: ' + err.message, 'error');
+    }
+}
+
+/**
+ * デバイス編集 送信処理
+ */
+async function handleSubmitEditDevice(e) {
+    e.preventDefault();
+    const idInput = document.getElementById('dev-edit-id');
+    const nameInput = document.getElementById('dev-edit-name');
+
+    try {
+        const authToken = getAuthToken();
+        const response = await tenantFetch(`/api/security/devices/${idInput.value}`, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({
+                deviceName: nameInput.value.trim()
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.ok) {
+            showToast(result.message || '端末名を更新しました', 'success');
+            closeModal('device-edit-modal');
+            loadRegisteredDevices();
+        } else {
+            showToast(result.message || '更新に失敗しました', 'error');
+        }
+    } catch (err) {
+        showToast('通信エラー: ' + err.message, 'error');
+    }
+}
+
+/**
+ * 証明書更新モーダルを開く
+ */
+async function openRotateCertModal(deviceId) {
+    const modal = document.getElementById('device-cert-rotate-modal');
+    const idInput = document.getElementById('dev-rotate-id');
+    const titleElem = document.getElementById('dev-rotate-device-title');
+    const expiryElem = document.getElementById('dev-rotate-current-expiry');
+    const fileInput = document.getElementById('dev-rotate-cert-file');
+    const previewBox = document.getElementById('dev-rotate-cert-preview');
+    const submitBtn = document.getElementById('btn-submit-rotate-cert');
+
+    verifiedRotateCertPem = '';
+    if (fileInput) fileInput.value = '';
+    if (previewBox) previewBox.style.display = 'none';
+    if (submitBtn) submitBtn.disabled = true;
+
+    try {
+        const authToken = getAuthToken();
+        const response = await tenantFetch(`/api/security/devices/${deviceId}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const result = await response.json();
+
+        if (result.ok && result.device) {
+            const dev = result.device;
+            if (idInput) idInput.value = dev.id;
+            if (titleElem) titleElem.textContent = `${dev.deviceName} (${dev.deviceIdentifier})`;
+            if (expiryElem) expiryElem.textContent = dev.currentCertificate?.validTo || '未登録';
+
+            if (modal) modal.style.display = 'flex';
+        } else {
+            showToast(result.message || '端末情報の取得に失敗しました', 'error');
+        }
+    } catch (err) {
+        showToast('通信エラー: ' + err.message, 'error');
+    }
+}
+
+/**
+ * 証明書更新 送信処理
+ */
+async function handleSubmitRotateCert(e) {
+    e.preventDefault();
+    const idInput = document.getElementById('dev-rotate-id');
+    const submitBtn = document.getElementById('btn-submit-rotate-cert');
+
+    if (!verifiedRotateCertPem) {
+        showToast('新証明書ファイルを選択し、検証を完了させてください', 'warning');
+        return;
+    }
+
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '更新中...';
+    }
+
+    try {
+        const authToken = getAuthToken();
+        const response = await tenantFetch(`/api/security/devices/${idInput.value}/certificates`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({
+                certificate: verifiedRotateCertPem
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.ok) {
+            showToast(result.message || '証明書を更新しました', 'success');
+            closeModal('device-cert-rotate-modal');
+            loadRegisteredDevices();
+        } else {
+            showToast(result.message || '証明書更新に失敗しました', 'error');
+        }
+    } catch (err) {
+        showToast('通信エラー: ' + err.message, 'error');
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '新証明書を登録・更新';
+        }
+    }
+}
+
+/**
+ * 端末停止モーダルを開く
+ */
+function openDisableDeviceModal(deviceId, deviceLabel) {
+    const modal = document.getElementById('device-disable-modal');
+    const idInput = document.getElementById('dev-disable-id');
+    const labelElem = document.getElementById('dev-disable-device-label');
+    const reasonInput = document.getElementById('dev-disable-reason');
+
+    if (idInput) idInput.value = deviceId;
+    if (labelElem) labelElem.textContent = deviceLabel;
+    if (reasonInput) reasonInput.value = '';
+
+    if (modal) modal.style.display = 'flex';
+}
+
+/**
+ * 端末停止 送信処理
+ */
+async function handleSubmitDisableDevice(e) {
+    e.preventDefault();
+    const idInput = document.getElementById('dev-disable-id');
+    const reasonInput = document.getElementById('dev-disable-reason');
+    const submitBtn = document.getElementById('btn-confirm-disable-device');
+
+    const reason = reasonInput.value.trim();
+    if (!reason) {
+        showToast('停止理由を入力してください', 'warning');
+        return;
+    }
+
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '停止処理中...';
+    }
+
+    try {
+        const authToken = getAuthToken();
+        const response = await tenantFetch(`/api/security/devices/${idInput.value}/disable`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ reason })
+        });
+
+        const result = await response.json();
+
+        if (result.ok) {
+            showToast(result.message || '端末を停止しました', 'success');
+            closeModal('device-disable-modal');
+            loadRegisteredDevices();
+        } else {
+            showToast(result.message || '停止処理に失敗しました', 'error');
+        }
+    } catch (err) {
+        showToast('通信エラー: ' + err.message, 'error');
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '端末を停止する';
+        }
+    }
+}
+
+/**
+ * 端末再開 (停止解除)
+ */
+async function handleEnableDevice(deviceId, deviceLabel) {
+    if (!confirm(`端末 '${deviceLabel}' の停止を解除し、通常稼働を再開しますか？`)) {
+        return;
+    }
+
+    try {
+        const authToken = getAuthToken();
+        const response = await tenantFetch(`/api/security/devices/${deviceId}/enable`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ reason: '管理者による停止解除' })
+        });
+
+        const result = await response.json();
+
+        if (result.ok) {
+            showToast(result.message || '端末の停止を解除しました', 'success');
+            closeModal('device-detail-modal');
+            loadRegisteredDevices();
+        } else {
+            showToast(result.message || '再開処理に失敗しました', 'error');
+        }
+    } catch (err) {
+        showToast('通信エラー: ' + err.message, 'error');
+    }
+}
+
+function closeModal(modalId) {
+    const m = document.getElementById(modalId);
+    if (m) m.style.display = 'none';
+
+    // モーダルを閉じた際に前回選択・入力した情報が誤って残らないよう完全に初期化
+    if (modalId === 'device-create-modal') {
+        const nameInput = document.getElementById('dev-create-name');
+        const idInput = document.getElementById('dev-create-identifier');
+        const fileInput = document.getElementById('dev-create-cert-file');
+        const previewBox = document.getElementById('dev-create-cert-preview');
+        const submitBtn = document.getElementById('btn-submit-create-device');
+        if (nameInput) nameInput.value = '';
+        if (idInput) idInput.value = '';
+        if (fileInput) fileInput.value = '';
+        if (previewBox) {
+            previewBox.style.display = 'none';
+            previewBox.innerHTML = '';
+        }
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '💾 保存して登録する';
+        }
+        verifiedCreateCertPem = '';
+    } else if (modalId === 'device-edit-modal') {
+        const idInput = document.getElementById('dev-edit-id');
+        const nameInput = document.getElementById('dev-edit-name');
+        const identInput = document.getElementById('dev-edit-identifier');
+        const tenantInput = document.getElementById('dev-edit-tenant-name');
+        const fpDisplay = document.getElementById('dev-edit-fp-display');
+        if (idInput) idInput.value = '';
+        if (nameInput) nameInput.value = '';
+        if (identInput) identInput.value = '';
+        if (tenantInput) tenantInput.value = '';
+        if (fpDisplay) fpDisplay.textContent = '-';
+    } else if (modalId === 'device-cert-rotate-modal') {
+        const idInput = document.getElementById('dev-rotate-id');
+        const fileInput = document.getElementById('dev-rotate-cert-file');
+        const previewBox = document.getElementById('dev-rotate-cert-preview');
+        const submitBtn = document.getElementById('btn-submit-rotate-cert');
+        if (idInput) idInput.value = '';
+        if (fileInput) fileInput.value = '';
+        if (previewBox) {
+            previewBox.style.display = 'none';
+            previewBox.innerHTML = '';
+        }
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = '証明書を更新する';
+        }
+        verifiedRotateCertPem = '';
+    } else if (modalId === 'device-disable-modal') {
+        const reasonInput = document.getElementById('dev-disable-reason');
+        if (reasonInput) reasonInput.value = '';
     }
 }
 
 /**
  * npm audit結果を読み込み
  */
+/**
+ * モジュール稼働情報・バージョン確認
+ */
 async function loadNpmAudit(token) {
     try {
+        const authToken = token || getAuthToken();
         const response = await tenantFetch('/api/maintenance/npm-audit', {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-
-        const result = await response.json();
-
-        if (result.success && result.vulnerabilities) {
-            const govWarnings = document.querySelector('.gov-warnings');
-            if (govWarnings) {
-                const total = result.vulnerabilities.total || 0;
-                const critical = result.vulnerabilities.critical || 0;
-                const high = result.vulnerabilities.high || 0;
-
-                govWarnings.innerHTML = `
-                    <span>⚠️ </span> <span class="text-danger">${total}倁者(重大:${critical}, 髁者${high})</span><br>
-                    <span>⏰ 更新可能:</span> <span>${total > 0 ? total : '0'}パッケージ</span>
-                `;
-            }
-        }
-    } catch (error) {
-        console.error('[System Operations] 者rror loading npm audit:', error);
-    }
-}
-
-/**
- * ストレージ使用状況を読み込み
- */
-async function loadStorageUsage(token) {
-    try {
-        const response = await tenantFetch('/api/maintenance/storage-usage', {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${authToken}` }
         });
 
         const result = await response.json();
 
         if (result.success) {
-            const total = result.total || 0;
-            const limit = 5; // GB
-            const percentage = Math.round((total / limit) * 100);
+            const versionElem = document.getElementById('app-version-text');
+            const buildElem = document.getElementById('build-timestamp-text');
+            if (versionElem) versionElem.textContent = `v${result.version || '1.0.0'}`;
+            if (buildElem) buildElem.textContent = result.build_time || result.checked_at || '稼働中';
 
-            // ストレージ使用状況を更新
-            const storageStats = document.querySelector('.storage-stats');
-            if (storageStats) {
-                const storageText = storageStats.querySelector('.storage-text');
-                if (storageText) {
-                    storageText.innerHTML = `
-                        <span>使用中: ${total.toFixed(1)}GB / ${limit}GB</span>
-                        <span class="percentage">${percentage}%</span>
-                    `;
-                }
-
-                const progressBar = storageStats.querySelector('.progress-bar-fill');
-                if (progressBar) {
-                    progressBar.style.width = `${percentage}%`;
-                    progressBar.className = `progress-bar-fill ${percentage > 80 ? 'danger' : percentage > 60 ? 'warning' : 'success'}`;
-                }
-
-                // 冁者��を更新
-                const detailsList = storageStats.querySelector('.storage-details');
-                if (detailsList && result.breakdown) {
-                    detailsList.innerHTML = `
-                        <li>・アップロード ${result.breakdown.uploads || 0}GB</li>
-                        <li>・ログファイル: ${result.breakdown.logs || 0}GB</li>
-                        <li>・一時ファイル: ${result.breakdown.temp || 0}GB ${result.breakdown.temp > 1 ? '<span class="text-warning">⚠️ span>' : ''}</li>
-                    `;
-                }
+            const govWarnings = document.querySelector('.gov-warnings');
+            if (govWarnings) {
+                govWarnings.innerHTML = `
+                    <div style="font-size: 0.85rem; line-height: 1.5;">
+                        <span>📦 バージョン: <strong>v${result.version || '1.0.0'}</strong> (${result.environment || 'production'})</span><br>
+                        <span style="color: #64748b;">🕒 確認日時: ${result.checked_at || '-'}</span><br>
+                        <span style="color: #0369a1; font-size: 0.8rem; display: inline-block; margin-top: 4px;">
+                            🛡️ セキュリティポリシー: 管理画面からのGit push / Cloud Run自動更新は安全のため無効化されています。リリースはGitHub Actions/Cloud Buildを経由してください。
+                        </span>
+                    </div>
+                `;
             }
         }
     } catch (error) {
-        console.error('[System Operations] 者rror loading storage usage:', error);
+        console.error('[System Operations] Error loading module version:', error);
     }
 }
 
 /**
- * 証明書スデ�者タスを読み込み
+ * ストレージ使用状況を読み込み (実測値連携)
+ */
+async function loadStorageUsage(token) {
+    const badge = document.getElementById('storage-status-badge');
+    const totalElem = document.getElementById('storage-total-text');
+    const pctElem = document.getElementById('storage-percentage-text');
+    const detailsList = document.getElementById('storage-details-list');
+    const progressBar = document.querySelector('.storage-stats .progress-bar-fill');
+
+    try {
+        const authToken = token || getAuthToken();
+        const response = await tenantFetch('/api/maintenance/storage-usage', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            if (badge) {
+                badge.className = 'badge-active';
+                badge.textContent = result.is_realtime ? 'GCS実測' : (result.source || 'GCS連携');
+                badge.style.background = '#e0f2fe';
+                badge.style.color = '#0369a1';
+            }
+
+            const totalFormatted = result.total_formatted || `${result.total || 0} GB`;
+            if (totalElem) totalElem.textContent = totalFormatted;
+
+            const limit = result.limit || 5;
+            const totalGb = result.total || 0;
+            const percentage = Math.min(100, Math.round((totalGb / limit) * 100));
+
+            if (pctElem) pctElem.textContent = `${percentage}% (${limit}GB 上限)`;
+
+            if (progressBar) {
+                progressBar.style.width = `${percentage}%`;
+                progressBar.className = `progress-bar-fill ${percentage > 80 ? 'danger' : percentage > 60 ? 'warning' : 'success'}`;
+            }
+
+            if (detailsList && result.breakdown) {
+                detailsList.innerHTML = `
+                    <li>・対象バケット: <strong>${result.bucket || 'Cloud Storage'}</strong></li>
+                    <li>・アップロード: ${result.breakdown.uploads || '0 GB'}</li>
+                    <li>・ログファイル: ${result.breakdown.logs || '0 GB'}</li>
+                    <li>・一時ファイル: ${result.breakdown.temp || '0 GB'}</li>
+                    <li style="color: #64748b; font-size: 0.78rem; margin-top: 4px;">※集計日時: ${result.measured_at || '-'} (Cloud Monitoringメトリクスには遅延が含まれる場合があります)</li>
+                `;
+            }
+        } else {
+            if (badge) {
+                badge.className = 'badge-alert';
+                badge.textContent = '未構成';
+                badge.style.background = '#fee2e2';
+                badge.style.color = '#991b1b';
+            }
+            if (totalElem) totalElem.textContent = '未取得 (GCS未構成)';
+            if (pctElem) pctElem.textContent = '-';
+            if (detailsList) {
+                detailsList.innerHTML = `
+                    <li style="color: #dc2626;">⚠️ ${result.message || 'GCSバケット設定が未構成です'}</li>
+                    <li style="color: #64748b; font-size: 0.78rem;">固定のモック表示(3.4GB/5GB)は廃止されました。環境変数 GOOGLE_CLOUD_STORAGE_BUCKET の設定を確認してください。</li>
+                `;
+            }
+        }
+    } catch (error) {
+        console.error('[System Operations] Error loading storage usage:', error);
+        if (badge) {
+            badge.className = 'badge-alert';
+            badge.textContent = 'エラー';
+        }
+        if (totalElem) totalElem.textContent = '取得エラー';
+    }
+}
+
+/**
+ * 証明書ステータスを読み込み (実DB連携・30日/7日警告)
  */
 async function loadCertificateStatus(token) {
     try {
+        const authToken = token || getAuthToken();
         const response = await tenantFetch('/api/maintenance/certificate-status', {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${authToken}` }
         });
 
         const result = await response.json();
@@ -4735,64 +4493,129 @@ async function loadCertificateStatus(token) {
             if (expiryList) {
                 expiryList.innerHTML = result.certificates.map(cert => {
                     let badgeClass = 'badge-success';
-                    let label = '問題なし';
+                    let badgeStyle = 'background: #dcfce7; color: #166534; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 0.78rem;';
+                    let label = '正常';
 
-                    if (cert.daysRemaining !== null) {
-                        if (cert.daysRemaining < 30) {
-                            badgeClass = 'badge-danger';
-                            label = `${cert.daysRemaining}日後`;
-                        } else if (cert.daysRemaining < 60) {
-                            badgeClass = 'badge-warning';
-                            label = `${cert.daysRemaining}日後`;
-                        } else {
-                            label = `${cert.daysRemaining}日後`;
-                        }
+                    if (cert.status === 'danger' || (cert.daysRemaining !== null && cert.daysRemaining < 7)) {
+                        badgeClass = 'badge-danger';
+                        badgeStyle = 'background: #fee2e2; color: #991b1b; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 0.78rem;';
+                        label = cert.daysRemaining !== null ? `危険: 残り${cert.daysRemaining}日` : '期限切迫';
+                    } else if (cert.status === 'warning' || (cert.daysRemaining !== null && cert.daysRemaining < 30)) {
+                        badgeClass = 'badge-warning';
+                        badgeStyle = 'background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 0.78rem;';
+                        label = cert.daysRemaining !== null ? `警告: 残り${cert.daysRemaining}日` : '要更新';
+                    } else if (cert.daysRemaining !== null) {
+                        label = `残り${cert.daysRemaining}日`;
+                    } else {
+                        badgeStyle = 'background: #f1f5f9; color: #475569; padding: 2px 8px; border-radius: 4px; font-size: 0.78rem;';
+                        label = '外部管理 (Cloud Run LB)';
                     }
 
                     return `
-                        <div class="expiry-row">
-                            <span class="expiry-label">${cert.name}</span>
-                            <span class="${badgeClass}">${label}</span>
+                        <div class="expiry-row" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #f1f5f9;">
+                            <div>
+                                <span class="expiry-label" style="font-size: 0.85rem; font-weight: 500;">${cert.name}</span>
+                                ${cert.valid_to ? `<br><span style="font-size: 0.75rem; color: #64748b;">有効期限: ${new Date(cert.valid_to).toLocaleDateString('ja-JP')}</span>` : ''}
+                            </div>
+                            <span class="${badgeClass}" style="${badgeStyle}">${label}</span>
                         </div>
                     `;
-                }).join('');
+                }).join('') + `
+                    <div style="margin-top: 8px; font-size: 0.75rem; color: #64748b; line-height: 1.4;">
+                        ※注意: 証明書有効期限はDB直接書き換えによる延長は行えません。期限切れ前にGCP Certificate Managerまたは端末証明書の再発行を行ってください。
+                    </div>
+                `;
             }
         }
     } catch (error) {
-        console.error('[System Operations] 者rror loading certificate status:', error);
+        console.error('[System Operations] Error loading certificate status:', error);
     }
 }
 
 /**
- * 一時ファイル削除処理
+ * 一時ファイル事前確認 (Dry Run)
+ */
+async function handlePreviewTempFiles() {
+    const summaryBox = document.getElementById('clean-tmp-summary');
+    const button = document.getElementById('btn-preview-tmp');
+    if (button) button.disabled = true;
+
+    try {
+        const authToken = getAuthToken();
+        const response = await tenantFetch('/api/maintenance/temp-files-summary', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        const result = await response.json();
+
+        if (summaryBox) {
+            summaryBox.style.display = 'block';
+            if (result.success) {
+                summaryBox.innerHTML = `
+                    <div style="color: #0369a1; font-weight: 600; margin-bottom: 4px;">🔍 一時ファイル走査結果 (Dry Run)</div>
+                    <div>・対象件数: <strong>${result.totalFiles} 件</strong></div>
+                    <div>・合計容量: <strong>${result.totalSizeFormatted}</strong> (${result.totalSizeBytes} bytes)</div>
+                    <div>・保持期限: ${result.retentionPolicy}</div>
+                    <div style="color: #64748b; font-size: 0.75rem; margin-top: 4px;">※安全制限: server/uploads/temp および システムtmpディレクトリのみが対象です。DB・業務ファイルは除外されます。</div>
+                `;
+            } else {
+                summaryBox.innerHTML = `<div style="color: #dc2626;">事前確認に失敗しました: ${result.message || 'エラー'}</div>`;
+            }
+        }
+    } catch (error) {
+        console.error('[Maintenance] Error previewing temp files:', error);
+        if (summaryBox) {
+            summaryBox.style.display = 'block';
+            summaryBox.innerHTML = `<div style="color: #dc2626;">通信エラー: ${error.message}</div>`;
+        }
+    } finally {
+        if (button) button.disabled = false;
+    }
+}
+
+/**
+ * 一時ファイル実削除処理 (確認・監査ログ記録付き)
  */
 async function handleCleanTempFiles() {
-    if (!confirm('一時ファイルを削除してもよろしいですか？？\n1日以上経過したファイルが削除されます。')) {
+    if (!confirm('⚠️ 【確認】一時ファイルを削除しますか？\n・対象: 1日以上経過した一時アップロードファイル\n・制限: 対象ディレクトリ配下に限定（DB・業務ファイルは保護）\n・監査ログ: 実行者・日時・対象件数が記録されます。')) {
         return;
     }
 
     const button = document.getElementById('btn-clean-tmp');
+    const summaryBox = document.getElementById('clean-tmp-summary');
     button.disabled = true;
     button.textContent = '🔄 削除中...';
 
     try {
+        const authToken = getAuthToken();
         const response = await tenantFetch('/api/maintenance/clean-temp', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ confirmExecution: true })
         });
 
         const result = await response.json();
 
-        if (result.success) {
-            showToast(result.message || '一時ファイルを削除しました', 'success');
-
-            // ストレージ使用状況を再読み込み
-            loadStorageUsage(token);
-        } else {
-            showToast(result.message || '削除に失敗しました', 'error');
+        if (summaryBox) {
+            summaryBox.style.display = 'block';
+            if (result.success) {
+                summaryBox.innerHTML = `
+                    <div style="color: #166534; font-weight: 600; margin-bottom: 4px;">✅ 削除完了</div>
+                    <div>${result.message}</div>
+                    <div style="font-size: 0.75rem; color: #475569; margin-top: 4px;">削除件数: ${result.deletedFiles || 0} 件 / 容量: ${result.reclaimedBytes || 0} bytes</div>
+                    <div style="font-size: 0.75rem; color: #166534; margin-top: 2px;">🛡️ 監査ログ ID: ${result.audit_log_id || '記録済'} に操作ログを保存しました。</div>
+                `;
+                showToast(result.message || '一時ファイルを削除しました', 'success');
+                loadStorageUsage(authToken);
+            } else {
+                summaryBox.innerHTML = `<div style="color: #dc2626;">削除失敗: ${result.message}</div>`;
+                showToast(result.message || '削除に失敗しました', 'error');
+            }
         }
     } catch (error) {
-        console.error('[Maintenance] 者rror cleaning temp files:', error);
+        console.error('[Maintenance] Error cleaning temp files:', error);
         showToast('エラーが発生しました: ' + error.message, 'error');
     } finally {
         button.disabled = false;
@@ -4801,69 +4624,123 @@ async function handleCleanTempFiles() {
 }
 
 /**
- * ログバックアデ�者処理
+ * ログバックアップ情報表示 (Cloud Loggingシンク案内)
  */
 async function handleBackupLogs() {
     const button = document.getElementById('btn-backup-log');
+    const resultBox = document.getElementById('backup-log-result');
     button.disabled = true;
-    button.textContent = '🔄 バックアップ中...';
+    button.textContent = '🔄 確認中...';
 
     try {
+        const authToken = getAuthToken();
         const response = await tenantFetch('/api/maintenance/backup-logs', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${authToken}` }
         });
 
         const result = await response.json();
 
-        if (result.success) {
-            showToast(result.message || 'ログをバックアップしました', 'success');
-        } else {
-            showToast(result.message || 'バックアップに失敗しました', 'error');
+        if (resultBox) {
+            resultBox.style.display = 'block';
+            if (result.success) {
+                const guide = result.cloud_logging_sink_guide || {};
+                resultBox.innerHTML = `
+                    <div style="color: #0369a1; font-weight: 600; margin-bottom: 4px;">📦 ログ保管アーキテクチャ情報</div>
+                    <div style="font-size: 0.8rem; line-height: 1.5;">
+                        <p style="margin: 0 0 6px 0;">${result.message}</p>
+                        <div>・保存先バケット: <code>${guide.destination_bucket || '未設定'}</code></div>
+                        <div>・保存期間: ${guide.retention_period || '365日'}</div>
+                        <div>・必要IAM権限: ${guide.required_iam || 'roles/storage.objectCreator'}</div>
+                        <div>・ログ復元・検索: ${guide.restore_and_search || 'Cloud Logging / BigQuery'}</div>
+                        <div style="margin-top: 6px; padding: 6px; background: #fff; border: 1px dashed #cbd5e1; border-radius: 4px; font-size: 0.75rem; color: #475569;">
+                            ℹ️ Cloud Run環境ではローカルディスクへのzip保存は行いません（コンテナ再起動で消失するため）。ログはCloud LoggingシンクによりGCSバケットへ恒久保管されます。
+                        </div>
+                    </div>
+                `;
+                showToast('ログ保管設定情報を取得しました', 'info');
+            } else {
+                resultBox.innerHTML = `<div style="color: #dc2626;">取得失敗: ${result.message}</div>`;
+            }
         }
     } catch (error) {
-        console.error('[Maintenance] 者rror backing up logs:', error);
+        console.error('[Maintenance] Error backing up logs:', error);
         showToast('エラーが発生しました: ' + error.message, 'error');
     } finally {
         button.disabled = false;
-        button.textContent = '📦 ログファイルバックアップ';
+        button.textContent = '📦 ログバックアップ情報';
     }
 }
 
 /**
- * 孤立画像削除処理
+ * 孤立画像ファイル検出 (Dry Run専用・実削除不可)
  */
 async function handleCleanOrphanedImages() {
-    if (!confirm('孤立した画像ファイルを削除してもよろしいですか？？\n7日以上経過した未使用ファイルが削除されます。')) {
-        return;
-    }
-
     const button = document.getElementById('btn-clean-images');
+    const resultBox = document.getElementById('orphaned-images-result');
     button.disabled = true;
-    button.textContent = '🔄 削除中...';
+    button.textContent = '🔄 孤立画像走査中 (Dry Run)...';
 
     try {
+        const authToken = getAuthToken();
         const response = await tenantFetch('/api/maintenance/clean-orphaned-images', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 'Authorization': `Bearer ${authToken}` }
         });
 
         const result = await response.json();
 
-        if (result.success) {
-            showToast(result.message || '孤立画像を削除しました', 'success');
+        if (resultBox) {
+            resultBox.style.display = 'block';
+            if (result.success) {
+                const candidates = result.candidates || [];
+                let candidatesHtml = '';
+                if (candidates.length > 0) {
+                    candidatesHtml = `
+                        <div style="max-height: 150px; overflow-y: auto; margin-top: 8px; border: 1px solid #e2e8f0; border-radius: 4px; background: #fff;">
+                            <table style="width: 100%; font-size: 0.75rem; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="background: #f1f5f9; text-align: left;">
+                                        <th style="padding: 4px 6px;">ファイル名</th>
+                                        <th style="padding: 4px 6px;">サイズ</th>
+                                        <th style="padding: 4px 6px;">更新日時</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${candidates.map(c => `
+                                        <tr style="border-top: 1px solid #f1f5f9;">
+                                            <td style="padding: 4px 6px; font-family: monospace;">${c.name}</td>
+                                            <td style="padding: 4px 6px;">${c.size_kb} KB</td>
+                                            <td style="padding: 4px 6px;">${new Date(c.updated).toLocaleString('ja-JP')}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                }
 
-            // ストレージ使用状況を再読み込み
-            loadStorageUsage(token);
-        } else {
-            showToast(result.message || '削除に失敗しました', 'error');
+                resultBox.innerHTML = `
+                    <div style="color: #991b1b; font-weight: 600; margin-bottom: 4px;">🔍 孤立画像検出結果 (Dry Run専用)</div>
+                    <div style="font-size: 0.8rem; line-height: 1.5;">
+                        <div>・検出候補数: <strong>${result.orphaned_count || 0} 件</strong> (合計容量: ${result.total_size_mb || 0} MB)</div>
+                        <div style="color: #b91c1c; font-weight: 500; margin-top: 4px;">⚠️ ${result.deletion_blocked_reason || '実削除は安全のため無効化されています'}</div>
+                        <div style="color: #64748b; font-size: 0.75rem; margin-top: 2px;">${result.cross_system_risk_notice || ''}</div>
+                        ${candidatesHtml}
+                    </div>
+                `;
+                showToast(`孤立画像候補を ${result.orphaned_count || 0} 件検出しました (Dry Run)`, 'info');
+            } else {
+                resultBox.innerHTML = `<div style="color: #dc2626;">検出失敗: ${result.message}</div>`;
+                showToast(result.message || '走査に失敗しました', 'error');
+            }
         }
     } catch (error) {
-        console.error('[Maintenance] 者rror cleaning orphaned images:', error);
+        console.error('[Maintenance] Error scanning orphaned images:', error);
         showToast('エラーが発生しました: ' + error.message, 'error');
     } finally {
         button.disabled = false;
-        button.textContent = '🧹 孤立画像を削除';
+        button.textContent = '🔍 孤立画像候補を検出 (Dry Run)';
     }
 }
 
@@ -5297,7 +5174,7 @@ async function saveSystemSettings() {
 }
 
 // 行個別インライン編集
-window.inlineEditSystemSetting = function(id) {
+window.inlineEditSystemSetting = function (id) {
     const setting = currentSystemSettings.find(s => String(s.id) === String(id));
     if (!setting) return;
 
@@ -5314,7 +5191,7 @@ window.inlineEditSystemSetting = function(id) {
     `;
 };
 
-window.cancelInlineSystemSetting = function(id) {
+window.cancelInlineSystemSetting = function (id) {
     const setting = currentSystemSettings.find(s => String(s.id) === String(id));
     const cell = document.getElementById(`setting-val-cell-${id}`);
     if (setting && cell) {
@@ -5322,7 +5199,7 @@ window.cancelInlineSystemSetting = function(id) {
     }
 };
 
-window.saveInlineSystemSetting = async function(id) {
+window.saveInlineSystemSetting = async function (id) {
     const input = document.getElementById(`inline-input-${id}`);
     if (!input) return;
     const newVal = input.value;
@@ -5346,3 +5223,254 @@ window.saveInlineSystemSetting = async function(id) {
         showToast('更新失敗: ' + err.message, 'error');
     }
 };
+
+
+// ========================================
+// データベース管理 (復元)
+// ========================================
+async function loadDatabaseStats() {
+    try {
+        const token = localStorage.getItem('user_token') || getAuthToken();
+        console.log('[loadDatabaseStats] Fetching database stats...');
+        const response = await tenantFetch('/api/database/stats', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (data.success && data.stats) {
+            const statusBadge = document.getElementById('db-connection-status');
+            if (statusBadge) {
+                statusBadge.innerHTML = data.stats.connected
+                    ? '<span class="status-badge status-connected">✓ 接続中</span>'
+                    : '<span class="status-badge status-error">✕ エラー</span>';
+            }
+            const setElem = (id, val) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = val || '--';
+            };
+            setElem('db-version', data.stats.version);
+            setElem('db-connections', data.stats.connections);
+            setElem('connection-count', data.stats.connections);
+            setElem('db-size', data.stats.database_size);
+            setElem('uptime', data.stats.uptime);
+
+            const diskUsage = data.stats.disk_usage || 0;
+            const diskElem = document.getElementById('disk-usage');
+            const diskProgress = document.getElementById('disk-progress');
+            if (diskElem) diskElem.textContent = diskUsage + '%';
+            if (diskProgress) diskProgress.style.width = diskUsage + '%';
+        }
+    } catch (error) {
+        console.error('[loadDatabaseStats] Error:', error);
+        showToast('データベース状態の読み込みに失敗しました: ' + error.message, 'error');
+    }
+}
+
+// ========================================
+// マスタデータ一括インポート・テンプレート (復元)
+// ========================================
+function parseCSV(text) {
+    const lines = text.split('\n').filter(line => line.trim());
+    return lines.map(line => {
+        const values = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+                inQuotes = !inQuotes;
+            } else if (char === ',' && !inQuotes) {
+                values.push(current.trim().replace(/^"|"$/g, ''));
+                current = '';
+            } else {
+                current += char;
+            }
+        }
+        values.push(current.trim().replace(/^"|"$/g, ''));
+        return values;
+    });
+}
+
+async function fetchOfficeMap() {
+    try {
+        const token = localStorage.getItem('user_token') || getAuthToken();
+        const res = await tenantFetch('/api/offices', { headers: { 'Authorization': `Bearer ${token}` } });
+        const data = await res.json();
+        const map = {};
+        const offices = unwrapApiArray(data);
+        offices.forEach(o => { map[o.office_name] = o.office_id || o.id; });
+        return map;
+    } catch (e) {
+        return {};
+    }
+}
+
+async function fetchMachineTypeMap() {
+    try {
+        const token = localStorage.getItem('user_token') || getAuthToken();
+        const res = await tenantFetch('/api/machine-types', { headers: { 'Authorization': `Bearer ${token}` } });
+        const data = await res.json();
+        const map = {};
+        const types = unwrapApiArray(data);
+        types.forEach(t => { map[t.model_name] = t.id; });
+        return map;
+    } catch (e) {
+        return {};
+    }
+}
+
+function importMasterData(type, file) {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        try {
+            const text = e.target.result;
+            const rows = parseCSV(text);
+            if (rows.length < 2) {
+                showToast('CSVデータが見つかりません', 'error');
+                return;
+            }
+
+            const headers = rows[0];
+            const dataRows = rows.slice(1);
+            showToast(`${dataRows.length}件の処理を開始します...`, 'info');
+
+            let idMaps = {};
+            if (type === 'bases' || type === 'machines') {
+                idMaps.offices = await fetchOfficeMap();
+            }
+            if (type === 'machines') {
+                idMaps.machineTypes = await fetchMachineTypeMap();
+            }
+
+            let successCount = 0;
+            let errorCount = 0;
+
+            for (let i = 0; i < dataRows.length; i++) {
+                const row = dataRows[i];
+                if (row.length < headers.length) continue;
+
+                const rowData = {};
+                headers.forEach((header, index) => {
+                    rowData[header] = row[index] ? row[index].trim() : '';
+                });
+
+                try {
+                    let apiData = {};
+                    let apiUrl = '';
+
+                    switch (type) {
+                        case 'offices':
+                            apiData = {
+                                office_code: rowData['事業所コード'] || null,
+                                office_name: rowData['事業所名*'],
+                                office_type: rowData['事業所区分'],
+                                address: rowData['住所'],
+                                postal_code: rowData['郵便番号'],
+                                phone_number: rowData['電話番号']
+                            };
+                            if (!apiData.office_name) throw new Error('事業所名は必須です');
+                            apiUrl = '/api/offices';
+                            break;
+                        case 'bases':
+                            const officeId = idMaps.offices ? idMaps.offices[rowData['所属事業所名']] : null;
+                            apiData = {
+                                base_code: rowData['基地コード'] || null,
+                                base_name: rowData['基地名*'],
+                                office_id: officeId || null,
+                                location: rowData['所在地']
+                            };
+                            if (!apiData.base_name) throw new Error('基地名は必須です');
+                            apiUrl = '/api/bases';
+                            break;
+                        default:
+                            throw new Error('未対応の種別: ' + type);
+                    }
+
+                    const token = localStorage.getItem('user_token') || getAuthToken();
+                    const res = await tenantFetch(apiUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify(apiData)
+                    });
+
+                    if (res.ok) successCount++;
+                    else errorCount++;
+                } catch (err) {
+                    errorCount++;
+                }
+            }
+
+            showToast(`インポート完了: 成功 ${successCount}件, 失敗 ${errorCount}件`, successCount > 0 ? 'success' : 'error');
+
+            if (type === 'offices') loadOffices();
+            if (type === 'bases') loadBases();
+        } catch (err) {
+            showToast('インポート処理エラー: ' + err.message, 'error');
+        }
+    };
+    reader.readAsText(file, 'UTF-8');
+}
+
+function downloadMasterTemplate(type) {
+    let headers = [];
+    let filename = '';
+
+    switch (type) {
+        case 'offices':
+            headers = ['事業所コード', '事業所名*', '事業所区分', '住所', '郵便番号', '電話番号'];
+            filename = '事業所マスタ_テンプレート.csv';
+            break;
+        case 'bases':
+            headers = ['基地コード', '基地名*', '所属事業所名', '所在地'];
+            filename = '保守基地マスタ_テンプレート.csv';
+            break;
+        default:
+            showToast('未対応の種別です', 'error');
+            return;
+    }
+
+    const csvContent = "\uFEFF" + headers.join(',') + '\n';
+    triggerFileDownload(csvContent, filename);
+}
+
+
+/**
+ * 証明書個別失効処理
+ */
+async function handleRevokeCert(deviceId, certId, certLabel) {
+    const reason = prompt(`証明書 (${certLabel}) を失効させますか？\n失効した証明書は元に戻せません。失効理由を入力してください:`, '管理者による手動失効');
+    if (!reason || !reason.trim()) {
+        return;
+    }
+
+    try {
+        const authToken = getAuthToken();
+        const response = await tenantFetch(`/api/security/devices/${deviceId}/revoke-cert`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ certId, reason: reason.trim() })
+        });
+
+        const result = await response.json();
+        if (result.ok) {
+            showToast(result.message || '証明書を失効させました', 'success');
+            openDeviceDetailModal(deviceId);
+            loadRegisteredDevices();
+        } else {
+            showToast(result.message || '失効処理に失敗しました', 'error');
+        }
+    } catch (err) {
+        showToast('通信エラー: ' + err.message, 'error');
+    }
+}
+window.handleRevokeCert = handleRevokeCert;

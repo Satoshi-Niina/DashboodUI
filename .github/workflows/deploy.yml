@@ -149,6 +149,8 @@ jobs:
           AUTH_TOKEN_PARAM_ALIASES: "token,jwt,sso_token"
           MACHINE_FAILURE_APP_URL: "https://machine-failure-client-800711608362.asia-northeast2.run.app"
           URL_PLANNING_API: "https://operation-management-server-800711608369.asia-northeast2.run.app"
+          GOOGLE_CLOUD_PROJECT_ID: "${{ env.PROJECT_ID }}"
+          GOOGLE_CLOUD_STORAGE_BUCKET: "maint-vehicle-management-storage"
           BUILD_TIMESTAMP: "$TIMESTAMP"
           EOF
 
@@ -163,7 +165,7 @@ jobs:
             --labels=deploy_mode=clean,commit_sha=${SHORT_SHA},deploy_ts=${TIMESTAMP} \
             --add-cloudsql-instances=${{ secrets.CLOUD_SQL_INSTANCE }} \
             --env-vars-file=cloudrun-env.yaml \
-            --update-secrets=SHARED_SSO_SECRET=ops-shared-sso-secret:latest \
+            --update-secrets=SHARED_SSO_SECRET=ops-shared-sso-secret:latest,INTERNAL_GATEWAY_SECRET=ops-internal-gateway-secret:latest \
             --min-instances=0 \
             --max-instances=10 \
             --memory=2Gi \

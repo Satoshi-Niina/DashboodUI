@@ -27,6 +27,10 @@
             <div class="tenant-environment-badge" id="tenant-environment-label" aria-live="polite">
                 デモ環境
             </div>
+            <div id="super-admin-tenant-switcher" style="display: none; align-items: center; gap: 8px; margin-left: 14px; background: rgba(255, 255, 255, 0.15); padding: 4px 12px; border-radius: 6px;">
+                <label for="dashboard-tenant-select" style="font-size: 0.82rem; font-weight: 600; color: #fff;">🏢 統括切替:</label>
+                <select id="dashboard-tenant-select" style="font-size: 0.82rem; padding: 2px 8px; border: 1px solid #38bdf8; border-radius: 4px; background: #fff; color: #0f172a; font-weight: 600; cursor: pointer;"></select>
+            </div>
             <div class="header-right">
                 <div class="user-profile">
                     <img src="https://ui-avatars.com/api/?name=User&background=random" alt="User Avatar" class="avatar"
@@ -91,9 +95,9 @@
 
     <!-- <script src="/node_modules/axios/dist/axios.min.js"></script> -->
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-    <script src="tenant-context.js?v=20261015-unify-v2"></script>
-    <script src="config.js?v=20261015-unify-v2"></script>
-    <script src="app.js?v=20261015-displayname-v1"></script>
+    <script src="tenant-context.js?v=20261017-multitenant-v2"></script>
+    <script src="config.js?v=20261017-multitenant-v2"></script>
+    <script src="app.js?v=20261017-multitenant-v3"></script>
 </body>
 
 </html>

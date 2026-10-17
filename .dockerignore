@@ -1,20 +1,56 @@
+# Node.js
 node_modules
-npm-debug.log
+npm-debug.log*
+yarn-error.log*
+
+# Environment variables & secrets
 .env
 .env.*
+cloudrun-env.yaml
+*.pem
+*.key
+*.p12
+*.pfx
+*service-account*.json
+*credentials*.json
+*-key.json
+
+# Logs
+logs/
+*.log
+
+# Backups & dumps
+backups/
+*.dump
+
+# Version control & IDEs
 .git
 .gitignore
 .github
 .cursor
 .vscode
+.DS_Store
+Thumbs.db
+
+# Documentation & temporary scratch
 README.md
 AGENTS.md
-.DS_Store
-backups/
 docs/
+scratch/
+*.tmp
+*.temp
+.cache/
+
+# Tests & verification scripts (not needed in production runtime)
 test/
+test_*.mjs
+*.test.js
+*.test.mjs
+scripts/e2e_verify.cjs
+
+# Deployment scripts
 deploy.ps1
 deploy.sh
-*.dump
-*.json.key
-cloudrun-env.yaml
+
+# Duplicate legacy root assets (canonical asset is assets/admin.js)
+/admin.js

@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 
 const COOKIE_NAME = 'dashboard_session';
@@ -33,18 +34,29 @@ function parseCookies(cookieHeader = '') {
 }
 
 function issueSession(res, session) {
-  const token = jwt.sign({
+  const sessionJti = crypto.randomUUID ? crypto.randomUUID() : `dash-${Date.now()}-${Math.random().toString(36).substring(2)}`;
+  const claims = {
     sub: String(session.userId),
     username: session.username ? String(session.username) : undefined,
     tenant_id: String(session.tenantId),
     tenant_key: String(session.tenantKey || session.tenantId || ''),
     auth_source: String(session.authSource || 'common'),
     role: String(session.role),
-    permissions: Array.isArray(session.permissions) ? session.permissions : []
-  }, getJwtSecret(), {
+    permissions: Array.isArray(session.permissions) ? session.permissions : [],
+    iat_ms: Date.now()
+  };
+  if (session.user_gen != null || session.userGen != null) {
+    claims.user_gen = Number(session.user_gen ?? session.userGen);
+  }
+  if (session.tenant_gen != null || session.tenantGen != null) {
+    claims.tenant_gen = Number(session.tenant_gen ?? session.tenantGen);
+  }
+
+  const token = jwt.sign(claims, getJwtSecret(), {
     issuer: JWT_ISSUER,
     audience: JWT_AUDIENCE,
-    expiresIn: Math.floor(SESSION_MAX_AGE_MS / 1000)
+    expiresIn: Math.floor(SESSION_MAX_AGE_MS / 1000),
+    jwtid: sessionJti
   });
   res.cookie(COOKIE_NAME, token, cookieOptions());
   return token;
