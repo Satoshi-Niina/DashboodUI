@@ -1,11 +1,16 @@
-name: Deploy to Cloud Run
+name: Deploy to Cloud Run (Manual Only)
 
 on:
-  push:
-    branches: 
-      - main
-      - master
-  workflow_dispatch:  # 手動実行も可能
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'デプロイ対象環境 (確認用)'
+        required: true
+        default: 'production'
+      confirm:
+        description: 'デプロイを実行する場合は "yes" と入力'
+        required: true
+        default: 'yes'
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
@@ -24,6 +29,20 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4.1.1
+      
+      - name: Confirm Deployment Parameters
+        run: |
+          echo "=========================================="
+          echo "🚀 Manual Cloud Run Deployment Triggered"
+          echo "Branch / Ref: ${{ github.ref }}"
+          echo "Commit SHA:   ${{ github.sha }}"
+          echo "Actor:        ${{ github.actor }}"
+          echo "Target Env:   ${{ inputs.target_env }}"
+          echo "=========================================="
+          if [ "${{ inputs.confirm }}" != "yes" ]; then
+            echo "❌ Deployment aborted: 'confirm' was not set to 'yes'"
+            exit 1
+          fi
       
       - name: Google Cloud Auth
         id: auth
