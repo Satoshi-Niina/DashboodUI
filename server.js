@@ -117,8 +117,8 @@ app.use(async (req, res, next) => {
   }
 
   // ゲートウェイ署名がない場合:
-  // 開発環境で直接テスト実行する場合の例外フラグ（ALLOW_DIRECT_INTERNAL=true）がない限り遮断
-  const allowDirect = process.env.ALLOW_DIRECT_INTERNAL === 'true';
+  // 本番環境では直接アクセスを一切許可せず遮断する（開発環境でのみ明示的な ALLOW_DIRECT_INTERNAL=true を許容）
+  const allowDirect = process.env.NODE_ENV !== 'production' && process.env.ALLOW_DIRECT_INTERNAL === 'true';
   if (allowDirect) {
     return next();
   }
