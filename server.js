@@ -2839,6 +2839,49 @@ async function resolveDeviceTenant(req, cpPool) {
   return { ok: false, error: 'no_certificate' };
 }
 
+// パスワード照合ヘルパー（生値・前後空白トリム・全角英数半角正規化に対応）
+async function verifyPassword(inputPassword, targetHash) {
+  if (!inputPassword || !targetHash) {
+    return { ok: false, reason: 'EMPTY_INPUT', diagnostics: { length: (inputPassword || '').length } };
+  }
+
+  const raw = String(inputPassword);
+  const trimmed = raw.trim();
+  const normalized = trimmed.normalize('NFKC');
+
+  const candidates = [raw];
+  if (trimmed !== raw && !candidates.includes(trimmed)) candidates.push(trimmed);
+  if (normalized !== trimmed && normalized !== raw && !candidates.includes(normalized)) candidates.push(normalized);
+
+  const isBcrypt = String(targetHash).startsWith('$2');
+
+  for (const cand of candidates) {
+    let matched = false;
+    if (isBcrypt) {
+      matched = await bcrypt.compare(cand, targetHash);
+    } else {
+      matched = (cand === String(targetHash));
+    }
+    if (matched) {
+      return {
+        ok: true,
+        matchedVia: cand === raw ? 'raw' : (cand === trimmed ? 'trimmed' : 'normalized')
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    reason: 'PASSWORD_MISMATCH',
+    diagnostics: {
+      length: raw.length,
+      hasWhitespace: /^\s|\s$/.test(raw),
+      hasFullWidth: /[^\x00-\x7F]/.test(raw)
+    }
+  };
+}
+
+
 app.post('/api/login', async (req, res) => {
   const username = String(req.body?.username || '').trim();
   const password = String(req.body?.password || '');
@@ -2970,15 +3013,9 @@ app.post('/api/login', async (req, res) => {
         return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません', requestId });
       }
 
-      // パスワード照合
-      let passwordMatches = false;
-      if (superUser.password_hash) {
-        if (String(superUser.password_hash).startsWith('$2')) {
-          passwordMatches = await bcrypt.compare(password, superUser.password_hash);
-        } else if (String(password) === String(superUser.password_hash)) {
-          passwordMatches = true;
-        }
-      }
+      // パスワード照合（生値・前後空白・全角半角正規化の多段階照合）
+      const passwordVerifyResult = await verifyPassword(password, superUser.password_hash);
+      const passwordMatches = passwordVerifyResult.ok;
 
       if (!passwordMatches) {
         logger.writeLog({
@@ -2990,7 +3027,11 @@ app.post('/api/login', async (req, res) => {
           userId: username,
           clientIp: logger.extractClientIp(req),
           message: `スーパー管理者ログイン認証失敗: パスワード不一致 (username='${username}')`,
-          details: { reason: 'password_mismatch' }
+          details: {
+            reason: 'password_mismatch',
+            reasonCode: 'AUTH_PASSWORD_MISMATCH',
+            diagnostics: passwordVerifyResult.diagnostics || {}
+          }
         });
         const failRes = await securityGuard.recordFailure({
           clientIp: logger.extractClientIp(req),
@@ -3182,16 +3223,14 @@ app.post('/api/login', async (req, res) => {
     }
 
     let passwordMatches = false;
+    let lastPasswordDiag = null;
     for (const h of candidateHashes) {
-      if (String(h).startsWith('$2')) {
-        if (await bcrypt.compare(password, h)) {
-          passwordMatches = true;
-          break;
-        }
-      } else if (String(password) === String(h)) {
+      const vRes = await verifyPassword(password, h);
+      if (vRes.ok) {
         passwordMatches = true;
         break;
       }
+      lastPasswordDiag = vRes.diagnostics;
     }
 
     if (!passwordMatches) {
@@ -3204,7 +3243,11 @@ app.post('/api/login', async (req, res) => {
         userId: username,
         clientIp: logger.extractClientIp(req),
         message: `ログイン認証失敗: パスワード不一致 (username='${username}', tenant='${effectiveTenantKey}')`,
-        details: { reason: 'password_mismatch' }
+        details: {
+          reason: 'password_mismatch',
+          reasonCode: 'AUTH_PASSWORD_MISMATCH',
+          diagnostics: lastPasswordDiag || {}
+        }
       });
       const failRes = await securityGuard.recordFailure({
         clientIp: logger.extractClientIp(req),

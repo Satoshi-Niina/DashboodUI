@@ -24,9 +24,29 @@ async function main() {
   const orgName = 'System Operations';
   const ouName = 'SuperAdmin';
 
-  sh(`"${OPENSSL}" req -new -newkey rsa:2048 -nodes -keyout ${keyFile} -out ${csrFile} -subj "/CN=${commonName}/O=${orgName}/OU=${ouName}"`);
-  sh(`"${OPENSSL}" x509 -req -in ${csrFile} -CA ca.crt -CAkey ca.key -CAcreateserial -out ${crtFile} -days 730`);
-  sh(`"${OPENSSL}" pkcs12 -export -out ${p12File} -inkey ${keyFile} -in ${crtFile} -certfile ca.crt -passout pass:password`);
+  const extConfig = `
+[ req ]
+distinguished_name = req_distinguished_name
+prompt = no
+
+[ req_distinguished_name ]
+CN = ${commonName}
+O = ${orgName}
+OU = ${ouName}
+
+[ v3_req ]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = clientAuth
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+`;
+  const extConfigFile = 'client_superadmin_niina_ext.cnf';
+  fs.writeFileSync(path.join(GATEWAY_CERTS_DIR, extConfigFile), extConfig.trim());
+
+  sh(`"${OPENSSL}" req -new -newkey rsa:2048 -nodes -keyout ${keyFile} -out ${csrFile} -config ${extConfigFile}`);
+  sh(`"${OPENSSL}" x509 -req -in ${csrFile} -CA ca.crt -CAkey ca.key -CAcreateserial -out ${crtFile} -days 730 -extfile ${extConfigFile} -extensions v3_req`);
+  sh(`"${OPENSSL}" pkcs12 -export -out ${p12File} -inkey ${keyFile} -in ${crtFile} -certfile ca.crt -passout pass:`);
 
   console.log('✅ 証明書ファイルを生成しました:', p12File);
 
@@ -47,12 +67,12 @@ async function main() {
 
   console.log('\n=== 2. データベースへの端末および証明書登録 ===');
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/railway_management'
+    connectionString: process.env.DATABASE_URL
   });
 
   const deviceIdentifier = 'pc-superadmin-niina';
   const deviceName = '統括管理PC (niina)';
-  const tenantId = 'daitetsu'; // 初期ホームテナントは大鉄
+  const tenantId = 'common'; // スーパー管理者は common
   const subjectDn = `CN=${commonName}, O=${orgName}, OU=${ouName}`;
 
   // 既存デバイス確認
@@ -61,26 +81,26 @@ async function main() {
   if (devCheck.rows.length > 0) {
     deviceId = devCheck.rows[0].id;
     await pool.query(
-      'UPDATE public.devices SET device_name = $1, tenant_id = $2, is_active = true, updated_at = NOW() WHERE id = $3',
+      'UPDATE public.devices SET device_name = $1, tenant_id = $2, is_active = true, is_super_admin = true, updated_at = NOW() WHERE id = $3',
       [deviceName, tenantId, deviceId]
     );
     console.log('✅ 既存デバイスを更新しました: ID =', deviceId);
   } else {
     const devInsert = await pool.query(
-      `INSERT INTO public.devices (id, device_identifier, tenant_id, device_name, is_active, created_at, updated_at)
-       VALUES (gen_random_uuid(), $1, $2, $3, true, NOW(), NOW()) RETURNING id`,
+      `INSERT INTO public.devices (id, device_identifier, tenant_id, device_name, is_active, is_super_admin, created_at, updated_at)
+       VALUES (gen_random_uuid(), $1, $2, $3, true, true, NOW(), NOW()) RETURNING id`,
       [deviceIdentifier, tenantId, deviceName]
     );
     deviceId = devInsert.rows[0].id;
     console.log('✅ 新規デバイスを登録しました: ID =', deviceId);
   }
 
-  // 既存証明書確認
-  const certCheck = await pool.query('SELECT id FROM public.device_certificates WHERE fingerprint256 = $1', [fingerprint256]);
+  // 既存証明書確認 (device_id に紐づくレコードを更新または挿入)
+  const certCheck = await pool.query('SELECT id FROM public.device_certificates WHERE device_id = $1', [deviceId]);
   if (certCheck.rows.length > 0) {
     await pool.query(
-      `UPDATE public.device_certificates SET device_id = $1, serial_number = $2, subject_dn = $3, valid_to = $4, is_revoked = false WHERE fingerprint256 = $5`,
-      [deviceId, serialNumber, subjectDn, validTo, fingerprint256]
+      `UPDATE public.device_certificates SET serial_number = $1, fingerprint256 = $2, subject_dn = $3, valid_to = $4, is_revoked = false, updated_at = NOW() WHERE device_id = $5`,
+      [serialNumber, fingerprint256, subjectDn, validTo, deviceId]
     );
     console.log('✅ 既存証明書レコードを更新しました');
   } else {
@@ -98,7 +118,7 @@ async function main() {
   console.log('🎉 スーパー管理者 (niina) 専用端末証明書の準備が完了しました！');
   console.log(`PKCS#12 ファイルのフルパス:`);
   console.log(path.join(GATEWAY_CERTS_DIR, p12File));
-  console.log(`インポート時のパスワード: password`);
+  console.log(`インポート方式: パスワード不要 (空パスワード)`);
   console.log('======================================================\n');
 }
 
