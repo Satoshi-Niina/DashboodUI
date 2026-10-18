@@ -130,6 +130,7 @@ jobs:
           # 特殊文字やカンマを含む値でも安全に渡せるよう env file を使用
           cat > cloudrun-env.yaml <<EOF
           NODE_ENV: "production"
+          ALLOW_DIRECT_INTERNAL: "true"
           APP_ID: "dashboard-ui"
           CLOUD_SQL_INSTANCE: "${{ secrets.CLOUD_SQL_INSTANCE }}"
           DATABASE_URL: "${{ secrets.DATABASE_URL }}"
