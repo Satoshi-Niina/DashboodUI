@@ -100,7 +100,7 @@ test('Multitenant Admin API - niina can switch tenants to manage users and maste
 
 test('Multitenant Admin API - non-niina tenant admin is strictly locked to own tenant', async (t) => {
   // 広成建設の一般管理者 (niinaではない)
-  const regularAdminToken = generateTestToken('Kosei1', 'system_admin', 'kosei', 'fe520e93-4dd9-4651-81d0-f1c10466ed8e');
+  const regularAdminToken = generateTestToken('kosei_admin', 'operation_admin', 'kosei', 'f2f906fd-bb4b-4172-bfef-501e98367fce');
   const koseiAuth = createInternalAuthToken(koseiDeviceContext);
   const daitetsuAuth = createInternalAuthToken(daitetsuDeviceContext);
 

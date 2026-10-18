@@ -2818,13 +2818,16 @@ async function resolveDeviceTenant(req, cpPool) {
         return { ok: false, error: 'CERTIFICATE_EXPIRED', message: 'クライアント証明書の有効期限が切れています', validTo: certRow.valid_to, level: 'db' };
       }
 
+      const isSuperAdminDevice = certRow.device_identifier === 'pc-superadmin-niina' || certRow.tenant_id === 'common' || Boolean(certRow.is_super_admin);
+
       return {
         ok: true,
         tenantKey: certRow.tenant_id,
         deviceId: certRow.device_id,
         deviceIdentifier: certRow.device_identifier,
         deviceName: certRow.device_name,
-        fingerprint256: deviceAuth.fingerprint256
+        fingerprint256: deviceAuth.fingerprint256,
+        isSuperAdminDevice
       };
     } catch (err) {
       console.error('[DeviceAuth] Database lookup error:', err.message);
@@ -2890,7 +2893,191 @@ app.post('/api/login', async (req, res) => {
 
     const effectiveTenantKey = deviceResult.tenantKey;
     req.deviceInfo = deviceResult;
-    console.log(`[LoginTrace:1] Device verified: tenantKey=${effectiveTenantKey}, deviceId=${deviceResult.deviceId || 'none'}, certFingerprint=${deviceResult.fingerprint256 ? deviceResult.fingerprint256.slice(0, 12) + '...' : 'none'}`);
+    console.log(`[LoginTrace:1] Device verified: tenantKey=${effectiveTenantKey}, deviceId=${deviceResult.deviceId || 'none'}, isSuperAdminDevice=${Boolean(deviceResult.isSuperAdminDevice)}, certFingerprint=${deviceResult.fingerprint256 ? deviceResult.fingerprint256.slice(0, 12) + '...' : 'none'}`);
+
+    // スーパー管理者 (niina) の認証判定
+    const isSuperAdminAttempt = username.toLowerCase() === 'niina' || Boolean(deviceResult.isSuperAdminDevice);
+
+    if (isSuperAdminAttempt) {
+      // スーパー管理者は専用端末（pc-superadmin-niina / isSuperAdminDevice）からのアクセスのみ許可
+      if (!deviceResult.isSuperAdminDevice && username.toLowerCase() === 'niina') {
+        console.warn(`[Login] niina login rejected: non-superadmin device (${deviceResult.deviceIdentifier || 'unknown'})`);
+        return res.status(403).json({
+          success: false,
+          code: 'DEVICE_UNVERIFIED',
+          message: 'スーパー管理者は専用管理端末からログインしてください'
+        });
+      }
+
+      // 専用端末から一般ユーザー名でログインしようとした場合は拒否
+      if (deviceResult.isSuperAdminDevice && username.toLowerCase() !== 'niina') {
+        console.warn(`[Login] Non-superadmin user '${username}' attempted login from superadmin device (${deviceResult.deviceIdentifier})`);
+        return res.status(403).json({
+          success: false,
+          code: 'DEVICE_UNVERIFIED',
+          message: 'スーパー管理者専用端末からはスーパー管理者のみログインできます'
+        });
+      }
+
+      // common_db で一元認証（super_admins テーブル）
+      let superUser = null;
+      try {
+        const superRes = await cpPool.query(`
+          SELECT id::text AS id, username, COALESCE(display_name, username) AS display_name, password_hash, role, is_active
+          FROM public.super_admins
+          WHERE username = $1 AND is_active = true
+          LIMIT 1
+        `, [username]);
+        superUser = superRes.rows[0];
+      } catch (dbErr) {
+        console.error('[TenantAuth] super_admins query error:', dbErr.message);
+      }
+
+      if (!superUser) {
+        logger.writeLog({
+          severity: 'WARNING',
+          eventType: 'auth_failure',
+          requestId: req.requestId,
+          correlationId: req.correlationId,
+          tenantId: 'common',
+          userId: username,
+          clientIp: logger.extractClientIp(req),
+          message: `スーパー管理者ログイン認証失敗: ユーザーが存在しないか無効です (username='${username}')`,
+          details: { reason: 'user_not_found_or_inactive' }
+        });
+        const failRes = await securityGuard.recordFailure({
+          clientIp: logger.extractClientIp(req),
+          tenantId: 'common',
+          identifier: username,
+          eventType: 'auth_failure',
+          weight: 1,
+          reason: 'user_not_found_or_inactive',
+          pool: cpPool,
+          req,
+          attemptStartedAt,
+          expectedResetGeneration: guard.resetGeneration
+        });
+        if (failRes.isBlocked) {
+          res.setHeader('Retry-After', failRes.retryAfterSeconds || 300);
+          return res.status(429).json({
+            success: false,
+            code: 'TEMPORARILY_BLOCKED',
+            message: '連続した認証失敗を検知したため、一時的にアクセスを制限しています。時間をおいて再試行してください。',
+            retryAfterSeconds: failRes.retryAfterSeconds || 300,
+            requestId
+          });
+        }
+        return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません', requestId });
+      }
+
+      // パスワード照合
+      let passwordMatches = false;
+      if (superUser.password_hash) {
+        if (String(superUser.password_hash).startsWith('$2')) {
+          passwordMatches = await bcrypt.compare(password, superUser.password_hash);
+        } else if (String(password) === String(superUser.password_hash)) {
+          passwordMatches = true;
+        }
+      }
+
+      if (!passwordMatches) {
+        logger.writeLog({
+          severity: 'WARNING',
+          eventType: 'auth_failure',
+          requestId: req.requestId,
+          correlationId: req.correlationId,
+          tenantId: 'common',
+          userId: username,
+          clientIp: logger.extractClientIp(req),
+          message: `スーパー管理者ログイン認証失敗: パスワード不一致 (username='${username}')`,
+          details: { reason: 'password_mismatch' }
+        });
+        const failRes = await securityGuard.recordFailure({
+          clientIp: logger.extractClientIp(req),
+          tenantId: 'common',
+          identifier: username,
+          eventType: 'auth_failure',
+          weight: 1,
+          reason: 'password_mismatch',
+          pool: cpPool,
+          req,
+          attemptStartedAt,
+          expectedResetGeneration: guard.resetGeneration
+        });
+        if (failRes.isBlocked) {
+          res.setHeader('Retry-After', failRes.retryAfterSeconds || 300);
+          return res.status(429).json({
+            success: false,
+            code: 'TEMPORARILY_BLOCKED',
+            message: '連続した認証失敗を検知したため、一時的にアクセスを制限しています。時間をおいて再試行してください。',
+            retryAfterSeconds: failRes.retryAfterSeconds || 300,
+            requestId
+          });
+        }
+        return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません', requestId });
+      }
+
+      // 初期テナントは 'daitetsu'（大鉄工業）
+      const initialTenantKey = 'daitetsu';
+      const tenantInfoRes = await cpPool.query(
+        `SELECT id::text AS tenant_id, tenant_key, tenant_name FROM public.tenants WHERE tenant_key = $1 LIMIT 1`,
+        [initialTenantKey]
+      ).catch(() => ({ rows: [] }));
+      const initialTenant = tenantInfoRes.rows[0] || { tenant_key: initialTenantKey, tenant_name: '大鉄工業' };
+
+      const tokenGens = await tokenRevocation.getCurrentTokenGenerations(cpPool, initialTenantKey, superUser.id);
+
+      const token = commonAuth.issueSession(res, {
+        userId: superUser.id,
+        username: superUser.username,
+        tenantId: initialTenantKey,
+        tenantKey: initialTenantKey,
+        authSource: 'common',
+        role: 'system_admin',
+        permissions: [],
+        userGen: tokenGens.userGen,
+        tenantGen: tokenGens.tenantGen
+      });
+
+      logger.writeLog({
+        severity: 'INFO',
+        eventType: 'auth_success',
+        requestId: req.requestId,
+        correlationId: req.correlationId,
+        tenantId: initialTenantKey,
+        userId: superUser.username,
+        clientIp: logger.extractClientIp(req),
+        message: `スーパー管理者ログイン認証成功 (common_db): user='${superUser.username}', role='system_admin'`,
+        details: { role: 'system_admin', authMethod: 'password', authSource: 'common_db' }
+      });
+
+      await securityGuard.recordSuccess({
+        clientIp: logger.extractClientIp(req),
+        tenantId: 'common',
+        identifier: superUser.username,
+        pool: cpPool
+      });
+
+      return res.json({
+        success: true,
+        token,
+        user: {
+          id: superUser.id,
+          username: superUser.username,
+          display_name: superUser.display_name || superUser.username,
+          displayName: superUser.display_name || superUser.username,
+          full_name: superUser.display_name || superUser.username,
+          role: 'system_admin',
+          is_super_admin: true,
+          can_switch_tenant: true,
+          tenant_id: initialTenantKey,
+          tenant_key: initialTenantKey,
+          tenant_uuid: initialTenant.tenant_id,
+          tenant_path: '/',
+          company_name: initialTenant.tenant_name
+        }
+      });
+    }
 
     // 2. 共通DBで接続先を解決
     const runtime = await resolveTenantRuntime(effectiveTenantKey).catch(err => {
@@ -3132,38 +3319,73 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/auth/me', requireCookieSession, verifyDeviceSessionTenantMatch, async (req, res) => {
   try {
     const pool = getControlPlanePool();
-    // 1. テナント情報の取得（UUIDでもtenant_keyでも安全に引く）
+    const isSuper = isSuperAdminUser(req.session);
+
+    // 1. テナント情報の取得（スーパー管理者の場合はリクエスト切替テナントを優先）
+    let requestedTenant = req.session.tenant_key || req.session.tenant_id;
+    if (isSuper) {
+      const switchedTenant = extractTenantIdFromRequest(req);
+      if (switchedTenant) requestedTenant = switchedTenant;
+    }
+
     const tenantRes = await pool.query(`
       SELECT id::text AS tenant_id, tenant_key, tenant_name
       FROM public.tenants
       WHERE (id::text = $1 OR tenant_key = $1)
         AND is_active = true
       LIMIT 1
-    `, [String(req.session.tenant_id || '').trim()]);
+    `, [String(requestedTenant || 'daitetsu').trim()]);
 
-    const tenant = tenantRes.rows[0];
+    let tenant = tenantRes.rows[0];
+    if (!tenant) {
+      const fb = await pool.query(`SELECT id::text AS tenant_id, tenant_key, tenant_name FROM public.tenants WHERE tenant_key = 'daitetsu' LIMIT 1`);
+      tenant = fb.rows[0];
+    }
     if (!tenant) {
       return res.status(403).json({ success: false, message: '有効なテナント情報が特定できません' });
     }
 
-    // 2. ユーザー情報を取得（テナントDBから取得）
+    // 2. ユーザー情報を取得
     let user = null;
-    try {
-      const runtime = await resolveTenantRuntime(tenant.tenant_key);
-      const userRes = await runtime.pool.query(`
-        SELECT id, username, display_name, role
-        FROM public.users
-        WHERE (id::text = $1 OR username = $1) AND is_active = true
-        LIMIT 1
-      `, [String(req.session.sub || '').trim()]);
-      user = userRes.rows[0];
-    } catch (_) { }
+    if (isSuper) {
+      // スーパー管理者は各テナントDBに依存せず common_db (super_admins) から取得
+      try {
+        const superRes = await pool.query(`
+          SELECT id::text AS id, username, COALESCE(display_name, username) AS display_name, role
+          FROM public.super_admins
+          WHERE username = $1 AND is_active = true
+          LIMIT 1
+        `, [String(req.session.username || 'niina')]);
+        user = superRes.rows[0];
+      } catch (_) { }
+
+      if (!user) {
+        user = {
+          id: req.session.sub || 'e996e889-4165-412f-8450-8b6e0f193256',
+          username: req.session.username || 'niina',
+          display_name: '新名 敏（システム管理者）',
+          role: 'system_admin'
+        };
+      }
+    } else {
+      // 一般ユーザーはテナントDBから取得
+      try {
+        const runtime = await resolveTenantRuntime(tenant.tenant_key);
+        const userRes = await runtime.pool.query(`
+          SELECT id, username, display_name, role
+          FROM public.users
+          WHERE (id::text = $1 OR username = $1) AND is_active = true
+          LIMIT 1
+        `, [String(req.session.sub || '').trim()]);
+        user = userRes.rows[0];
+      } catch (_) { }
+    }
 
     if (!user) {
       return res.status(401).json({ success: false, message: 'テナント内に認証情報が見つかりません' });
     }
 
-    const isSuperUser = String(user.username || req.session.username || '').toLowerCase() === 'niina' || String(user.id || req.session.sub) === 'e996e889-4165-412f-8450-8b6e0f193256';
+    const isSuperUser = isSuper || String(user.username || req.session.username || '').toLowerCase() === 'niina' || String(user.id || req.session.sub) === 'e996e889-4165-412f-8450-8b6e0f193256';
     const finalRole = isSuperUser ? 'system_admin' : (user.role || req.session.role || 'operator');
 
     return res.json({
@@ -3262,8 +3484,28 @@ app.get('/api/apps', requireCookieSession, verifyDeviceSessionTenantMatch, async
 const handleLaunchToken = async (req, res) => {
   try {
     const pool = getControlPlanePool();
+    const isSuper = isSuperAdminUser(req.session);
     const appKey = String(req.params.appKey || '').trim();
-    const tenant = await resolveSessionTenant(pool, req.session);
+
+    // 対象テナントの決定（スーパー管理者の場合は切替先テナントを優先）
+    let targetTenantKey = req.session.tenant_key || req.session.tenant_id;
+    if (isSuper) {
+      const switchedTenant = extractTenantIdFromRequest(req);
+      if (switchedTenant) targetTenantKey = switchedTenant;
+    }
+
+    const tenantRes = await pool.query(`
+      SELECT id::text AS id, tenant_key, tenant_name
+      FROM public.tenants
+      WHERE (id::text = $1 OR tenant_key = $1)
+        AND is_active = true
+      LIMIT 1
+    `, [String(targetTenantKey || 'daitetsu').trim()]);
+    let tenant = tenantRes.rows[0];
+    if (!tenant) {
+      const fb = await pool.query(`SELECT id::text AS id, tenant_key, tenant_name FROM public.tenants WHERE tenant_key = 'daitetsu' LIMIT 1`);
+      tenant = fb.rows[0];
+    }
     if (!tenant) return res.status(403).json({ success: false, message: 'テナントを確認できません' });
 
     // アプリ一覧(/api/apps)と同じ public.tenant_applications を正本として権限判定する
@@ -3279,16 +3521,28 @@ const handleLaunchToken = async (req, res) => {
     }
 
     let user = null;
-    const runtime = await resolveTenantRuntime(tenant.tenant_key).catch(() => null);
-    if (runtime && runtime.pool) {
-      const tenantUserResult = await runtime.pool.query(`
-        SELECT id::text AS user_id, username, COALESCE(display_name, username) AS display_name, role AS role_key
-        FROM public.users
-        WHERE (id::text = $1 OR username = $2) AND is_active = true
-        LIMIT 1
-      `, [String(req.session.sub || ''), String(req.session.username || '')]);
-      if (tenantUserResult.rows[0]) {
-        user = { ...tenantUserResult.rows[0], tenant_key: tenant.tenant_key, tenant_name: tenant.tenant_name };
+    if (isSuper) {
+      // スーパー管理者はテナントDBのユーザーに依存せず起動可能
+      user = {
+        user_id: String(req.session.sub || 'e996e889-4165-412f-8450-8b6e0f193256'),
+        username: String(req.session.username || 'niina'),
+        display_name: '新名 敏（システム管理者）',
+        role_key: 'system_admin',
+        tenant_key: tenant.tenant_key,
+        tenant_name: tenant.tenant_name
+      };
+    } else {
+      const runtime = await resolveTenantRuntime(tenant.tenant_key).catch(() => null);
+      if (runtime && runtime.pool) {
+        const tenantUserResult = await runtime.pool.query(`
+          SELECT id::text AS user_id, username, COALESCE(display_name, username) AS display_name, role AS role_key
+          FROM public.users
+          WHERE (id::text = $1 OR username = $2) AND is_active = true
+          LIMIT 1
+        `, [String(req.session.sub || ''), String(req.session.username || '')]);
+        if (tenantUserResult.rows[0]) {
+          user = { ...tenantUserResult.rows[0], tenant_key: tenant.tenant_key, tenant_name: tenant.tenant_name };
+        }
       }
     }
 
@@ -4474,19 +4728,34 @@ app.post('/api/admin/tenant-apps/:tenantKey', requireAdmin, async (req, res) => 
 
 // ユーザー一覧取得エンドポイント
 app.get('/api/users', requireAdmin, async (req, res) => {
-  console.log(`[GET /api/users] ENTER: req.tenantId=${req.tenantId}, req.headers.x-tenant-id=${req.headers['x-tenant-id']}, req.tenantContext=${req.tenantContext?.resolvedTenantId}`);
   let query = '';
   const params = [];
   let route = null;
   try {
+    const isSuper = isSuperAdminUser(req);
+    let targetDb = getRequestDbPool(req);
+    let currentTenantId = req.tenantId || req.tenantContext?.resolvedTenantId || 'daitetsu';
+
+    if (isSuper) {
+      const explicitTenant = req.query.tenantId || req.headers['x-tenant-id'];
+      if (explicitTenant) {
+        const rawKey = String(explicitTenant).trim().toLowerCase();
+        const targetRuntime = await resolveTenantRuntime(rawKey).catch(() => null);
+        if (targetRuntime && targetRuntime.pool) {
+          targetDb = targetRuntime.pool;
+          currentTenantId = rawKey;
+        }
+      }
+    }
+
     const compatible = await resolveCompatibleTablePath('users', [
       { schema: 'public', table: 'users' },
       { schema: 'master_data', table: 'users', source: 'legacy-fallback' }
     ], ['id', 'username', 'display_name', 'role', 'created_at']);
     route = compatible.route;
     query = `SELECT id, username, display_name, role, created_at FROM ${route.fullPath} ORDER BY id ASC`;
-    const result = await getRequestDbPool(req).query(query);
-    const isSuper = isSuperAdminUser(req);
+    const result = await targetDb.query(query);
+
     let availableTenants = [];
     if (isSuper) {
       availableTenants = await getAvailableTenantsList();
@@ -4495,7 +4764,7 @@ app.get('/api/users', requireAdmin, async (req, res) => {
       ...row,
       role: normalizeRoleForApp(row.role)
     }));
-    const currentTenantId = req.tenantId || req.tenantContext?.resolvedTenantId || 'daitetsu';
+
     res.json({
       success: true,
       users: normalizedUsers,
@@ -4528,21 +4797,45 @@ app.get('/api/users/:id', requireAdmin, async (req, res) => {
   }
 
   try {
-    const db = getRequestDbPool(req);
-    const compatible = await resolveCompatibleTablePath('users', [
-      { schema: 'public', table: 'users' },
-      { schema: 'master_data', table: 'users', source: 'legacy-fallback' }
-    ], ['id', 'username', 'display_name', 'role']);
-    const route = compatible.route;
+    const isSuper = isSuperAdminUser(req);
+    const isTargetSuper = String(userId) === 'e996e889-4165-412f-8450-8b6e0f193256';
 
-    const query = `SELECT * FROM ${route.fullPath} WHERE id::text = $1 LIMIT 1`;
-    const result = await db.query(query, [String(userId)]);
+    let rawUser = null;
+    if (isTargetSuper) {
+      const cpPool = getControlPlanePool();
+      const superRes = await cpPool.query(`
+        SELECT id, username, display_name, email, role, is_active, created_at
+        FROM public.super_admins
+        WHERE id::text = $1 OR username = 'niina'
+        LIMIT 1
+      `, [String(userId)]);
+      rawUser = superRes.rows[0];
+    } else {
+      let db = getRequestDbPool(req);
+      const explicitTenant = req.query.tenantId || req.headers['x-tenant-id'];
+      if (isSuper && explicitTenant) {
+        const rawKey = String(explicitTenant).trim().toLowerCase();
+        const targetRuntime = await resolveTenantRuntime(rawKey).catch(() => null);
+        if (targetRuntime && targetRuntime.pool) {
+          db = targetRuntime.pool;
+        }
+      }
 
-    if (!result || !result.rows || result.rows.length === 0) {
+      const compatible = await resolveCompatibleTablePath('users', [
+        { schema: 'public', table: 'users' },
+        { schema: 'master_data', table: 'users', source: 'legacy-fallback' }
+      ], ['id', 'username', 'display_name', 'role']);
+      const route = compatible.route;
+
+      const query = `SELECT * FROM ${route.fullPath} WHERE id::text = $1 LIMIT 1`;
+      const result = await db.query(query, [String(userId)]);
+      rawUser = result?.rows?.[0];
+    }
+
+    if (!rawUser) {
       return res.status(404).json({ success: false, message: '指定されたユーザーが見つかりません' });
     }
 
-    const rawUser = result.rows[0];
     const { password, password_hash, token, secret, api_token, ...safeUser } = rawUser;
 
     const user = {
@@ -4588,6 +4881,10 @@ app.post('/api/users', requireAdmin, async (req, res) => {
 
     if (!username || !password) {
       return res.status(400).json({ success: false, message: 'ユーザー名とパスワードは必須です' });
+    }
+
+    if (String(username).trim().toLowerCase() === 'niina') {
+      return res.status(400).json({ success: false, message: 'ユーザー名「niina」はシステム管理者専用です' });
     }
 
     const passwordRegex = /^(?=.*[A-Z])(?=.*[a-z0-9])(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
@@ -4686,12 +4983,98 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
     return res.status(400).json({ success: false, message: 'ユーザーIDが指定されていません' });
   }
 
-  const db = getRequestDbPool(req);
+  const isSuper = isSuperAdminUser(req.user || req.session);
+  const { username, display_name, password, role, email, targetTenantId } = req.body;
+  const normalizedRole = normalizeRoleForApp(role || 'user');
+
+  // 1. スーパー管理者（niina）自身の更新かどうかの判定
+  // 指示: 「スーパー管理者のパスワード変更はcommon_dbのみに反映する」「各テナントDBのniinaレコードには認証を依存させない」
+  const isTargetSuperAdmin = String(username || '').toLowerCase() === 'niina' || String(userId) === 'e996e889-4165-412f-8450-8b6e0f193256';
+
+  if (isTargetSuperAdmin) {
+    if (!isSuper) {
+      return res.status(403).json({ success: false, message: 'スーパー管理者を変更する権限がありません' });
+    }
+
+    const cpPool = getControlPlanePool();
+    const client = await cpPool.connect();
+    try {
+      await client.query('BEGIN');
+      const updateData = {
+        updated_at: new Date()
+      };
+      if (display_name !== undefined) updateData.display_name = display_name;
+      if (email !== undefined) updateData.email = email;
+
+      const trimmedPass = typeof password === 'string' ? password.trim() : '';
+      if (trimmedPass) {
+        const passwordRegex = /^(?=.*[A-Z])(?=.*[a-z0-9])(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
+        if (!passwordRegex.test(trimmedPass)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            success: false,
+            message: 'パスワードは英大文字・英小文字または数字・記号をそれぞれ1文字以上含む8文字以上で設定してください'
+          });
+        }
+        const hashedPassword = await bcrypt.hash(trimmedPass, 10);
+        updateData.password_hash = hashedPassword;
+      }
+
+      const setClauses = [];
+      const values = [];
+      let paramIdx = 1;
+      for (const [k, v] of Object.entries(updateData)) {
+        setClauses.push(`"${k}" = $${paramIdx++}`);
+        values.push(v);
+      }
+      values.push(username || 'niina');
+
+      const updateQuery = `
+        UPDATE public.super_admins
+        SET ${setClauses.join(', ')}
+        WHERE username = $${paramIdx}
+        RETURNING id, username, display_name, email, role, is_active, updated_at
+      `;
+      const updateRes = await client.query(updateQuery, values);
+      await client.query('COMMIT');
+
+      const safeUpdated = updateRes.rows[0] || { username: 'niina', role: 'system_admin' };
+
+      logger.writeAuditLogSync({
+        req,
+        severity: 'INFO',
+        eventType: 'admin_audit',
+        message: `スーパー管理者情報更新 (common_db): target_user='${username}'`,
+        details: { action: 'update_super_admin', target_username: username, password_changed: Boolean(trimmedPass) }
+      });
+
+      return res.json({
+        success: true,
+        user: { ...safeUpdated, role: 'system_admin' },
+        message: 'スーパー管理者情報を更新しました'
+      });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      console.error('[PUT /api/users/:id SuperAdmin Error]', e);
+      return res.status(500).json({ success: false, message: 'スーパー管理者の更新に失敗しました' });
+    } finally {
+      client.release();
+    }
+  }
+
+  // 2. 一般テナントユーザーの更新
+  // 指示: 「同名adminを別テナントで誤更新しない」
+  let db = getRequestDbPool(req);
+  if (isSuper && (targetTenantId || req.headers['x-tenant-id'] || req.query?.tenantId)) {
+    const rawKey = String(targetTenantId || req.headers['x-tenant-id'] || req.query?.tenantId).trim().toLowerCase();
+    const targetRuntime = await resolveTenantRuntime(rawKey).catch(() => null);
+    if (targetRuntime && targetRuntime.pool) {
+      db = targetRuntime.pool;
+    }
+  }
+
   let client;
   try {
-    const { username, display_name, password, role, email } = req.body;
-    const normalizedRole = normalizeRoleForApp(role || 'user');
-
     if (!username) {
       return res.status(400).json({ success: false, message: 'ユーザー名は必須です' });
     }
@@ -4730,9 +5113,11 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
       updateData.email = email || null;
     }
 
-    if (password) {
+    // 指示: 「パスワード未変更時は既存ハッシュを維持する」
+    const trimmedPass = typeof password === 'string' ? password.trim() : '';
+    if (trimmedPass) {
       const passwordRegex = /^(?=.*[A-Z])(?=.*[a-z0-9])(?=.*[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]).{8,}$/;
-      if (!passwordRegex.test(password)) {
+      if (!passwordRegex.test(trimmedPass)) {
         await client.query('ROLLBACK');
         return res.status(400).json({
           success: false,
@@ -4740,7 +5125,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         });
       }
 
-      const hashedPassword = await bcrypt.hash(password, 10);
+      const hashedPassword = await bcrypt.hash(trimmedPass, 10);
       updateData.password = hashedPassword;
       updateData.password_hash = hashedPassword;
     }
@@ -4765,7 +5150,7 @@ app.put('/api/users/:id', requireAdmin, async (req, res) => {
         target_user_id: userId,
         target_username: username,
         role: normalizedRole,
-        password_changed: Boolean(password)
+        password_changed: Boolean(trimmedPass)
       }
     });
 
@@ -4811,13 +5196,25 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
     return res.status(400).json({ success: false, message: 'ユーザーIDが指定されていません' });
   }
 
-  const db = getRequestDbPool(req);
+  const isSuper = isSuperAdminUser(req.user || req.session);
+  const targetTenantId = req.body?.targetTenantId || req.headers['x-tenant-id'] || req.query?.tenantId;
+
+  // スーパー管理者 (niina) の削除はシステム保護のため完全禁止
+  if (String(userId) === 'e996e889-4165-412f-8450-8b6e0f193256' || String(req.user?.id) === String(userId)) {
+    return res.status(400).json({ success: false, message: '管理者アカウントを削除することはできません' });
+  }
+
+  let db = getRequestDbPool(req);
+  if (isSuper && targetTenantId) {
+    const rawKey = String(targetTenantId).trim().toLowerCase();
+    const targetRuntime = await resolveTenantRuntime(rawKey).catch(() => null);
+    if (targetRuntime && targetRuntime.pool) {
+      db = targetRuntime.pool;
+    }
+  }
+
   let client;
   try {
-    if (String(req.user?.id) === String(userId)) {
-      return res.status(400).json({ success: false, message: '自分自身のユーザーアカウントは削除できません' });
-    }
-
     client = await db.connect();
     await client.query('BEGIN');
 

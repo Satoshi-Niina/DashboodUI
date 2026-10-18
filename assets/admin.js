@@ -1374,13 +1374,22 @@ async function saveUser() {
         : getCurrentTenantId();
 
     const userData = {
-        username: document.getElementById('user-username').value,
-        display_name: document.getElementById('user-full-name').value,
-        email: document.getElementById('user-email').value,
+        username: document.getElementById('user-username').value.trim(),
+        display_name: document.getElementById('user-full-name').value.trim(),
+        email: document.getElementById('user-email').value.trim(),
         password: document.getElementById('user-password').value,
         role: normalizeUserRole(document.getElementById('user-role').value) || 'user',
         targetTenantId: targetTenantId
     };
+
+    if (!userData.username) {
+        showToast('ユーザー名を入力してください', 'error');
+        return;
+    }
+    if (!userId && !userData.password) {
+        showToast('新規作成時はパスワードを入力してください', 'error');
+        return;
+    }
 
     console.log('[saveUser] Saving user:', { userId, userData: { ...userData, password: '***' } });
 

@@ -15,7 +15,8 @@ test('common migrations are ordered and include executable schema verifiers', ()
     '007_device_certificates',
     '008_deprecate_demo_db',
     '009_minimize_common_db',
-    '010_token_revocation_and_security_guard'
+    '010_token_revocation_and_security_guard',
+    '011_super_admin_common_auth'
   ]);
   for (const migration of migrations) {
     assert.match(migration.checksum, /^[a-f0-9]{64}$/);
