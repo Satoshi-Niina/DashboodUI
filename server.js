@@ -668,6 +668,9 @@ function extractTenantIdFromRequest(req) {
   // 2. 端末証明書による特定結果が存在する場合はそれを採用
   if (req.deviceInfo && req.deviceInfo.tenantKey) {
     const certTenant = String(req.deviceInfo.tenantKey).trim().toLowerCase();
+    if (certTenant === 'common' || certTenant === 'global' || req.deviceInfo.isSuperAdminDevice) {
+      return 'daitetsu'; // スーパー管理者端末のデフォルト統括テナント
+    }
     if (certTenant && certTenant !== 'demo_env' && certTenant !== 'demo') {
       return mapTenantSegment(certTenant, true);
     }
@@ -1547,7 +1550,10 @@ app.use('/api', async (req, res, next) => {
   const isBootstrap = isLogin || isSessionBootstrapApiRequest(req) || isSecurity;
 
   try {
-    const requestedTenantId = extractTenantIdFromRequest(req) || req.requestedTenantId || null;
+    let requestedTenantId = extractTenantIdFromRequest(req) || req.requestedTenantId || null;
+    if (requestedTenantId === 'common' || requestedTenantId === 'global') {
+      requestedTenantId = 'daitetsu';
+    }
     const defaultDbName = getDefaultDbName();
 
     let runtime = null;
@@ -1661,6 +1667,17 @@ app.use('/api', async (req, res, next) => {
             success: false,
             code: 'DEVICE_MISMATCH',
             message: '証明書とセッションの所属テナントが一致しません',
+            requestId: req.requestId || req.headers['x-request-id'] || null
+          });
+        }
+
+        const explicitTargetTenant = String(req.headers['x-tenant-id'] || req.query?.tenantId || req.query?.tenant_id || '').trim().toLowerCase();
+        if (!isSuper && explicitTargetTenant && resolvedSessionTenantKey && explicitTargetTenant !== resolvedSessionTenantKey) {
+          return res.status(403).json({
+            success: false,
+            code: 'TENANT_MISMATCH',
+            message: 'ログインユーザーの所属テナントと要求先が一致しません',
+            requestedTenantId: explicitTargetTenant,
             requestId: req.requestId || req.headers['x-request-id'] || null
           });
         }
@@ -2839,21 +2856,24 @@ async function resolveDeviceTenant(req, cpPool) {
   return { ok: false, error: 'no_certificate' };
 }
 
-// パスワード照合ヘルパー（生値・前後空白トリム・全角英数半角正規化に対応）
+// パスワード照合ヘルパー（生値・前後空白・全角半角正規化の多段階照合）
 async function verifyPassword(inputPassword, targetHash) {
   if (!inputPassword || !targetHash) {
     return { ok: false, reason: 'EMPTY_INPUT', diagnostics: { length: (inputPassword || '').length } };
   }
 
   const raw = String(inputPassword);
-  const trimmed = raw.trim();
-  const normalized = trimmed.normalize('NFKC');
+  const isBcrypt = String(targetHash).startsWith('$2');
 
   const candidates = [raw];
-  if (trimmed !== raw && !candidates.includes(trimmed)) candidates.push(trimmed);
-  if (normalized !== trimmed && normalized !== raw && !candidates.includes(normalized)) candidates.push(normalized);
+  const trimmed = raw.trim();
+  if (trimmed !== raw) candidates.push(trimmed);
 
-  const isBcrypt = String(targetHash).startsWith('$2');
+  // 全角英数字・記号の半角正規化 (NFKC)
+  const normalized = raw.normalize('NFKC');
+  if (!candidates.includes(normalized)) candidates.push(normalized);
+  const normalizedTrimmed = normalized.trim();
+  if (!candidates.includes(normalizedTrimmed)) candidates.push(normalizedTrimmed);
 
   for (const cand of candidates) {
     let matched = false;
@@ -2863,10 +2883,7 @@ async function verifyPassword(inputPassword, targetHash) {
       matched = (cand === String(targetHash));
     }
     if (matched) {
-      return {
-        ok: true,
-        matchedVia: cand === raw ? 'raw' : (cand === trimmed ? 'trimmed' : 'normalized')
-      };
+      return { ok: true };
     }
   }
 
@@ -2874,9 +2891,7 @@ async function verifyPassword(inputPassword, targetHash) {
     ok: false,
     reason: 'PASSWORD_MISMATCH',
     diagnostics: {
-      length: raw.length,
-      hasWhitespace: /^\s|\s$/.test(raw),
-      hasFullWidth: /[^\x00-\x7F]/.test(raw)
+      length: raw.length
     }
   };
 }
@@ -2942,17 +2957,7 @@ app.post('/api/login', async (req, res) => {
     const isSuperAdminAttempt = username.toLowerCase() === 'niina' || Boolean(deviceResult.isSuperAdminDevice);
 
     if (isSuperAdminAttempt) {
-      // スーパー管理者は専用端末（pc-superadmin-niina / isSuperAdminDevice）からのアクセスのみ許可
-      if (!deviceResult.isSuperAdminDevice && username.toLowerCase() === 'niina') {
-        console.warn(`[Login] niina login rejected: non-superadmin device (${deviceResult.deviceIdentifier || 'unknown'})`);
-        return res.status(403).json({
-          success: false,
-          code: 'DEVICE_UNVERIFIED',
-          message: 'スーパー管理者は専用管理端末からログインしてください'
-        });
-      }
-
-      // 専用端末から一般ユーザー名でログインしようとした場合は拒否
+      // 専用端末から一般ユーザー名でログインしようとした場合は拒否 (スーパー管理者専用端末の保護)
       if (deviceResult.isSuperAdminDevice && username.toLowerCase() !== 'niina') {
         console.warn(`[Login] Non-superadmin user '${username}' attempted login from superadmin device (${deviceResult.deviceIdentifier})`);
         return res.status(403).json({
@@ -3058,13 +3063,15 @@ app.post('/api/login', async (req, res) => {
         return res.status(401).json({ success: false, message: 'ユーザー名またはパスワードが正しくありません', requestId });
       }
 
-      // 初期テナントは 'daitetsu'（大鉄工業）
-      const initialTenantKey = 'daitetsu';
+      // 初期テナントは選択された端末のテナント（近鉄なら近鉄、広成なら広成、専用端末/共通なら大鉄）
+      const initialTenantKey = (deviceResult.tenantKey && deviceResult.tenantKey !== 'common' && deviceResult.tenantKey !== 'demo')
+        ? deviceResult.tenantKey
+        : 'daitetsu';
       const tenantInfoRes = await cpPool.query(
         `SELECT id::text AS tenant_id, tenant_key, tenant_name FROM public.tenants WHERE tenant_key = $1 LIMIT 1`,
         [initialTenantKey]
       ).catch(() => ({ rows: [] }));
-      const initialTenant = tenantInfoRes.rows[0] || { tenant_key: initialTenantKey, tenant_name: '大鉄工業' };
+      const initialTenant = tenantInfoRes.rows[0] || { tenant_key: initialTenantKey, tenant_name: resolveTenantDisplayName(initialTenantKey, initialTenantKey) };
 
       const tokenGens = await tokenRevocation.getCurrentTokenGenerations(cpPool, initialTenantKey, superUser.id);
 
@@ -3611,12 +3618,13 @@ const handleLaunchToken = async (req, res) => {
       role: normalizedRole,
       externalRole: mapRoleForExternal(normalizedRole),
       roles: ssoClaims.roles,
+      is_super_admin: Boolean(isSuper),
       appKey, // 起動先アプリを限定し、別アプリ向けの使い回しを拒否できるようにする
       tenantKey,
       tenantId: tenantKey,
       tenant_id: tenantKey,
-      tenantPath: '/',
-      tenant_path: '/',
+      tenantPath: `/${tenantKey}`,
+      tenant_path: `/${tenantKey}`,
       company_code: ssoClaims.company_code,
       company_name: ssoClaims.company_name
     }, process.env.SHARED_SSO_SECRET, {
@@ -4796,21 +4804,48 @@ app.get('/api/users', requireAdmin, async (req, res) => {
       { schema: 'master_data', table: 'users', source: 'legacy-fallback' }
     ], ['id', 'username', 'display_name', 'role', 'created_at']);
     route = compatible.route;
-    query = `SELECT id, username, display_name, role, created_at FROM ${route.fullPath} ORDER BY id ASC`;
+    // 確定仕様: スーパー管理者niinaはcommon_dbでのみ認証・管理し、テナントDBの通常ユーザーとして表示しない
+    query = `SELECT id, username, display_name, role, created_at FROM ${route.fullPath} WHERE LOWER(username) != 'niina' AND id::text != 'e996e889-4165-412f-8450-8b6e0f193256' ORDER BY id ASC`;
     const result = await targetDb.query(query);
 
     let availableTenants = [];
+    let superAdminInfo = null;
     if (isSuper) {
       availableTenants = await getAvailableTenantsList();
+      try {
+        const cpPool = getControlPlanePool();
+        const superRes = await cpPool.query(`
+          SELECT id, username, display_name, email, role, is_active, created_at, updated_at
+          FROM public.super_admins
+          WHERE username = 'niina'
+          LIMIT 1
+        `);
+        if (superRes.rows[0]) {
+          superAdminInfo = {
+            id: superRes.rows[0].id,
+            username: superRes.rows[0].username,
+            display_name: superRes.rows[0].display_name,
+            email: superRes.rows[0].email,
+            role: 'super_admin',
+            is_active: superRes.rows[0].is_active,
+            auth_source: 'common_db (mTLS)'
+          };
+        }
+      } catch (err) {
+        console.warn('[GET /api/users] Failed to fetch superAdminInfo from common_db:', err.message);
+      }
     }
-    const normalizedUsers = result.rows.map((row) => ({
-      ...row,
-      role: normalizeRoleForApp(row.role)
-    }));
+    const normalizedUsers = result.rows
+      .filter((row) => String(row.username).toLowerCase() !== 'niina' && String(row.id) !== 'e996e889-4165-412f-8450-8b6e0f193256')
+      .map((row) => ({
+        ...row,
+        role: normalizeRoleForApp(row.role)
+      }));
 
     res.json({
       success: true,
       users: normalizedUsers,
+      superAdmin: superAdminInfo,
       canSwitchTenant: isSuper,
       availableTenants,
       currentTenantId
@@ -4903,6 +4938,96 @@ app.get('/api/users/:id', requireAdmin, async (req, res) => {
       code: err.code
     });
     res.status(500).json({ success: false, message: 'ユーザー情報の取得中にエラーが発生しました' });
+  }
+});
+
+// スーパー管理者情報取得エンドポイント (独立管理区分用)
+app.get('/api/superadmin/profile', requireAdmin, async (req, res) => {
+  try {
+    if (!isSuperAdminUser(req.user || req.session || req)) {
+      return res.status(403).json({ success: false, message: 'スーパー管理者権限が必要です' });
+    }
+    const cpPool = getControlPlanePool();
+    const superRes = await cpPool.query(`
+      SELECT id, username, display_name, email, role, is_active, created_at, updated_at
+      FROM public.super_admins
+      WHERE username = 'niina'
+      LIMIT 1
+    `);
+    if (!superRes.rows[0]) {
+      return res.status(404).json({ success: false, message: 'スーパー管理者情報が見つかりません' });
+    }
+    const row = superRes.rows[0];
+    res.json({
+      success: true,
+      user: {
+        id: row.id,
+        username: row.username,
+        display_name: row.display_name,
+        email: row.email,
+        role: 'super_admin',
+        is_active: row.is_active,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+      }
+    });
+  } catch (err) {
+    console.error('[GET /api/superadmin/profile Error]', err.message);
+    res.status(500).json({ success: false, message: 'スーパー管理者情報の取得に失敗しました' });
+  }
+});
+
+// スーパー管理者専用パスワード変更エンドポイント
+// 確定仕様: 「スーパー管理者のパスワード変更はcommon_dbのみを対象とする」「既存のbcrypt方式を使用する」
+app.post('/api/superadmin/change-password', requireAdmin, async (req, res) => {
+  try {
+    if (!isSuperAdminUser(req.user || req.session || req)) {
+      return res.status(403).json({ success: false, message: 'スーパー管理者権限が必要です' });
+    }
+    const { newPassword, confirmPassword } = req.body || {};
+    if (!newPassword || typeof newPassword !== 'string') {
+      return res.status(400).json({ success: false, message: '新しいパスワードを入力してください' });
+    }
+    if (confirmPassword !== undefined && newPassword !== confirmPassword) {
+      return res.status(400).json({ success: false, message: '確認用パスワードが一致しません' });
+    }
+    const trimmed = newPassword.trim();
+    if (trimmed.length < 4) {
+      return res.status(400).json({ success: false, message: 'パスワードは4文字以上で設定してください' });
+    }
+
+    const hashedPassword = await bcrypt.hash(trimmed, 10);
+    const cpPool = getControlPlanePool();
+    const updateRes = await cpPool.query(`
+      UPDATE public.super_admins
+      SET password_hash = $1, updated_at = NOW()
+      WHERE username = 'niina'
+      RETURNING id, username, display_name, updated_at
+    `, [hashedPassword]);
+
+    if (updateRes.rowCount === 0) {
+      return res.status(404).json({ success: false, message: '対象のスーパー管理者が存在しません' });
+    }
+
+    logger.writeAuditLogSync({
+      req,
+      severity: 'NOTICE',
+      eventType: 'security_event',
+      message: 'スーパー管理者パスワード更新 (common_db)',
+      details: {
+        action: 'change_superadmin_password',
+        target_username: 'niina',
+        updated_at: updateRes.rows[0].updated_at
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'スーパー管理者のパスワードを変更しました（次回ログイン時から有効）'
+    });
+  } catch (err) {
+    console.error('[POST /api/superadmin/change-password Error]', err.message);
+    res.status(500).json({ success: false, message: 'パスワード変更処理中にエラーが発生しました' });
   }
 });
 
@@ -5242,9 +5367,16 @@ app.delete('/api/users/:id', requireAdmin, async (req, res) => {
   const isSuper = isSuperAdminUser(req.user || req.session);
   const targetTenantId = req.body?.targetTenantId || req.headers['x-tenant-id'] || req.query?.tenantId;
 
-  // スーパー管理者 (niina) の削除はシステム保護のため完全禁止
-  if (String(userId) === 'e996e889-4165-412f-8450-8b6e0f193256' || String(req.user?.id) === String(userId)) {
-    return res.status(400).json({ success: false, message: '管理者アカウントを削除することはできません' });
+  // スーパー管理者 (niina) の削除操作が呼ばれた場合の保護
+  // 確定仕様: スーパー管理者（niina）は共通基盤 (common_db) で管理されており、テナントDBの通常ユーザー削除の対象外
+  if (String(userId) === 'e996e889-4165-412f-8450-8b6e0f193256') {
+    return res.status(400).json({
+      success: false,
+      message: 'スーパー管理者（niina）は共通基盤 (common_db) で一元管理されており、テナントユーザー削除の対象外です'
+    });
+  }
+  if (String(req.user?.id) === String(userId)) {
+    return res.status(400).json({ success: false, message: '現在ログイン中の自身のアカウントを削除することはできません' });
   }
 
   let db = getRequestDbPool(req);
@@ -8457,11 +8589,28 @@ app.delete('/api/inspection-schedules/:id', requireAdmin, async (req, res) => {
 const securityMonitor = require('./server/security-monitor');
 const maintenanceTasks = require('./server/maintenance-tasks');
 
-// セキュリティアラート取得
-app.get('/api/security/alerts', requireSystemAdmin, async (req, res) => {
+// 管理画面用 テナント権限解決ヘルパー
+// スーパー管理者: 全テナント閲覧可、指定時は対象テナントに絞り込み
+// 一般テナント管理者: 認証済みセッションから自社テナントに強制固定（URL改ざん防止）
+// 一般ユーザー: システム管理機能アクセス不可
+function resolveTenantForManagement(req) {
+  const user = req.user || req.session || {};
+  const isSuper = isSuperAdminUser(user);
+  if (isSuper) {
+    const qTenant = req.query?.tenantId ? String(req.query.tenantId).trim().toLowerCase() : null;
+    return { isSuper: true, tenantId: qTenant };
+  }
+  const authTenant = req.user?.tenant_id || req.user?.tenantId || req.session?.tenant_id || req.session?.tenant_key || null;
+  const safeTenant = authTenant ? String(authTenant).trim().toLowerCase() : null;
+  return { isSuper: false, tenantId: safeTenant };
+}
+
+// セキュリティアラート取得 (マルチテナント分離対応)
+app.get('/api/security/alerts', requireAdmin, async (req, res) => {
   try {
-    console.log('[Security API] Getting security alerts...');
-    const result = await securityMonitor.getSecurityAlerts();
+    const { isSuper, tenantId } = resolveTenantForManagement(req);
+    console.log(`[Security API] Getting security alerts (isSuper=${isSuper}, tenantId=${tenantId || 'ALL'})...`);
+    const result = await securityMonitor.getSecurityAlerts({ tenantId });
     res.json(result);
   } catch (error) {
     console.error('[Security API] Error getting alerts:', error);
@@ -8473,11 +8622,12 @@ app.get('/api/security/alerts', requireSystemAdmin, async (req, res) => {
   }
 });
 
-// ブロックされたアクセス一覧取得
-app.get('/api/security/blocked-access', requireSystemAdmin, async (req, res) => {
+// ブロックされたアクセス一覧取得 (マルチテナント分離・推測集計廃止対応)
+app.get('/api/security/blocked-access', requireAdmin, async (req, res) => {
   try {
-    console.log('[Security API] Getting blocked access...');
-    const result = await securityMonitor.getBlockedAccess();
+    const { isSuper, tenantId } = resolveTenantForManagement(req);
+    console.log(`[Security API] Getting blocked access (isSuper=${isSuper}, tenantId=${tenantId || 'ALL'})...`);
+    const result = await securityMonitor.getBlockedAccess({ tenantId });
     res.json(result);
   } catch (error) {
     console.error('[Security API] Error getting blocked access:', error);
@@ -8773,11 +8923,24 @@ app.post('/api/security/devices/:id/revoke-cert', requireAdmin, async (req, res)
   }
 });
 
-// システムエラーログ・自動解析一覧取得
-app.get('/api/system/error-logs', requireSystemAdmin, async (req, res) => {
+// システムエラーログ・自動解析一覧取得 (マルチテナント分離・日時検索・ページング対応)
+app.get('/api/system/error-logs', requireAdmin, async (req, res) => {
   try {
+    const { isSuper, tenantId } = resolveTenantForManagement(req);
     const limit = Math.min(Number(req.query.limit) || 50, 100);
-    const result = await securityMonitor.getErrorLogsAndAnalysis({ limit });
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const { startDate, endDate, severity, keyword } = req.query;
+
+    console.log(`[Security API] Getting error logs (isSuper=${isSuper}, tenantId=${tenantId || 'ALL'}, page=${page})...`);
+    const result = await securityMonitor.getErrorLogsAndAnalysis({
+      limit,
+      page,
+      tenantId,
+      startDate,
+      endDate,
+      severity,
+      keyword
+    });
     res.json(result);
   } catch (error) {
     console.error('[Security API] Error getting error logs:', error);
@@ -9126,11 +9289,13 @@ app.get('/api/maintenance/npm-audit', requireSystemAdmin, async (req, res) => {
   }
 });
 
-// ストレージ使用状況取得
-app.get('/api/maintenance/storage-usage', requireSystemAdmin, async (req, res) => {
+// ストレージ使用状況取得 (マルチテナント分離・Cloud Monitoring併用・再取得対応)
+app.get('/api/maintenance/storage-usage', requireAdmin, async (req, res) => {
   try {
-    console.log('[Maintenance API] Getting storage usage...');
-    const result = await maintenanceTasks.getStorageUsage();
+    const { isSuper, tenantId } = resolveTenantForManagement(req);
+    const forceRefresh = req.query.refresh === 'true' || req.query.force === 'true';
+    console.log(`[Maintenance API] Getting storage usage (isSuper=${isSuper}, tenantId=${tenantId || 'ALL'}, refresh=${forceRefresh})...`);
+    const result = await maintenanceTasks.getStorageUsage({ tenantId, forceRefresh });
     res.json(result);
   } catch (error) {
     console.error('[Maintenance API] Error getting storage usage:', error);

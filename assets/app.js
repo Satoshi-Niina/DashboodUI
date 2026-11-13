@@ -524,8 +524,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         try {
-            const response = await fetch(getTenantApiPath(`/api/apps/${encodeURIComponent(currentAppId)}/launch-token`), {
+            const launchHeaders = {};
+            if (window.selectedAdminTenantId) {
+                launchHeaders['X-Tenant-Id'] = window.selectedAdminTenantId;
+            }
+            const launchUrl = window.selectedAdminTenantId
+                ? getTenantApiPath(`/api/apps/${encodeURIComponent(currentAppId)}/launch-token?tenantId=${encodeURIComponent(window.selectedAdminTenantId)}`)
+                : getTenantApiPath(`/api/apps/${encodeURIComponent(currentAppId)}/launch-token`);
+
+            const response = await fetch(launchUrl, {
                 method: 'POST',
+                headers: launchHeaders,
                 credentials: 'same-origin'
             });
             const launchContext = await response.json();
@@ -534,16 +543,29 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             // 起動先URLは public.tenant_app_routings に登録された実際の待受先を使用する
-            // HTTPSゲートウェイ（8443）経由の場合は、内部ポートではなく統一パス /inspection/ を使用する
+            // HTTPSゲートウェイ（8443）経由の場合は、内部ポートではなく統一パス /inspection/ や /planning/ を使用する
+            const launchTenantId = launchContext.publicTenantId || launchContext.tenantKey;
+            const effectiveTenantKey = launchContext.tenantKey || launchContext.tenantId || launchTenantId;
             let targetUrl = baseUrl;
             if (window.location.protocol === 'https:' && (currentAppId === 'inspection' || baseUrl.includes(':5173'))) {
                 targetUrl = `${window.location.origin}/inspection/`;
+            } else if (window.location.protocol === 'https:' && (currentAppId === 'planning' || baseUrl.includes(':3002'))) {
+                targetUrl = `${window.location.origin}/planning/${encodeURIComponent(effectiveTenantKey)}/planning`;
             }
             const urlObj = new URL(targetUrl, window.location.origin);
-            const launchTenantId = launchContext.publicTenantId || launchContext.tenantKey;
-            // URLクエリおよびフラグメントに機微情報やトークンを含めない（postMessageで安全にハンドシェイク）
-            urlObj.search = '';
-            urlObj.hash = '';
+            
+            const searchParams = new URLSearchParams();
+            if (launchTenantId) searchParams.set('tenant', launchTenantId);
+            urlObj.search = `?${searchParams.toString()}`;
+            if (currentAppId === 'failure' || currentAppId === 'emergency') {
+                searchParams.set('sso_origin', window.location.origin);
+                urlObj.search = `?${searchParams.toString()}`;
+                urlObj.hash = '';
+            } else {
+                if (launchContext.token) searchParams.set('token', launchContext.token);
+                urlObj.search = `?${searchParams.toString()}`;
+                urlObj.hash = `#token=${encodeURIComponent(launchContext.token)}&tenant=${encodeURIComponent(launchTenantId)}&role=${encodeURIComponent(launchContext.role || '')}`;
+            }
 
             const externalContext = {
                 type: 'EXTERNAL_AUTH_CONTEXT',
@@ -573,16 +595,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                 };
 
                 const handleAuthMessage = (event) => {
-                    if (event.source !== launchTab || event.origin !== urlObj.origin) return;
+                    if (event.origin !== urlObj.origin) return;
+                    const isSourceValid = event.source === launchTab || (!launchTab.closed && event.origin === window.location.origin);
+                    if (!isSourceValid) return;
 
                     const messageType = String(event.data && event.data.type || '');
                     if (messageType === 'EXTERNAL_AUTH_READY' && !contextSent) {
                         contextSent = true;
-                        launchTab.postMessage(externalContext, urlObj.origin);
-                    } else if (messageType === 'EXTERNAL_AUTH_ACK' && contextSent) {
+                        try {
+                            launchTab.postMessage(externalContext, urlObj.origin);
+                        } catch (err) {
+                            console.warn('[App] postMessage to launchTab failed:', err);
+                        }
+                    } else if (messageType === 'EXTERNAL_AUTH_ACK') {
                         cleanup();
                         resolve(true);
-                    } else if (messageType === 'EXTERNAL_AUTH_FAILED' && contextSent) {
+                    } else if (messageType === 'EXTERNAL_AUTH_FAILED') {
                         cleanup();
                         reject(new Error(`${appTitle}で認証またはテナントDB確認に失敗しました。\n再試行方法: ダッシュボードから再ログインし、もう一度お試しください。`));
                     }
@@ -590,6 +618,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 window.addEventListener('message', handleAuthMessage);
                 launchTab.location.replace(urlObj.toString());
+
+                if (currentAppId === 'planning') {
+                    // 運用計画アプリはCookieセッションとURLトークンで直接認証されるため、親側でのpostMessage待機を即座に完了
+                    window.setTimeout(() => {
+                        cleanup();
+                        resolve(true);
+                    }, 500);
+                }
             });
 
             console.log('[App] Launching application:', urlObj.origin, currentAppId);

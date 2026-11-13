@@ -81,6 +81,32 @@
                     <p>💡 ログインユーザーの追加・編集・削除、一括インポートを行います</p>
                 </div>
 
+                <!-- 👑 スーパー管理者（統括管理）独立管理区分 -->
+                <div id="super-admin-card" class="super-admin-banner" style="display: none; margin: 15px 0 25px 0; padding: 20px 24px; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border: 1.5px solid #38bdf8; border-radius: 12px; color: #f8fafc; box-shadow: 0 4px 14px rgba(0,0,0,0.25);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+                        <div style="display: flex; align-items: center; gap: 16px;">
+                            <span style="font-size: 2.2rem; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));">👑</span>
+                            <div>
+                                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                                    <span style="font-size: 1.15rem; font-weight: 700; color: #38bdf8; letter-spacing: 0.02em;">スーパー管理者（統括基盤一元管理）</span>
+                                    <span style="font-size: 0.75rem; background: #38bdf8; color: #0f172a; padding: 2px 8px; border-radius: 4px; font-weight: 700;">common_db 認証</span>
+                                    <span style="font-size: 0.75rem; background: #10b981; color: #ffffff; padding: 2px 8px; border-radius: 4px; font-weight: 600;">mTLS 接続済</span>
+                                </div>
+                                <p style="margin: 6px 0 0 0; font-size: 0.88rem; color: #cbd5e1; line-height: 1.5;">
+                                    アカウント: <strong id="super-admin-username" style="color: #fff; font-size: 0.95rem;">niina</strong> (<span id="super-admin-display-name">新納</span>)
+                                    &nbsp;|&nbsp; 所属: <strong style="color: #38bdf8;">全テナント統括（非固定）</strong>
+                                    &nbsp;|&nbsp; 端末: <strong>niinaPC (mTLS専用)</strong>
+                                </p>
+                            </div>
+                        </div>
+                        <div>
+                            <button type="button" id="change-superadmin-password-btn" class="btn-primary" style="background: #0284c7; border: 1px solid #38bdf8; padding: 9px 20px; font-weight: 600; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; box-shadow: 0 2px 6px rgba(0,0,0,0.2);">
+                                <span>🔒</span> スーパー管理者パスワード変更
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <section class="config-section">
                     <div class="user-actions" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
                         <button type="button" id="add-new-user-btn" class="btn-primary btn-add-width-33">
@@ -639,9 +665,42 @@
                                 <h3>📜 ログ管理 <span class="badge-alert" id="error-logs-count" style="font-size: 0.8rem; background: #fef3c7; color: #92400e; padding: 2px 8px; border-radius: 9999px;">取得中</span></h3>
                                 <button type="button" id="btn-refresh-error-logs" class="btn-sm-outline">🔄 ログ更新</button>
                             </div>
-                            <p class="section-subtext">システムログからエラーを抽出し、ルールベースで推定原因・推奨対応を自動分析（外部AI送信なし）</p>
+                            <p class="section-subtext">Cloud Logging 連携によるエラー・重大ログ抽出とルールベース自動解析（機密情報マスキング済み）</p>
+
+                            <!-- 検索フィルターバー -->
+                            <div class="log-filter-bar" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; font-size: 0.85rem; align-items: center; background: #f8fafc; padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                                <div style="display: flex; align-items: center; gap: 4px;">
+                                    <label for="log-filter-tenant" style="font-size: 0.8rem; color: #64748b; font-weight: 500;">テナント:</label>
+                                    <select id="log-filter-tenant" class="form-control-sm" style="padding: 4px 8px; font-size: 0.82rem; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff;">
+                                        <option value="">全テナント (自社権限範囲)</option>
+                                    </select>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 4px;">
+                                    <label for="log-filter-severity" style="font-size: 0.8rem; color: #64748b; font-weight: 500;">重大度:</label>
+                                    <select id="log-filter-severity" class="form-control-sm" style="padding: 4px 8px; font-size: 0.82rem; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff;">
+                                        <option value="WARNING">WARNING以上</option>
+                                        <option value="ERROR">ERROR以上</option>
+                                        <option value="CRITICAL">CRITICALのみ</option>
+                                    </select>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 4px; flex: 1; min-width: 140px;">
+                                    <input type="text" id="log-filter-keyword" placeholder="メッセージ・IP・URL検索..." style="width: 100%; padding: 4px 8px; font-size: 0.82rem; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff;">
+                                </div>
+                                <button type="button" id="btn-apply-log-filter" class="btn-sm-outline" style="padding: 4px 10px;">🔍 検索</button>
+                            </div>
+
                             <div id="error-logs-container" class="error-logs-container">
                                 <div style="padding: 16px; color: #6c757d; text-align: center;">エラーログを読み込み中...</div>
+                            </div>
+
+                            <!-- ページングバー -->
+                            <div id="log-pagination-container" style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 0.8rem; color: #64748b;">
+                                <div id="log-pagination-info">0 件中 0 件を表示</div>
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <button type="button" id="log-prev-page" class="btn-sm-outline" style="padding: 4px 10px;" disabled>&laquo; 前へ</button>
+                                    <span>ページ <strong id="log-current-page" style="color: #0f172a;">1</strong> / <span id="log-total-pages">1</span></span>
+                                    <button type="button" id="log-next-page" class="btn-sm-outline" style="padding: 4px 10px;" disabled>次へ &raquo;</button>
+                                </div>
                             </div>
                         </section>
 
@@ -1321,6 +1380,43 @@
         </div>
     </div>
 
+    <!-- 👑 スーパー管理者パスワード変更モーダル -->
+    <div id="superadmin-password-modal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 480px; border-top: 4px solid #38bdf8;">
+            <div class="modal-header">
+                <h3 id="superadmin-password-modal-title" style="display: flex; align-items: center; gap: 8px;">
+                    <span>👑</span> スーパー管理者パスワード変更
+                </h3>
+                <button class="modal-close" id="superadmin-password-modal-close">&times;</button>
+            </div>
+            <div style="padding: 12px 16px; margin: 0 0 16px 0; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; font-size: 0.84rem; color: #0369a1; line-height: 1.5;">
+                🔒 <strong>確定仕様:</strong> 新しいパスワードは共通基盤（<strong>common_db.public.super_admins</strong>）にのみ bcrypt 暗号化されて安全に反映されます。各テナントDBのユーザーデータには一切影響しません。
+            </div>
+            <form id="superadmin-password-form">
+                <div class="form-group" style="position: relative;">
+                    <label for="superadmin-new-password">新しいパスワード *</label>
+                    <div style="position: relative; display: flex; align-items: center;">
+                        <input type="password" id="superadmin-new-password" required autocomplete="new-password" style="width: 100%; padding-right: 40px;" placeholder="4文字以上で入力してください">
+                        <button type="button" class="btn-toggle-pass" data-target="superadmin-new-password" style="position: absolute; right: 8px; background: none; border: none; cursor: pointer; font-size: 1.1rem; padding: 4px; color: #64748b;" title="パスワードを表示/非表示">👁</button>
+                    </div>
+                </div>
+
+                <div class="form-group" style="position: relative;">
+                    <label for="superadmin-confirm-password">新しいパスワード（確認用） *</label>
+                    <div style="position: relative; display: flex; align-items: center;">
+                        <input type="password" id="superadmin-confirm-password" required autocomplete="new-password" style="width: 100%; padding-right: 40px;" placeholder="もう一度入力してください">
+                        <button type="button" class="btn-toggle-pass" data-target="superadmin-confirm-password" style="position: absolute; right: 8px; background: none; border: none; cursor: pointer; font-size: 1.1rem; padding: 4px; color: #64748b;" title="パスワードを表示/非表示">👁</button>
+                    </div>
+                </div>
+
+                <div class="form-actions" style="margin-top: 24px;">
+                    <button type="submit" class="btn-primary" id="submit-superadmin-password-btn" style="background: #0284c7; border: 1px solid #38bdf8;">更新する</button>
+                    <button type="button" class="btn-secondary" id="cancel-superadmin-password-btn">キャンセル</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- 機種マスタ追加・編集モーダル -->
     <div id="machine-type-modal" class="modal">
         <div class="modal-content">
@@ -1403,22 +1499,23 @@
 
                         <!-- 左列 2: 製造メーカー -->
                         <div class="form-group-unified">
-                            <label for="machine-manufacturer-input">製造メーカー</label>
-                            <input type="text" id="machine-manufacturer-input" name="manufacturer" readonly placeholder="型式を選択すると自動表示">
+                            <label for="machine-manufacturer-select">製造メーカー *</label>
+                            <select id="machine-manufacturer-select" name="manufacturer" required>
+                                <option value="">-- 先に機種を選択してください --</option>
+                            </select>
                         </div>
                         <!-- 右列 2: 型式 -->
                         <div class="form-group-unified">
                             <label for="machine-model-select">型式 *</label>
                             <select id="machine-model-select" required>
-                                <option value="">-- 先に機種を選択してください --</option>
+                                <option value="">-- 先に製造メーカーを選択してください --</option>
                             </select>
                         </div>
 
                         <!-- 左列 3: 機械番号 -->
                         <div class="form-group-unified">
                             <label for="machine-number">機械番号 *</label>
-                            <input type="text" id="machine-number" name="machine_number" placeholder="空欄時は自動採番">
-                            <small style="color: #6b7280; font-size: 0.78rem; margin-top: 4px;">空欄の場合は機種に応じて MC001、HT001 等で自動採番します。</small>
+                            <input type="text" id="machine-number" name="machine_number" placeholder="例: MC001" required>
                         </div>
                         <!-- 右列 3: 製造年月日 -->
                         <div class="form-group-unified">
@@ -1708,7 +1805,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="tenant-context.js?v=20261017-multitenant-v2"></script>
-    <script src="admin.js?v=20261017-multitenant-v2"></script>
+    <script src="admin.js?v=20261020-machine-modal-v1"></script>
 </body>
 
 </html>

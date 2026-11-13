@@ -40,7 +40,7 @@ steps:
       - 'managed'
       - '--allow-unauthenticated'
       - '--set-env-vars'
-      - 'NODE_ENV=production,GCS_KNOWLEDGE_FOLDER=ai-knowledge,GCS_BUCKET_NAME=maint-vehicle-management-storage'
+      - 'NODE_ENV=production,GCS_KNOWLEDGE_FOLDER=ai-knowledge,GCS_BUCKET_NAME=maint-vehicle-management-storage,GOOGLE_CLOUD_STORAGE_BUCKET=maint-vehicle-management-storage,STORAGE_MODE=gcs,GOOGLE_CLOUD_PROJECT_ID=$PROJECT_ID'
       - '--memory'
       - '2Gi'
       - '--timeout'

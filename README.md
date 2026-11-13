@@ -98,6 +98,19 @@ node scripts/db-migrate.js --tenant-key demo --db-name demo_db --app-id dashboar
 テナント接続は実行環境の `TENANT_DB_DEMO_URL` または `TENANT_DB_DEMO_NAME` と共通の接続資格情報で
 解決します。接続 URL は新しいルーティング行に書き込みません。
 
+故障分析アプリのローカル起動先は `http://localhost:3004` です。
+カード起動は共通DBの `public.applications.app_url`（`app_key = 'failure'`）を使用します。
+Viteのポートや環境変数を変更するだけでは、この登録値は更新されません。
+`localhost:5174` で接続拒否になる場合は、登録URLを実際の待受先3004に合わせ、
+ダッシュボードを再読み込みしてから起動してください。
+SSOトークンはURLではなく `postMessage` で渡し、子画面からの受信確認もダッシュボードのoriginへ返します。
+
+応急処置支援（`app_key = 'emergency'`）のローカル起動先は `http://localhost:3003` です。
+`03_Emergency-Assistance` の `npm run dev` で統合UI/APIと内部Vite（3006）を起動します。
+故障分析3004/3005、仕業点検3001/5173、運用計画3002、ゲートウェイ8443とは分離します。
+応急処置支援にもURLトークンは渡さず、`postMessage` で渡された起動トークンの検証と
+アプリ用セッションへの交換成功後に受信確認を返します。
+
 ### 4. 状態確認と起動
 
 ```powershell

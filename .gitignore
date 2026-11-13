@@ -47,7 +47,8 @@ build/
 *.temp
 .cache/
 scratch/
-test_*.mjs
+test_*.*
+check_*.*
 
 # Legacy unnecessary files (root admin.js is obsolete, assets/admin.js is active)
 /admin.js

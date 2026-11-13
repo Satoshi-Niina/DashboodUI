@@ -121,6 +121,7 @@ function writeLog({
     const entry = {
       timestamp: new Date().toISOString(),
       severity: severity.toUpperCase(),
+      service: APP_NAME,
       app_name: APP_NAME,
       event_type: eventType,
       request_id: requestId || null,
@@ -184,6 +185,7 @@ function writeAuditLogSync({
     const entry = {
       timestamp: new Date().toISOString(),
       severity: severity.toUpperCase(),
+      service: APP_NAME,
       app_name: APP_NAME,
       event_type: eventType,
       request_id: finalRequestId,
@@ -269,7 +271,7 @@ function requestLoggingMiddleware() {
       const severity = statusCode >= 500 ? 'ERROR' : (statusCode >= 400 ? 'WARNING' : 'INFO');
       const eventType = statusCode >= 500 ? 'server_error' : (statusCode >= 400 ? 'client_error' : 'api_request');
 
-      const tenantId = req.requestedTenantId || req.deviceInfo?.tenantKey || req.tenant?.tenant_key || null;
+      const tenantId = req.requestedTenantId || req.deviceInfo?.tenantKey || req.tenant?.tenant_key || req.user?.tenant_id || req.user?.tenantId || req.session?.tenant_id || req.session?.tenant_key || null;
       const userId = req.user?.username || req.user?.userId || req.user?.id || null;
 
       writeLog({

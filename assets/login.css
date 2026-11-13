@@ -178,13 +178,34 @@ body {
 input[type="text"],
 input[type="password"] {
     width: 100%;
-    padding: 0.875rem 1rem 0.875rem 2.75rem;
+    padding: 0.875rem 2.5rem 0.875rem 2.75rem;
     background: #ffffff;
     border: 1px solid var(--card-border);
     border-radius: 12px;
     color: #1e293b;
     font-size: 0.95rem;
     transition: var(--transition);
+}
+
+.toggle-password-btn {
+    position: absolute;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.1rem;
+    color: var(--text-muted);
+    padding: 0.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+    user-select: none;
+}
+
+.toggle-password-btn:hover {
+    color: var(--primary);
+    transform: scale(1.1);
 }
 
 input:focus {

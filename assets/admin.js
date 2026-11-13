@@ -554,6 +554,8 @@ function reloadCurrentActiveTab() {
         if (typeof loadSystemSettings === 'function') loadSystemSettings();
     } else if (tabName === 'system-operations') {
         if (typeof loadRegisteredDevices === 'function') loadRegisteredDevices();
+        if (typeof loadSecurityAlerts === 'function') loadSecurityAlerts();
+        if (typeof loadErrorLogs === 'function') loadErrorLogs();
         if (typeof loadStorageUsage === 'function') loadStorageUsage();
         if (typeof loadCertificateStatus === 'function') loadCertificateStatus();
         if (typeof loadNpmAudit === 'function') loadNpmAudit();
@@ -623,6 +625,8 @@ function initializeTabs() {
                 // システム管理タブ表示時のデータロード
                 console.log('[System Operations] Tab activated, loading data...');
                 loadRegisteredDevices();
+                if (typeof loadSecurityAlerts === 'function') loadSecurityAlerts();
+                if (typeof loadErrorLogs === 'function') loadErrorLogs();
                 loadStorageUsage();
                 loadCertificateStatus();
                 loadNpmAudit();
@@ -716,6 +720,92 @@ function initializeEventListeners() {
         userForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             await saveUser();
+        });
+    }
+
+    // 👑 スーパー管理者パスワード変更モーダルのイベントリスナー
+    const superAdminModal = document.getElementById('superadmin-password-modal');
+    const changeSuperAdminPassBtn = document.getElementById('change-superadmin-password-btn');
+    const superAdminModalClose = document.getElementById('superadmin-password-modal-close');
+    const superAdminCancelBtn = document.getElementById('cancel-superadmin-password-btn');
+    const superAdminPassForm = document.getElementById('superadmin-password-form');
+
+    if (changeSuperAdminPassBtn && superAdminModal) {
+        changeSuperAdminPassBtn.addEventListener('click', () => {
+            if (superAdminPassForm) superAdminPassForm.reset();
+            superAdminModal.style.display = 'flex';
+            const passInput = document.getElementById('superadmin-new-password');
+            if (passInput) passInput.focus();
+        });
+    }
+
+    if (superAdminModalClose && superAdminModal) {
+        superAdminModalClose.addEventListener('click', () => {
+            if (superAdminPassForm) superAdminPassForm.reset();
+            superAdminModal.style.display = 'none';
+        });
+    }
+
+    if (superAdminCancelBtn && superAdminModal) {
+        superAdminCancelBtn.addEventListener('click', () => {
+            if (superAdminPassForm) superAdminPassForm.reset();
+            superAdminModal.style.display = 'none';
+        });
+    }
+
+    // パスワード表示/非表示トグル（汎用）
+    document.querySelectorAll('.btn-toggle-pass').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetId = btn.getAttribute('data-target');
+            const targetInput = document.getElementById(targetId);
+            if (targetInput) {
+                if (targetInput.type === 'password') {
+                    targetInput.type = 'text';
+                    btn.textContent = '🔒';
+                } else {
+                    targetInput.type = 'password';
+                    btn.textContent = '👁';
+                }
+            }
+        });
+    });
+
+    if (superAdminPassForm) {
+        superAdminPassForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const newPassword = document.getElementById('superadmin-new-password').value;
+            const confirmPassword = document.getElementById('superadmin-confirm-password').value;
+
+            if (!newPassword || newPassword.trim().length < 4) {
+                showToast('パスワードは4文字以上で入力してください', 'error');
+                return;
+            }
+            if (newPassword !== confirmPassword) {
+                showToast('確認用パスワードが一致しません', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/superadmin/change-password', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ newPassword, confirmPassword })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showToast(result.message || 'スーパー管理者のパスワードを変更しました', 'success');
+                    superAdminPassForm.reset();
+                    superAdminModal.style.display = 'none';
+                } else {
+                    showToast(result.message || 'パスワード変更に失敗しました', 'error');
+                }
+            } catch (err) {
+                console.error('[change-password] Error:', err);
+                showToast('パスワード変更リクエストでエラーが発生しました', 'error');
+            }
         });
     }
 
@@ -1186,9 +1276,27 @@ async function loadUsers() {
             setupGlobalTenantSelector(data.availableTenants);
         }
 
+        // 確定仕様: スーパー管理者は独立した管理区分として表示する
+        const superAdminCard = document.getElementById('super-admin-card');
+        if (superAdminCard) {
+            if (data.superAdmin || window.canSwitchAdminTenant || window.isSuperAdmin) {
+                superAdminCard.style.display = 'block';
+                if (data.superAdmin) {
+                    const unameEl = document.getElementById('super-admin-username');
+                    const dnameEl = document.getElementById('super-admin-display-name');
+                    if (unameEl) unameEl.textContent = data.superAdmin.username || 'niina';
+                    if (dnameEl) dnameEl.textContent = data.superAdmin.display_name || '新納（システム管理者）';
+                }
+            } else {
+                superAdminCard.style.display = 'none';
+            }
+        }
+
         if (data.success && data.users.length > 0) {
             // 全ユーザーデ�者タをグローバル変数に保存
-            allUsers = data.users.map(user => ({
+            allUsers = data.users
+                .filter(user => String(user.username).toLowerCase() !== 'niina' && String(user.id) !== 'e996e889-4165-412f-8450-8b6e0f193256')
+                .map(user => ({
                 ...user,
                 role: normalizeUserRole(user.role) || 'user'
             }));
@@ -1825,25 +1933,27 @@ let machineCategoryModelInitialized = false;
 function initMachineModalControls() {
     if (machineCategoryModelInitialized) return;
     const catSelect = document.getElementById('machine-category-select');
+    const mfgSelect = document.getElementById('machine-manufacturer-select');
     const modelSelect = document.getElementById('machine-model-select');
-    const mfgInput = document.getElementById('machine-manufacturer-input');
     const typeIdInput = document.getElementById('machine-type-id');
 
-    if (catSelect && modelSelect) {
+    if (catSelect && mfgSelect && modelSelect) {
         catSelect.addEventListener('change', () => {
             const selectedCat = catSelect.value;
-            populateMachineModelsForCategory(selectedCat);
-            if (mfgInput) mfgInput.value = '';
+            populateMachineManufacturersForCategory(selectedCat);
+            if (typeIdInput) typeIdInput.value = '';
+        });
+
+        mfgSelect.addEventListener('change', () => {
+            const selectedCat = catSelect.value;
+            const selectedMfg = mfgSelect.value;
+            populateMachineModelsForCategoryAndMfg(selectedCat, selectedMfg);
             if (typeIdInput) typeIdInput.value = '';
         });
 
         modelSelect.addEventListener('change', () => {
             const selectedTypeId = modelSelect.value;
             if (typeIdInput) typeIdInput.value = selectedTypeId;
-            const found = allMachineTypesCache.find(mt => String(mt.id) === String(selectedTypeId));
-            if (mfgInput) {
-                mfgInput.value = found ? (found.manufacturer || '') : '';
-            }
         });
         machineCategoryModelInitialized = true;
     }
@@ -1874,36 +1984,72 @@ function populateMachineCategories(selectedCategory = '') {
         categories.map(cat => `<option value="${escapeHtml(cat)}"${cat === selectedCategory ? ' selected' : ''}>${escapeHtml(cat)}</option>`).join('');
 }
 
-function populateMachineModelsForCategory(category, selectedTypeId = null) {
+function populateMachineManufacturersForCategory(category, selectedMfg = '') {
+    const mfgSelect = document.getElementById('machine-manufacturer-select');
     const modelSelect = document.getElementById('machine-model-select');
-    const mfgInput = document.getElementById('machine-manufacturer-input');
     const typeIdInput = document.getElementById('machine-type-id');
-    if (!modelSelect) return;
+    if (!mfgSelect) return;
 
     if (!category) {
-        modelSelect.innerHTML = '<option value="">-- 先に機種を選択してください --</option>';
-        if (mfgInput) mfgInput.value = '';
+        mfgSelect.innerHTML = '<option value="">-- 先に機種を選択してください --</option>';
+        if (modelSelect) {
+            modelSelect.innerHTML = '<option value="">-- 先に製造メーカーを選択してください --</option>';
+        }
         if (typeIdInput) typeIdInput.value = '';
         return;
     }
 
     const normalizeCat = (cat) => String(cat || 'その他').replace('軌道モータカー', '軌道モーターカー').trim();
-    const filteredTypes = allMachineTypesCache.filter(mt => normalizeCat(mt.category) === category);
+    const manufacturers = [];
+    allMachineTypesCache.forEach(mt => {
+        if (normalizeCat(mt.category) === category) {
+            const mfg = String(mt.manufacturer || '').trim();
+            if (mfg && !manufacturers.includes(mfg)) {
+                manufacturers.push(mfg);
+            }
+        }
+    });
+    manufacturers.sort((a, b) => a.localeCompare(b, 'ja'));
+
+    let options = ['<option value="">-- 製造メーカーを選択 --</option>'];
+    manufacturers.forEach(mfg => {
+        const isSelected = selectedMfg && mfg === selectedMfg;
+        options.push(`<option value="${escapeHtml(mfg)}"${isSelected ? ' selected' : ''}>${escapeHtml(mfg)}</option>`);
+    });
+    mfgSelect.innerHTML = options.join('');
+
+    populateMachineModelsForCategoryAndMfg(category, selectedMfg);
+}
+
+function populateMachineModelsForCategoryAndMfg(category, manufacturer, selectedTypeId = null) {
+    const modelSelect = document.getElementById('machine-model-select');
+    const typeIdInput = document.getElementById('machine-type-id');
+    if (!modelSelect) return;
+
+    if (!category || !manufacturer) {
+        modelSelect.innerHTML = '<option value="">-- 先に製造メーカーを選択してください --</option>';
+        if (typeIdInput) typeIdInput.value = '';
+        return;
+    }
+
+    const normalizeCat = (cat) => String(cat || 'その他').replace('軌道モータカー', '軌道モーターカー').trim();
+    const filteredTypes = allMachineTypesCache.filter(mt => {
+        return normalizeCat(mt.category) === category && String(mt.manufacturer || '').trim() === manufacturer;
+    });
 
     let options = ['<option value="">-- 型式を選択 --</option>'];
     filteredTypes.forEach(mt => {
         const isSelected = selectedTypeId && String(mt.id) === String(selectedTypeId);
-        const label = [mt.manufacturer, mt.model_name].filter(Boolean).join(' ') || mt.model_name || '型式不明';
+        const label = mt.model_name || mt.type_name || mt.machine_type_name || '型式名なし';
         options.push(`<option value="${mt.id}"${isSelected ? ' selected' : ''}>${escapeHtml(label)}</option>`);
     });
 
     modelSelect.innerHTML = options.join('');
 
     if (selectedTypeId) {
-        const found = allMachineTypesCache.find(mt => String(mt.id) === String(selectedTypeId));
+        const found = filteredTypes.find(mt => String(mt.id) === String(selectedTypeId));
         if (found) {
             modelSelect.value = String(selectedTypeId);
-            if (mfgInput) mfgInput.value = found.manufacturer || '';
             if (typeIdInput) typeIdInput.value = String(selectedTypeId);
         }
     }
@@ -1924,8 +2070,8 @@ async function openMachineModal(machineId = null) {
     document.getElementById('machine-id').value = '';
     const typeIdHidden = document.getElementById('machine-type-id');
     if (typeIdHidden) typeIdHidden.value = '';
-    const mfgInput = document.getElementById('machine-manufacturer-input');
-    if (mfgInput) mfgInput.value = '';
+    const mfgSelect = document.getElementById('machine-manufacturer-select');
+    if (mfgSelect) mfgSelect.value = '';
 
     initMachineModalControls();
 
@@ -1969,7 +2115,7 @@ async function openMachineModal(machineId = null) {
     } else {
         modalTitle.textContent = '保守用車を追加';
         populateMachineCategories('');
-        populateMachineModelsForCategory('');
+        populateMachineManufacturersForCategory('');
     }
 
     initAutoExpandTextareas();
@@ -2007,16 +2153,18 @@ async function loadMachineData(machineId) {
                     notesArea.value = machine.notes || '';
                 }
 
-                // 機種・型式・メーカーの連動復元
+                // 機種・メーカー・型式の連動復元
                 const targetTypeId = machine.machine_type_id;
                 const foundType = allMachineTypesCache.find(mt => String(mt.id) === String(targetTypeId));
                 if (foundType) {
                     const normCat = String(foundType.category || 'その他').replace('軌道モータカー', '軌道モーターカー').trim();
+                    const mfg = String(foundType.manufacturer || '').trim();
                     populateMachineCategories(normCat);
-                    populateMachineModelsForCategory(normCat, targetTypeId);
+                    populateMachineManufacturersForCategory(normCat, mfg);
+                    populateMachineModelsForCategoryAndMfg(normCat, mfg, targetTypeId);
                 } else {
                     populateMachineCategories('');
-                    populateMachineModelsForCategory('');
+                    populateMachineManufacturersForCategory('');
                 }
             } else {
                 console.error('[loadMachineData] Machine not found:', machineId);
@@ -2033,20 +2181,25 @@ async function saveMachine() {
     const machineId = document.getElementById('machine-id').value;
     const machineTypeId = document.getElementById('machine-type-id')?.value || document.getElementById('machine-model-select')?.value;
     const officeId = document.getElementById('machine-office-select')?.value;
+    const machineNumber = document.getElementById('machine-number')?.value?.trim();
 
     if (!officeId) {
         showToast('管理事業所を選択してください', 'error');
         return;
     }
     if (!machineTypeId) {
-        showToast('機種および型式を選択してください', 'error');
+        showToast('機種、製造メーカー、型式を選択してください', 'error');
+        return;
+    }
+    if (!machineNumber) {
+        showToast('機械番号を入力してください', 'error');
         return;
     }
 
     const machineData = {
         office_id: officeId,
         machine_type_id: machineTypeId,
-        machine_number: document.getElementById('machine-number').value,
+        machine_number: machineNumber,
         type_certification: document.getElementById('machine-type-certification').value,
         manufacture_date: document.getElementById('machine-manufacture-date').value || null,
         model_certification_date: document.getElementById('machine-certification-date').value || null,
@@ -3201,7 +3354,52 @@ function initializeSystemOperations() {
     // ストレージ再取得
     const storageDetailBtn = document.getElementById('btn-storage-detail');
     if (storageDetailBtn) {
-        storageDetailBtn.addEventListener('click', () => loadStorageUsage(getAuthToken()));
+        storageDetailBtn.addEventListener('click', () => loadStorageUsage(getAuthToken(), true));
+    }
+
+    // セキュリティ監視 更新
+    const refreshSecurityBtn = document.getElementById('btn-refresh-security');
+    if (refreshSecurityBtn) {
+        refreshSecurityBtn.addEventListener('click', () => loadSecurityAlerts(getAuthToken()));
+    }
+
+    // ログ管理 更新・検索・ページング
+    const refreshErrorLogsBtn = document.getElementById('btn-refresh-error-logs');
+    if (refreshErrorLogsBtn) {
+        refreshErrorLogsBtn.addEventListener('click', () => loadErrorLogs(getAuthToken(), 1));
+    }
+
+    const applyLogFilterBtn = document.getElementById('btn-apply-log-filter');
+    if (applyLogFilterBtn) {
+        applyLogFilterBtn.addEventListener('click', () => loadErrorLogs(getAuthToken(), 1));
+    }
+
+    const logFilterKeyword = document.getElementById('log-filter-keyword');
+    if (logFilterKeyword) {
+        logFilterKeyword.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                loadErrorLogs(getAuthToken(), 1);
+            }
+        });
+    }
+
+    const logPrevPageBtn = document.getElementById('log-prev-page');
+    if (logPrevPageBtn) {
+        logPrevPageBtn.addEventListener('click', () => {
+            if (currentLogPage > 1) {
+                loadErrorLogs(getAuthToken(), currentLogPage - 1);
+            }
+        });
+    }
+
+    const logNextPageBtn = document.getElementById('log-next-page');
+    if (logNextPageBtn) {
+        logNextPageBtn.addEventListener('click', () => {
+            if (currentLogPage < totalLogPages) {
+                loadErrorLogs(getAuthToken(), currentLogPage + 1);
+            }
+        });
     }
 }
 
@@ -4410,19 +4608,278 @@ async function loadNpmAudit(token) {
     }
 }
 
+let currentLogPage = 1;
+let totalLogPages = 1;
+
 /**
- * ストレージ使用状況を読み込み (実測値連携)
+ * セキュリティ監視情報の読み込み (Cloud Logging 連携)
  */
-async function loadStorageUsage(token) {
+async function loadSecurityAlerts(token) {
+    const badge = document.getElementById('security-monitor-badge');
+    const alertCountElem = document.querySelector('.alert-summary .alert-count');
+    const alertDetailsList = document.querySelector('.alert-summary .alert-details');
+    const blockedTableBody = document.querySelector('.security-list-section .simple-table tbody');
+
+    try {
+        if (badge) {
+            badge.className = 'badge-alert';
+            badge.textContent = '取得中...';
+            badge.style.background = '#fef3c7';
+            badge.style.color = '#92400e';
+        }
+
+        const authToken = token || getAuthToken();
+        const headers = { 'Authorization': `Bearer ${authToken}` };
+
+        // アラートおよびブロックアクセスを並行取得
+        const [alertsRes, blockedRes] = await Promise.all([
+            tenantFetch('/api/security/alerts', { headers }),
+            tenantFetch('/api/security/blocked-access', { headers })
+        ]);
+
+        const alertsResult = await alertsRes.json();
+        const blockedResult = await blockedRes.json();
+
+        // バッジ更新
+        if (badge) {
+            if (alertsResult.success && alertsResult.status === 'AVAILABLE') {
+                badge.className = 'badge-active';
+                badge.textContent = '監視中 (Cloud Logging)';
+                badge.style.background = '#dcfce7';
+                badge.style.color = '#15803d';
+            } else {
+                badge.className = 'badge-alert';
+                badge.textContent = alertsResult.status === 'UNAVAILABLE' ? '未構成 / 取得不可' : '監視停止';
+                badge.style.background = '#fee2e2';
+                badge.style.color = '#991b1b';
+            }
+        }
+
+        // アラートサマリー更新
+        if (alertsResult.success && alertsResult.summary) {
+            const s = alertsResult.summary;
+            if (alertCountElem) {
+                alertCountElem.innerHTML = `<span style="font-size: 1.6rem; font-weight: bold; color: ${s.totalSecurityAlerts > 0 ? '#b91c1c' : '#15803d'};">${s.totalSecurityAlerts} 件</span> <span style="font-size: 0.82rem; color: #64748b;">(直近24時間)</span>`;
+            }
+            if (alertDetailsList) {
+                alertDetailsList.innerHTML = `
+                    <li>・認証失敗イベント: <strong>${s.authFailures}</strong> 件</li>
+                    <li>・権限違反・不正ポート直接アクセス: <strong>${s.permissionViolations}</strong> 件</li>
+                    <li>・3回以上失敗の不審送信元IP: <strong>${s.suspiciousIpCount}</strong> 件</li>
+                    <li>・WAF防御ステータス: <span style="color: #64748b;">${s.wafStatusLabel}</span></li>
+                    <li style="margin-top: 6px; font-size: 0.78rem; color: #64748b;">🛡️ <strong>自動遮断設計方針:</strong> ${alertsResult.autoBlockDesign?.policy || '-'}</li>
+                    <li style="font-size: 0.75rem; color: #94a3b8; margin-top: 2px;">集計日時: ${s.timestamp ? new Date(s.timestamp).toLocaleTimeString('ja-JP') : '-'} (テナント範囲: ${s.filterTenantId})</li>
+                `;
+            }
+        } else {
+            if (alertCountElem) {
+                alertCountElem.innerHTML = `<span style="color: #dc2626;">取得失敗</span>`;
+            }
+            if (alertDetailsList) {
+                alertDetailsList.innerHTML = `
+                    <li style="color: #dc2626;">⚠️ ${alertsResult.message || 'Cloud Loggingへの接続またはIAM権限が未構成です'}</li>
+                    <li style="color: #64748b; font-size: 0.78rem;">本番環境でのサービスアカウント権限（roles/logging.viewer）およびADC設定を確認してください。</li>
+                `;
+            }
+        }
+
+        // ブロックアクセステーブル更新
+        if (blockedTableBody) {
+            if (blockedResult.success && blockedResult.data && blockedResult.data.length > 0) {
+                blockedTableBody.innerHTML = blockedResult.data.map(item => `
+                    <tr>
+                        <td style="padding: 8px 10px; font-family: monospace; font-size: 0.85rem;"><strong>${item.ip}</strong><br><span style="color: #64748b; font-size: 0.75rem;">${item.tenantId ? `テナント: ${item.tenantId}` : ''}</span></td>
+                        <td style="padding: 8px 10px; font-size: 0.82rem;">
+                            <span class="badge-alert" style="background: #fee2e2; color: #991b1b; padding: 2px 6px; font-size: 0.75rem; border-radius: 4px;">遮断 (Status ${item.status})</span><br>
+                            <span style="color: #475569;">${escapeHtml(item.reason)}</span><br>
+                            <span style="color: #94a3b8; font-size: 0.75rem;">${item.timestamp ? new Date(item.timestamp).toLocaleString('ja-JP') : '-'}</span>
+                        </td>
+                    </tr>
+                `).join('');
+            } else {
+                const noticeMsg = blockedResult.wafMessage || '遮断されたアクセスはありません（Cloud Armor等のエッジWAF未導入のため推測集計は除外されています）';
+                blockedTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="2" style="text-align: center; color: #64748b; padding: 14px; font-size: 0.83rem;">
+                            ℹ️ ${noticeMsg}
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+    } catch (error) {
+        console.error('[Security Monitor] Error loading security alerts:', error);
+        if (badge) {
+            badge.className = 'badge-alert';
+            badge.textContent = 'エラー';
+            badge.style.background = '#fee2e2';
+            badge.style.color = '#991b1b';
+        }
+        if (alertCountElem) alertCountElem.textContent = '取得エラー';
+    }
+}
+
+/**
+ * ログ管理（エラーログ＆自動解析）の読み込み (ページング・検索対応)
+ */
+async function loadErrorLogs(token, page = 1) {
+    const container = document.getElementById('error-logs-container');
+    const badge = document.getElementById('error-logs-count');
+    const pageInfo = document.getElementById('log-pagination-info');
+    const curPageElem = document.getElementById('log-current-page');
+    const totPageElem = document.getElementById('log-total-pages');
+    const prevBtn = document.getElementById('log-prev-page');
+    const nextBtn = document.getElementById('log-next-page');
+
+    const tenantSelect = document.getElementById('log-filter-tenant');
+    const severitySelect = document.getElementById('log-filter-severity');
+    const keywordInput = document.getElementById('log-filter-keyword');
+
+    currentLogPage = page;
+
+    try {
+        if (container) {
+            container.innerHTML = '<div style="padding: 24px; color: #64748b; text-align: center;"><div class="spinner-sm" style="display:inline-block; margin-right:8px;"></div>エラーログを照会中 (Cloud Logging)...</div>';
+        }
+
+        const authToken = token || getAuthToken();
+        const tenantVal = tenantSelect ? tenantSelect.value : '';
+        const severityVal = severitySelect ? severitySelect.value : 'WARNING';
+        const keywordVal = keywordInput ? keywordInput.value.trim() : '';
+
+        const params = new URLSearchParams({
+            page: String(page),
+            limit: '10',
+            severity: severityVal
+        });
+        if (tenantVal) params.append('tenantId', tenantVal);
+        if (keywordVal) params.append('keyword', keywordVal);
+
+        const response = await tenantFetch(`/api/system/error-logs?${params.toString()}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            totalLogPages = result.totalPages || 1;
+
+            if (badge) {
+                badge.textContent = `${result.total} 件 (${result.source === 'CLOUD_LOGGING' ? 'Cloud Logging' : 'ローカルログ'})`;
+                badge.style.background = result.total > 0 ? '#fee2e2' : '#f0fdf4';
+                badge.style.color = result.total > 0 ? '#991b1b' : '#166534';
+            }
+
+            if (curPageElem) curPageElem.textContent = result.page;
+            if (totPageElem) totPageElem.textContent = totalLogPages;
+            if (prevBtn) prevBtn.disabled = !result.hasPrev;
+            if (nextBtn) nextBtn.disabled = !result.hasNext;
+
+            if (pageInfo) {
+                const start = result.total === 0 ? 0 : (result.page - 1) * result.limit + 1;
+                const end = Math.min(result.page * result.limit, result.total);
+                pageInfo.textContent = `${result.total} 件中 ${start} - ${end} 件を表示`;
+            }
+
+            if (!result.data || result.data.length === 0) {
+                if (container) {
+                    container.innerHTML = `
+                        <div style="padding: 24px; text-align: center; color: #64748b; font-size: 0.85rem;">
+                            ✨ 条件に該当するエラーログはありません (正常稼働中)
+                            ${result.gcpNotice ? `<br><small style="color:#d97706;">※${result.gcpNotice}</small>` : ''}
+                        </div>
+                    `;
+                }
+                return;
+            }
+
+            // テーブル構築
+            const rowsHtml = result.data.map(log => {
+                const sevColor = log.severity === 'CRITICAL' ? '#581c87' : (log.severity === 'ERROR' ? '#991b1b' : '#92400e');
+                const sevBg = log.severity === 'CRITICAL' ? '#f3e8ff' : (log.severity === 'ERROR' ? '#fee2e2' : '#fef3c7');
+                const timeStr = log.timestamp ? new Date(log.timestamp).toLocaleString('ja-JP') : '-';
+
+                return `
+                    <div class="error-log-card" style="border-bottom: 1px solid #e2e8f0; padding: 12px 14px; font-size: 0.83rem; background: #fff;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span class="badge" style="background: ${sevBg}; color: ${sevColor}; font-weight: 600; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem;">${log.severity}</span>
+                                <span style="font-weight: 600; color: #0f172a;">${escapeHtml(log.analysis?.ruleName || log.eventType || 'システムイベント')}</span>
+                                <span style="color: #64748b; font-size: 0.78rem;">[${escapeHtml(log.service || 'dashboard_ui')}]</span>
+                            </div>
+                            <span style="color: #64748b; font-size: 0.78rem;">${timeStr}</span>
+                        </div>
+                        <div style="color: #334155; margin-bottom: 6px; word-break: break-all; font-family: monospace; font-size: 0.8rem; background: #f8fafc; padding: 6px 8px; border-radius: 4px; border: 1px solid #f1f5f9;">
+                            ${escapeHtml(log.message)}
+                        </div>
+                        <div style="display: flex; gap: 14px; font-size: 0.77rem; color: #64748b; margin-bottom: 6px;">
+                            <span>テナント: <strong>${escapeHtml(log.tenantId || '-')}</strong></span>
+                            <span>送信元IP: <strong>${escapeHtml(log.clientIp || '-')}</strong></span>
+                            ${log.requestId ? `<span>ReqID: <code>${escapeHtml(log.requestId.slice(0, 12))}...</code></span>` : ''}
+                        </div>
+                        ${log.analysis && log.analysis.recommendedAction ? `
+                            <div style="background: #eff6ff; border-left: 3px solid #3b82f6; padding: 6px 10px; border-radius: 0 4px 4px 0; font-size: 0.78rem; margin-top: 4px;">
+                                <div style="color: #1e40af; font-weight: 500;">💡 推定原因: ${escapeHtml(log.analysis.estimatedCause || '')}</div>
+                                <div style="color: #1e3a8a; margin-top: 2px;">🔧 推奨対応: ${escapeHtml(log.analysis.recommendedAction)}</div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            }).join('');
+
+            if (container) {
+                container.innerHTML = `
+                    ${result.gcpNotice ? `<div style="background: #fffbeb; color: #b45309; padding: 6px 12px; font-size: 0.78rem; border-bottom: 1px solid #fde68a;">ℹ️ ${result.gcpNotice}</div>` : ''}
+                    <div style="display: flex; flex-direction: column;">
+                        ${rowsHtml}
+                    </div>
+                `;
+            }
+
+        } else {
+            if (badge) {
+                badge.textContent = '取得エラー';
+                badge.style.background = '#fee2e2';
+                badge.style.color = '#991b1b';
+            }
+            if (container) {
+                container.innerHTML = `
+                    <div style="padding: 20px; color: #dc2626; text-align: center; font-size: 0.85rem;">
+                        ⚠️ ログ取得に失敗しました: ${escapeHtml(result.message || '不明なエラー')}
+                    </div>
+                `;
+            }
+        }
+
+    } catch (error) {
+        console.error('[Error Logs] Error loading error logs:', error);
+        if (container) {
+            container.innerHTML = `<div style="padding: 20px; color: #dc2626; text-align: center; font-size: 0.85rem;">通信エラーが発生しました</div>`;
+        }
+    }
+}
+
+/**
+ * ストレージ使用状況を読み込み (Cloud Storage / Cloud Monitoring 連携)
+ */
+async function loadStorageUsage(token, forceRefresh = false) {
     const badge = document.getElementById('storage-status-badge');
     const totalElem = document.getElementById('storage-total-text');
     const pctElem = document.getElementById('storage-percentage-text');
     const detailsList = document.getElementById('storage-details-list');
     const progressBar = document.querySelector('.storage-stats .progress-bar-fill');
+    const refreshBtn = document.getElementById('btn-storage-detail');
 
     try {
+        if (refreshBtn) {
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = 'ストレージ集計中...';
+        }
+
         const authToken = token || getAuthToken();
-        const response = await tenantFetch('/api/maintenance/storage-usage', {
+        const url = `/api/maintenance/storage-usage?refresh=${forceRefresh ? 'true' : 'false'}`;
+        const response = await tenantFetch(url, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
 
@@ -4431,7 +4888,8 @@ async function loadStorageUsage(token) {
         if (result.success) {
             if (badge) {
                 badge.className = 'badge-active';
-                badge.textContent = result.is_realtime ? 'GCS実測' : (result.source || 'GCS連携');
+                const srcLabel = result.source === 'CLOUD_MONITORING_METRICS' ? 'Monitoring実測' : 'GCS走査集計';
+                badge.textContent = result.isCached ? `${srcLabel} (キャッシュ)` : srcLabel;
                 badge.style.background = '#e0f2fe';
                 badge.style.color = '#0369a1';
             }
@@ -4439,11 +4897,10 @@ async function loadStorageUsage(token) {
             const totalFormatted = result.total_formatted || `${result.total || 0} GB`;
             if (totalElem) totalElem.textContent = totalFormatted;
 
-            const limit = result.limit || 5;
-            const totalGb = result.total || 0;
-            const percentage = Math.min(100, Math.round((totalGb / limit) * 100));
+            const limit = result.limit || 100;
+            const percentage = result.percentage !== undefined ? result.percentage : Math.min(100, Math.round(((result.total || 0) / limit) * 100));
 
-            if (pctElem) pctElem.textContent = `${percentage}% (${limit}GB 上限)`;
+            if (pctElem) pctElem.textContent = `${percentage}% (${limit}GB 目安上限)`;
 
             if (progressBar) {
                 progressBar.style.width = `${percentage}%`;
@@ -4451,18 +4908,28 @@ async function loadStorageUsage(token) {
             }
 
             if (detailsList && result.breakdown) {
+                const bMeta = result.bucketInfo || {};
+                const tenantRows = result.tenantBreakdown && Object.keys(result.tenantBreakdown).length > 0
+                    ? Object.entries(result.tenantBreakdown).map(([k, v]) => `・テナント(${k}): <strong>${v.label}</strong>`).join('<br>')
+                    : '・テナント別: なし';
+
                 detailsList.innerHTML = `
-                    <li>・対象バケット: <strong>${result.bucket || 'Cloud Storage'}</strong></li>
-                    <li>・アップロード: ${result.breakdown.uploads || '0 GB'}</li>
+                    <li>・対象バケット: <strong>${result.bucket || 'Cloud Storage'}</strong> (${bMeta.location || 'asia-northeast1'} / ${bMeta.storageClass || 'STANDARD'})</li>
+                    <li>・総オブジェクト数: <strong>${result.fileCount !== undefined ? result.fileCount : '-'}</strong> 件</li>
+                    <li>・アップロードファイル: ${result.breakdown.uploads || '0 GB'}</li>
                     <li>・ログファイル: ${result.breakdown.logs || '0 GB'}</li>
                     <li>・一時ファイル: ${result.breakdown.temp || '0 GB'}</li>
-                    <li style="color: #64748b; font-size: 0.78rem; margin-top: 4px;">※集計日時: ${result.measured_at || '-'} (Cloud Monitoringメトリクスには遅延が含まれる場合があります)</li>
+                    <li>・AIナレッジ: ${result.breakdown.aiKnowledge || '0 GB'}</li>
+                    <li style="margin-top: 4px; padding-top: 4px; border-top: 1px dashed #e2e8f0; font-size: 0.78rem;">
+                        ${tenantRows}
+                    </li>
+                    <li style="color: #64748b; font-size: 0.78rem; margin-top: 4px;">※測定日時: ${result.measured_at || '-'} (範囲: ${result.filterTenantId || 'ALL'})</li>
                 `;
             }
         } else {
             if (badge) {
                 badge.className = 'badge-alert';
-                badge.textContent = '未構成';
+                badge.textContent = '未構成 / エラー';
                 badge.style.background = '#fee2e2';
                 badge.style.color = '#991b1b';
             }
@@ -4471,7 +4938,7 @@ async function loadStorageUsage(token) {
             if (detailsList) {
                 detailsList.innerHTML = `
                     <li style="color: #dc2626;">⚠️ ${result.message || 'GCSバケット設定が未構成です'}</li>
-                    <li style="color: #64748b; font-size: 0.78rem;">固定のモック表示(3.4GB/5GB)は廃止されました。環境変数 GOOGLE_CLOUD_STORAGE_BUCKET の設定を確認してください。</li>
+                    <li style="color: #64748b; font-size: 0.78rem;">環境変数 GOOGLE_CLOUD_STORAGE_BUCKET の設定とサービスアカウント権限（Storage Object Viewer）を確認してください。</li>
                 `;
             }
         }
@@ -4480,8 +4947,15 @@ async function loadStorageUsage(token) {
         if (badge) {
             badge.className = 'badge-alert';
             badge.textContent = 'エラー';
+            badge.style.background = '#fee2e2';
+            badge.style.color = '#991b1b';
         }
         if (totalElem) totalElem.textContent = '取得エラー';
+    } finally {
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = 'ストレージ再取得';
+        }
     }
 }
 

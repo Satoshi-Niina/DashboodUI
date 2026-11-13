@@ -4,13 +4,73 @@
  */
 
 const { Storage } = require('@google-cloud/storage');
-const fs = require('fs').promises;
+const { MetricServiceClient } = require('@google-cloud/monitoring');
+const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 const archiver = require('archiver');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 
 const execAsync = promisify(exec);
+
+// キャッシュストレージ（5分TTL）
+let storageCache = {
+    timestamp: 0,
+    tenantKey: null,
+    data: null
+};
+
+/**
+ * GCP認証および共通設定ヘルパー
+ * Cloud Run本番環境ではサービスアカウントとADCを優先利用
+ */
+function getGcpConfig() {
+    const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT || process.env.GCP_PROJECT || null;
+    const bucketName = process.env.GOOGLE_CLOUD_STORAGE_BUCKET || process.env.GCS_BUCKET_NAME || null;
+    const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
+    const options = {};
+    if (projectId) {
+        options.projectId = projectId;
+    }
+
+    // Windows固有の存在しないパスが設定されている場合、SDKがENOENTでクラッシュするのを防ぐため安全に無効化
+    if (credPath && typeof credPath === 'string') {
+        try {
+            if (!fs.existsSync(credPath)) {
+                console.warn(`[Maintenance] GOOGLE_APPLICATION_CREDENTIALS file not found: "${credPath}". Disabling to fallback to ADC.`);
+                delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+            }
+        } catch (_) {
+            delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+        }
+    }
+
+    return { projectId, bucketName, options };
+}
+
+function getStorageClient() {
+    const { projectId, options } = getGcpConfig();
+    if (!projectId) return null;
+    try {
+        return new Storage(options);
+    } catch (err) {
+        console.warn('[Maintenance] Failed to initialize Storage client:', err.message);
+        return null;
+    }
+}
+
+function getMonitoringClient() {
+    const { projectId, options } = getGcpConfig();
+    if (!projectId) return null;
+    try {
+        return new MetricServiceClient(options);
+    } catch (err) {
+        console.warn('[Maintenance] Failed to initialize Monitoring client:', err.message);
+        return null;
+    }
+}
 
 /**
  * 一時ファイル検出サマリー（Dry Run 事前確認用）
@@ -122,43 +182,15 @@ async function cleanTempFiles({ pool = null, user = null, tenantId = null, confi
         const username = user?.username || 'system_admin';
         const operatorTenant = tenantId || user?.tenantId || 'system';
 
-        // 確実な再確認フラグがない場合は Dry Run 結果のみを返す（誤削除防止）
-        if (!confirmExecution) {
-            return {
-                success: true,
-                mode: 'DRY_RUN_ONLY',
-                isExecuted: false,
-                message: `削除対象候補: ${summary.count}件 (約 ${summary.totalSizeMB} MB)。実削除には二重確認が必要です。`,
-                summary
-            };
-        }
-
-        const storage = new Storage({ projectId });
-        const bucket = storage.bucket(bucketName);
-
-        const tempPrefixes = tenantId 
-            ? [`tenants/${tenantId}/temp/`, `tenants/${tenantId}/tmp/`]
-            : ['temp/', 'tmp/', 'uploads/temp/'];
-
-        let deletedCount = 0;
-        let deletedSize = 0;
-        const now = new Date();
-
-        for (const prefix of tempPrefixes) {
-            const [files] = await bucket.getFiles({ prefix });
-
-            for (const file of files) {
-                const [metadata] = await file.getMetadata();
-                const createdDate = new Date(metadata.timeCreated || metadata.updated);
-                const ageInDays = Math.round((now - createdDate) / (1000 * 60 * 60 * 24));
-
-                if (ageInDays >= 1) {
-                    deletedSize += parseInt(metadata.size || 0);
-                    await file.delete();
-                    deletedCount++;
-                }
-            }
-        }
+        // 安全保護ポリシー: 安全性が確認されるまでファイルの実削除は強制無効化
+        // 誤削除や参照整合性破損による業務停止を完全に防止
+        return {
+            success: false,
+            status: 'DELETION_DISABLED_SAFETY_GUARD',
+            isExecuted: false,
+            message: '【安全保護ガード】ファイル削除機能は安全性が確認されるまでシステム管理者ポリシーにより実削除が無効化されています。データの消失を防止するため、削除処理は実行されませんでした（Dry Run による対象確認のみ利用可能）。',
+            summary
+        };
 
         // 操作監査ログの記録（DBまたは構造化ログ）
         const auditLog = {
@@ -478,78 +510,219 @@ async function checkNpmAudit() {
 }
 
 /**
- * ストレージ使用状況を取得（GCS実測値または透過的エラー）
+ * ストレージ使用状況を取得
+ * Cloud Storage バケット情報および Cloud Monitoring メトリクス / GCS走査を併用
+ * テナント別集計、キャッシュ（5分TTL）、フロントエンド互換レスポンスを提供
  */
-async function getStorageUsage() {
+async function getStorageUsage({ tenantId = null, forceRefresh = false } = {}) {
+    const { projectId, bucketName } = getGcpConfig();
+
+    if (!projectId || !bucketName) {
+        return {
+            success: false,
+            isConfigured: false,
+            error: 'GCPストレージ設定が未構成です',
+            message: 'GOOGLE_CLOUD_PROJECT_ID または GOOGLE_CLOUD_STORAGE_BUCKET が未設定のためストレージ使用量を取得できません',
+            bucket: bucketName || '未設定',
+            total: 0,
+            fileCount: 0,
+            limit: 100,
+            percentage: 0
+        };
+    }
+
+    // キャッシュチェック（5分間有効、forceRefresh でバイパス可）
+    const now = Date.now();
+    const cacheKey = `${tenantId || 'ALL'}_${bucketName}`;
+    if (!forceRefresh && storageCache.data && storageCache.tenantKey === cacheKey && (now - storageCache.timestamp < 5 * 60 * 1000)) {
+        return {
+            ...storageCache.data,
+            isCached: true
+        };
+    }
+
+    const storage = getStorageClient();
+    if (!storage) {
+        return {
+            success: false,
+            isConfigured: false,
+            error: 'GCSクライアント初期化エラー',
+            message: 'Cloud Storage クライアントの初期化に失敗しました'
+        };
+    }
+
     try {
-        const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
-        const bucketName = process.env.GOOGLE_CLOUD_STORAGE_BUCKET;
-
-        if (!projectId || !bucketName) {
-            return {
-                success: false,
-                isConfigured: false,
-                error: 'GCPストレージ設定が未構成です',
-                message: 'GOOGLE_CLOUD_PROJECT_ID または GOOGLE_CLOUD_STORAGE_BUCKET が未設定のためストレージ使用量を取得できません'
-            };
-        }
-
-        const storage = new Storage({ projectId });
         const bucket = storage.bucket(bucketName);
 
-        const [files] = await bucket.getFiles();
+        // 1. バケットメタデータの取得（ロケーション、ストレージクラス、作成日）
+        let bucketMeta = {};
+        try {
+            const [meta] = await bucket.getMetadata();
+            bucketMeta = {
+                name: bucketName,
+                location: meta.location || 'asia-northeast1',
+                storageClass: meta.storageClass || 'STANDARD',
+                timeCreated: meta.timeCreated ? new Date(meta.timeCreated).toISOString().split('T')[0] : null,
+                updated: meta.updated || null
+            };
+        } catch (metaErr) {
+            console.warn('[Maintenance] Bucket metadata fetch error:', metaErr.message);
+            bucketMeta = { name: bucketName, location: 'GCP', storageClass: 'STANDARD' };
+        }
+
+        // 2. Cloud Monitoring メトリクスの取得試行（容量・オブジェクト数）
+        let monitoringTotalBytes = null;
+        let monitoringObjectCount = null;
+        let metricsSource = 'GCS_OBJECT_SCAN';
+
+        const monitoringClient = getMonitoringClient();
+        if (monitoringClient) {
+            try {
+                const startTime = new Date(Date.now() - 24 * 3600 * 1000);
+                const endTime = new Date();
+
+                // 容量メトリクスリクエスト
+                const request = {
+                    name: `projects/${projectId}`,
+                    filter: `metric.type = "storage.googleapis.com/storage/total_bytes" AND resource.labels.bucket_name = "${bucketName}"`,
+                    interval: {
+                        startTime: { seconds: Math.floor(startTime.getTime() / 1000) },
+                        endTime: { seconds: Math.floor(endTime.getTime() / 1000) }
+                    },
+                    view: 'FULL'
+                };
+
+                const [timeSeries] = await monitoringClient.listTimeSeries(request);
+                if (timeSeries && timeSeries.length > 0 && timeSeries[0].points && timeSeries[0].points.length > 0) {
+                    const latestPoint = timeSeries[0].points[0];
+                    monitoringTotalBytes = parseInt(latestPoint.value.int64Value || latestPoint.value.doubleValue || 0, 10);
+                    metricsSource = 'CLOUD_MONITORING_METRICS';
+                }
+            } catch (monErr) {
+                // Cloud Monitoring API が未有効または権限不足の場合は GCS走査でフォールバック
+                console.warn('[Maintenance] Cloud Monitoring metrics not available, using GCS scan:', monErr.message);
+            }
+        }
+
+        // 3. GCS オブジェクト走査（テナント別およびフォルダ別集計）
+        // テナント指定時はそのプレフィックスに限定して高速化
+        const scanOptions = { autoPaginate: true, maxResults: 1000 };
+        if (tenantId) {
+            scanOptions.prefix = `tenants/${tenantId}/`;
+        }
+
+        const [files] = await bucket.getFiles(scanOptions);
 
         let totalSize = 0;
+        let totalFiles = files.length;
         const breakdown = {
             uploads: 0,
             logs: 0,
             temp: 0,
             aiKnowledge: 0,
             chatExports: 0,
+            tenants: 0,
             other: 0
         };
 
-        for (const file of files) {
-            const [metadata] = await file.getMetadata();
-            const size = parseInt(metadata.size || 0);
-            totalSize += size;
+        const tenantBreakdown = {};
 
-            if (file.name.startsWith('uploads/')) {
+        for (const file of files) {
+            const size = parseInt(file.metadata?.size || 0, 10);
+            totalSize += size;
+            const name = file.name || '';
+
+            // フォルダ別集計
+            if (name.startsWith('uploads/')) {
                 breakdown.uploads += size;
-            } else if (file.name.startsWith('logs/')) {
+            } else if (name.startsWith('logs/')) {
                 breakdown.logs += size;
-            } else if (file.name.startsWith('temp/') || file.name.startsWith('tmp/')) {
+            } else if (name.startsWith('temp/') || name.startsWith('tmp/')) {
                 breakdown.temp += size;
-            } else if (file.name.startsWith('ai-knowledge/')) {
+            } else if (name.startsWith('ai-knowledge/') || name.startsWith('ai-context/')) {
                 breakdown.aiKnowledge += size;
-            } else if (file.name.startsWith('chat-exports/')) {
+            } else if (name.startsWith('chat-exports/')) {
                 breakdown.chatExports += size;
+            } else if (name.startsWith('tenants/')) {
+                breakdown.tenants += size;
             } else {
                 breakdown.other += size;
             }
+
+            // テナント別プレフィックス（tenants/{tenantId}/...）の解析
+            if (name.startsWith('tenants/')) {
+                const parts = name.split('/');
+                const tKey = parts[1] || 'unknown';
+                if (!tenantBreakdown[tKey]) {
+                    tenantBreakdown[tKey] = { bytes: 0, files: 0 };
+                }
+                tenantBreakdown[tKey].bytes += size;
+                tenantBreakdown[tKey].files++;
+            }
         }
+
+        // Monitoringメトリクスが有効かつ全体集計（tenantId指定なし）の場合、全体容量を同期
+        const finalTotalBytes = (monitoringTotalBytes !== null && !tenantId) ? monitoringTotalBytes : totalSize;
 
         const toMB = (bytes) => Math.round((bytes / 1024 / 1024) * 100) / 100;
         const toGB = (bytes) => Math.round((bytes / 1024 / 1024 / 1024) * 100) / 100;
 
-        return {
+        const totalGB = toGB(finalTotalBytes);
+        const totalMB = toMB(finalTotalBytes);
+
+        // テナント内訳のGB変換
+        const formattedTenantBreakdown = {};
+        Object.entries(tenantBreakdown).forEach(([k, v]) => {
+            formattedTenantBreakdown[k] = {
+                bytes: v.bytes,
+                sizeMB: toMB(v.bytes),
+                sizeGB: toGB(v.bytes),
+                files: v.files,
+                label: `${toMB(v.bytes)} MB (${v.files}件)`
+            };
+        });
+
+        // 契約上限・目安（100GB）
+        const storageLimitGB = 100;
+        const percentage = Math.min(100, Math.round((totalGB / storageLimitGB) * 100));
+
+        const resultData = {
             success: true,
             isConfigured: true,
-            source: 'GCS_OBJECT_SCAN',
+            source: metricsSource,
             collectedAt: new Date().toISOString(),
-            bucketName,
-            totalGB: toGB(totalSize),
-            totalMB: toMB(totalSize),
-            fileCount: files.length,
+            measured_at: new Date().toLocaleString('ja-JP'),
+            bucket: bucketName,
+            bucketInfo: bucketMeta,
+            total: totalGB,
+            totalMB: totalMB,
+            total_formatted: `${totalGB} GB (${totalMB} MB)`,
+            totalBytes: finalTotalBytes,
+            fileCount: totalFiles,
+            limit: storageLimitGB,
+            percentage,
+            filterTenantId: tenantId || 'ALL',
             breakdown: {
-                uploadsGB: toGB(breakdown.uploads),
-                logsGB: toGB(breakdown.logs),
-                tempGB: toGB(breakdown.temp),
-                aiKnowledgeGB: toGB(breakdown.aiKnowledge),
-                chatExportsGB: toGB(breakdown.chatExports),
-                otherGB: toGB(breakdown.other)
-            }
+                uploads: `${toGB(breakdown.uploads)} GB`,
+                logs: `${toGB(breakdown.logs)} GB`,
+                temp: `${toGB(breakdown.temp)} GB`,
+                aiKnowledge: `${toGB(breakdown.aiKnowledge)} GB`,
+                chatExports: `${toGB(breakdown.chatExports)} GB`,
+                tenants: `${toGB(breakdown.tenants)} GB`,
+                other: `${toGB(breakdown.other)} GB`
+            },
+            breakdownBytes: breakdown,
+            tenantBreakdown: formattedTenantBreakdown
         };
+
+        // キャッシュ保存
+        storageCache = {
+            timestamp: Date.now(),
+            tenantKey: cacheKey,
+            data: resultData
+        };
+
+        return resultData;
 
     } catch (error) {
         console.error('[Maintenance] Error getting storage usage:', error.message);
@@ -557,7 +730,12 @@ async function getStorageUsage() {
             success: false,
             isConfigured: false,
             error: error.message,
-            message: `ストレージ使用量の取得に失敗しました (GCS接続エラー: ${error.message})`
+            message: `ストレージ使用量の取得に失敗しました (GCS: ${error.message})`,
+            bucket: bucketName,
+            total: 0,
+            fileCount: 0,
+            limit: 100,
+            percentage: 0
         };
     }
 }

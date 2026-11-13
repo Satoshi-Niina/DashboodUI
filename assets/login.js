@@ -51,10 +51,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         sessionStorage.removeItem('clearLoginForm');
     }
 
-    setTimeout(() => {
-        if (usernameInput) usernameInput.value = '';
-        if (passwordInput) passwordInput.value = '';
-    }, 100);
+    const togglePasswordBtn = document.getElementById('toggle-password');
+    if (togglePasswordBtn && passwordInput) {
+        togglePasswordBtn.addEventListener('click', () => {
+            const isPassword = passwordInput.type === 'password';
+            passwordInput.type = isPassword ? 'text' : 'password';
+            togglePasswordBtn.textContent = isPassword ? '🙈' : '👁';
+            togglePasswordBtn.setAttribute('title', isPassword ? 'パスワードを隠す' : 'パスワードを表示');
+        });
+    }
 
     if (loginForm) {
         loginForm.addEventListener('submit', async (e) => {
